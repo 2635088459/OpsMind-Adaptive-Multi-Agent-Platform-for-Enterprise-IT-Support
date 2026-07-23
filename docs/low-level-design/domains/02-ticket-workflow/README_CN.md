@@ -4,8 +4,8 @@
 > **阶段：** Low-Level Design  
 > **版本：** 1.0  
 > **状态：** Draft for Domain Design  
-> **依赖：** `00-Technology-Baseline_1.1`  
-> **建议路径：** `System Design/Lower Structure Design_1.0/02-Ticket-Workflow/README_CN.md`
+> **依赖：** `technology-baseline`  
+> **建议路径：** `docs/low-level-design/domains/02-ticket-workflow/README_CN.md`
 
 ---
 
@@ -166,7 +166,7 @@ Ticket Workflow 使用 OpenTelemetry，不直接依赖 LangSmith SDK。Agent Run
 
 ## 6. 核心业务对象概览
 
-详细定义放在 `01-domain-model.md`。
+详细定义放在 `01-domain-model/`。
 
 ### Aggregate Root
 
@@ -219,13 +219,13 @@ TicketReopened
 TicketEscalated
 ```
 
-Aggregate Boundary 必须在 `01-domain-model.md` 中最终确认。
+Aggregate Boundary 必须在 `01-domain-model/` 中最终确认。
 
 ---
 
 ## 7. Ticket 状态概览
 
-详细状态机放在 `03-state-machine.md`。
+详细状态机放在 `03-state-machine/`。
 
 ### Main States
 
@@ -314,7 +314,7 @@ ANY_ACTIVE_STATE
 
 ## 9. MVP Use Cases
 
-详细内容放在 `04-use-cases.md`。
+详细内容放在 `04-use-cases/`。
 
 ```text
 UC-01 Create Ticket
@@ -347,7 +347,7 @@ UC-24 Retrieve Ticket Timeline
 
 ## 10. API 概览
 
-详细 Contract 放在 `05-api-contracts.md`。
+详细 Contract 放在 `05-api-contracts/`。
 
 ### Public APIs
 
@@ -386,7 +386,7 @@ GET  /internal/v1/tickets/{ticketId}/status
 
 ## 11. Event 概览
 
-详细 Contract 放在 `06-event-contracts.md`。
+详细 Contract 放在 `06-event-contracts/`。
 
 ### Published Events
 
@@ -444,7 +444,7 @@ verification.completed
 
 ## 12. Data Ownership 概览
 
-详细设计放在 `07-data-model.md`。
+详细设计放在 `07-data-model/`。
 
 ```text
 ticket.tickets
@@ -471,7 +471,7 @@ ticket.idempotency_records
 
 ## 13. Transaction 与 Outbox
 
-详细设计放在 `08-transaction-and-outbox.md`。
+详细设计放在 `08-transaction-and-outbox/`。
 
 ### Create Ticket Transaction
 
@@ -518,7 +518,7 @@ Read unpublished records
 
 ## 14. Concurrency 与 Idempotency
 
-详细设计放在 `09-concurrency-and-idempotency.md`。
+详细设计放在 `09-concurrency-and-idempotency/`。
 
 ### Optimistic Locking
 
@@ -562,7 +562,7 @@ aggregateVersion
 
 ## 15. 初步业务不变量
 
-完整规则放在 `02-business-invariants.md`。
+完整规则放在 `02-business-invariants/`。
 
 1. Ticket 必须有 Requester。
 2. Title 和 Description 必填。
@@ -586,7 +586,7 @@ aggregateVersion
 
 ## 16. Security 概览
 
-详细设计放在 `11-security.md`。
+详细设计放在 `11-security/`。
 
 ```text
 EMPLOYEE
@@ -613,7 +613,7 @@ SERVICE_IDENTITY
 
 ## 17. Observability 概览
 
-详细设计放在 `12-observability.md`。
+详细设计放在 `12-observability/`。
 
 Ticket Workflow 使用：
 
@@ -662,7 +662,7 @@ Agent Runtime 将 Ticket 关联字段写入 LangSmith Metadata。
 
 ## 18. Failure Handling 概览
 
-详细设计放在 `10-failure-handling.md`。
+详细设计放在 `10-failure-handling/`。
 
 必须覆盖：
 
@@ -696,7 +696,7 @@ Security Failure 必须拒绝操作
 
 ## 19. Testing 概览
 
-详细内容放在 `14-testing-strategy.md`。
+详细内容放在 `14-testing-strategy/`。
 
 ### Unit Tests
 
@@ -807,20 +807,20 @@ services/ticket-workflow-service/
 02-Ticket-Workflow/
 ├── README_CN.md
 ├── README_EN.md
-├── 01-domain-model.md
-├── 02-business-invariants.md
-├── 03-state-machine.md
-├── 04-use-cases.md
-├── 05-api-contracts.md
-├── 06-event-contracts.md
-├── 07-data-model.md
-├── 08-transaction-and-outbox.md
-├── 09-concurrency-and-idempotency.md
-├── 10-failure-handling.md
-├── 11-security.md
-├── 12-observability.md
-├── 13-package-and-class-design.md
-├── 14-testing-strategy.md
+├── 01-domain-model/
+├── 02-business-invariants/
+├── 03-state-machine/
+├── 04-use-cases/
+├── 05-api-contracts/
+├── 06-event-contracts/
+├── 07-data-model/
+├── 08-transaction-and-outbox/
+├── 09-concurrency-and-idempotency/
+├── 10-failure-handling/
+├── 11-security/
+├── 12-observability/
+├── 13-package-and-class-design/
+├── 14-testing-strategy/
 └── diagrams/
 ```
 
@@ -913,9 +913,9 @@ Domain Model
 完成本 README 后，优先生成：
 
 ```text
-01-domain-model.md
-02-business-invariants.md
-03-state-machine.md
+01-domain-model/
+02-business-invariants/
+03-state-machine/
 ```
 
 这三份文档冻结后，再进入 Use Case、API、Event 和数据库设计。

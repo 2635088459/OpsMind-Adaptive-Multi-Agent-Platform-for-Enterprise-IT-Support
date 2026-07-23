@@ -4,8 +4,8 @@
 > **Phase:** Low-Level Design  
 > **Version:** 1.0  
 > **Status:** Draft for Domain Design  
-> **Dependency:** `00-Technology-Baseline_1.1`  
-> **Recommended Path:** `System Design/Lower Structure Design_1.0/02-Ticket-Workflow/README_EN.md`
+> **Dependency:** `technology-baseline`  
+> **Recommended Path:** `docs/low-level-design/domains/02-ticket-workflow/README_EN.md`
 
 ---
 
@@ -166,7 +166,7 @@ Ticket Workflow uses OpenTelemetry and does not directly depend on LangSmith. Ag
 
 ## 6. Core Business Objects
 
-Complete definitions belong in `01-domain-model.md`.
+Complete definitions belong in `01-domain-model/`.
 
 ### Aggregate Root
 
@@ -219,13 +219,13 @@ TicketReopened
 TicketEscalated
 ```
 
-The aggregate boundary must be finalized in `01-domain-model.md`.
+The aggregate boundary must be finalized in `01-domain-model/`.
 
 ---
 
 ## 7. Ticket State Overview
 
-Detailed design belongs in `03-state-machine.md`.
+Detailed design belongs in `03-state-machine/`.
 
 ### Main States
 
@@ -314,7 +314,7 @@ Rules:
 
 ## 9. MVP Use Cases
 
-Detailed design belongs in `04-use-cases.md`.
+Detailed design belongs in `04-use-cases/`.
 
 ```text
 UC-01 Create Ticket
@@ -347,7 +347,7 @@ UC-24 Retrieve Ticket Timeline
 
 ## 10. API Overview
 
-Detailed contracts belong in `05-api-contracts.md`.
+Detailed contracts belong in `05-api-contracts/`.
 
 ### Public APIs
 
@@ -386,7 +386,7 @@ Internal APIs still require service identities.
 
 ## 11. Event Overview
 
-Detailed contracts belong in `06-event-contracts.md`.
+Detailed contracts belong in `06-event-contracts/`.
 
 ### Published Events
 
@@ -444,7 +444,7 @@ verification.completed
 
 ## 12. Data Ownership
 
-Detailed design belongs in `07-data-model.md`.
+Detailed design belongs in `07-data-model/`.
 
 ```text
 ticket.tickets
@@ -471,7 +471,7 @@ Rules:
 
 ## 13. Transactions and Outbox
 
-Detailed design belongs in `08-transaction-and-outbox.md`.
+Detailed design belongs in `08-transaction-and-outbox/`.
 
 ### Create Ticket Transaction
 
@@ -518,7 +518,7 @@ Read unpublished records
 
 ## 14. Concurrency and Idempotency
 
-Detailed design belongs in `09-concurrency-and-idempotency.md`.
+Detailed design belongs in `09-concurrency-and-idempotency/`.
 
 ### Optimistic Locking
 
@@ -556,7 +556,7 @@ Events include `aggregateVersion` to detect duplicates, out-of-order delivery, a
 
 ## 15. Initial Business Invariants
 
-The complete list belongs in `02-business-invariants.md`.
+The complete list belongs in `02-business-invariants/`.
 
 1. Every ticket has a requester.
 2. Title and description are required.
@@ -580,7 +580,7 @@ The complete list belongs in `02-business-invariants.md`.
 
 ## 16. Security Overview
 
-Detailed design belongs in `11-security.md`.
+Detailed design belongs in `11-security/`.
 
 ```text
 EMPLOYEE
@@ -607,7 +607,7 @@ Rules:
 
 ## 17. Observability Overview
 
-Detailed design belongs in `12-observability.md`.
+Detailed design belongs in `12-observability/`.
 
 Ticket Workflow uses:
 
@@ -656,7 +656,7 @@ Agent Runtime writes ticket correlation fields into LangSmith metadata.
 
 ## 18. Failure Handling
 
-Detailed design belongs in `10-failure-handling.md`.
+Detailed design belongs in `10-failure-handling/`.
 
 Required scenarios:
 
@@ -690,7 +690,7 @@ Security failure rejects the operation
 
 ## 19. Testing Overview
 
-Detailed design belongs in `14-testing-strategy.md`.
+Detailed design belongs in `14-testing-strategy/`.
 
 ### Unit Tests
 
@@ -801,20 +801,20 @@ services/ticket-workflow-service/
 02-Ticket-Workflow/
 ├── README_CN.md
 ├── README_EN.md
-├── 01-domain-model.md
-├── 02-business-invariants.md
-├── 03-state-machine.md
-├── 04-use-cases.md
-├── 05-api-contracts.md
-├── 06-event-contracts.md
-├── 07-data-model.md
-├── 08-transaction-and-outbox.md
-├── 09-concurrency-and-idempotency.md
-├── 10-failure-handling.md
-├── 11-security.md
-├── 12-observability.md
-├── 13-package-and-class-design.md
-├── 14-testing-strategy.md
+├── 01-domain-model/
+├── 02-business-invariants/
+├── 03-state-machine/
+├── 04-use-cases/
+├── 05-api-contracts/
+├── 06-event-contracts/
+├── 07-data-model/
+├── 08-transaction-and-outbox/
+├── 09-concurrency-and-idempotency/
+├── 10-failure-handling/
+├── 11-security/
+├── 12-observability/
+├── 13-package-and-class-design/
+├── 14-testing-strategy/
 └── diagrams/
 ```
 
@@ -907,9 +907,9 @@ Domain Model
 After this README, create:
 
 ```text
-01-domain-model.md
-02-business-invariants.md
-03-state-machine.md
+01-domain-model/
+02-business-invariants/
+03-state-machine/
 ```
 
 Freeze these before moving to use cases, APIs, events, and database design.
