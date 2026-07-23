@@ -4,7 +4,7 @@
 > **Phase:** Low-Level Design  
 > **Status:** Accepted for MVP  
 > **Major Update:** LangSmith Agent Observability and Evaluation are now included  
-> **Recommended Path:** `System Design/Lower Structure Design_1.0/00-Technology-Baseline_1.1/README_EN.md`
+> **Recommended Path:** `docs/low-level-design/technology-baseline/README_EN.md`
 
 ---
 
@@ -421,28 +421,26 @@ Deferred: cloud provider, production secret manager, final trace backend, Kubern
 ## 17. Next Step and Folder Structure
 
 ```text
-System Design/
-└── Lower Structure Design_1.0/
-    ├── 00-Technology-Baseline_1.1/
-    │   ├── README_CN.md
-    │   └── README_EN.md
-    └── 02-Ticket-Workflow/
+docs/
+└── low-level-design/
+    ├── README_CN.md
+    ├── README_EN.md
+    ├── domains/
+    │   ├── 01-user-access-authentication/
+    │   ├── 02-ticket-workflow/
+    │   ├── 03-agent-runtime-orchestration/
+    │   ├── 04-memory-knowledge/
+    │   ├── 05-tool-integration-gateway/
+    │   ├── 06-policy-approval-governance/
+    │   ├── 07-evaluation-improvement/
+    │   └── 08-observability-platform/
+    ├── api/
+    ├── events/
+    ├── data-model/
+    ├── diagrams/
+    └── technology-baseline/
         ├── README_CN.md
-        ├── README_EN.md
-        ├── 01-domain-model.md
-        ├── 02-business-invariants.md
-        ├── 03-state-machine.md
-        ├── 04-use-cases.md
-        ├── 05-api-contracts.md
-        ├── 06-event-contracts.md
-        ├── 07-data-model.md
-        ├── 08-transaction-and-outbox.md
-        ├── 09-concurrency-and-idempotency.md
-        ├── 10-failure-handling.md
-        ├── 11-security.md
-        ├── 12-observability.md
-        ├── 13-package-and-class-design.md
-        └── 14-testing-strategy.md
+        └── README_EN.md
 ```
 
 Ticket Workflow proceeds through domain model, invariants, state machine, use cases, contracts, data, transactions, outbox, concurrency, failures, observability, class design, and testing.

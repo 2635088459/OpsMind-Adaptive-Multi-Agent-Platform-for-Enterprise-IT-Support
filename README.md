@@ -929,52 +929,32 @@ Every request receives a `trace_id` that propagates through the portal, gateway,
 ## 21. Repository Structure
 
 ```text
-opsmind/
+OpsMind/
 ├── README.md
 ├── docs/
-│   ├── architecture.md
-│   ├── api-contracts.md
-│   ├── event-catalog.md
-│   ├── memory-design.md
-│   ├── evaluation-plan.md
-│   └── threat-model.md
+│   ├── high-level-design/
+│   ├── low-level-design/
+│   │   ├── README_CN.md
+│   │   ├── README_EN.md
+│   │   ├── domains/
+│   │   │   ├── 01-user-access-authentication/
+│   │   │   ├── 02-ticket-workflow/
+│   │   │   ├── 03-agent-runtime-orchestration/
+│   │   │   ├── 04-memory-knowledge/
+│   │   │   ├── 05-tool-integration-gateway/
+│   │   │   ├── 06-policy-approval-governance/
+│   │   │   ├── 07-evaluation-improvement/
+│   │   │   └── 08-observability-platform/
+│   │   ├── api/
+│   │   ├── events/
+│   │   ├── data-model/
+│   │   └── diagrams/
+│   └── adr/
 ├── apps/
-│   ├── web-portal/
-│   ├── api-gateway/
-│   ├── ticket-service/
-│   ├── agent-runtime/
-│   ├── memory-service/
-│   ├── tool-gateway/
-│   ├── policy-service/
-│   └── evaluation-service/
-├── workers/
-│   └── agent-worker/
+├── services/
 ├── packages/
-│   ├── contracts/
-│   ├── agent-definitions/
-│   ├── tool-schemas/
-│   ├── observability/
-│   └── test-fixtures/
-├── integrations/
-│   ├── mock-okta/
-│   ├── mock-duo/
-│   ├── mock-device-management/
-│   └── mock-vpn/
-├── infra/
-│   ├── docker-compose.yml
-│   ├── kubernetes/
-│   ├── helm/
-│   ├── prometheus/
-│   └── grafana/
-├── evals/
-│   ├── datasets/
-│   ├── graders/
-│   ├── scenarios/
-│   └── reports/
-└── scripts/
-    ├── seed_demo_data.sh
-    ├── run_incident_scenario.sh
-    └── run_evals.sh
+├── infrastructure/
+└── tests/
 ```
 
 ---

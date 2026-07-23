@@ -1414,14 +1414,14 @@ OpsMind/
 │   │   ├── README_CN.md
 │   │   ├── README_EN.md
 │   │   ├── domains/
-│   │   │   ├── 01-user-access-authentication.md
-│   │   │   ├── 02-ticket-workflow.md
-│   │   │   ├── 03-agent-runtime-orchestration.md
-│   │   │   ├── 04-memory-knowledge.md
-│   │   │   ├── 05-tool-integration-gateway.md
-│   │   │   ├── 06-policy-approval-governance.md
-│   │   │   ├── 07-evaluation-improvement.md
-│   │   │   └── 08-observability-platform.md
+│   │   │   ├── 01-user-access-authentication/
+│   │   │   ├── 02-ticket-workflow/
+│   │   │   ├── 03-agent-runtime-orchestration/
+│   │   │   ├── 04-memory-knowledge/
+│   │   │   ├── 05-tool-integration-gateway/
+│   │   │   ├── 06-policy-approval-governance/
+│   │   │   ├── 07-evaluation-improvement/
+│   │   │   └── 08-observability-platform/
 │   │   ├── api/
 │   │   ├── events/
 │   │   ├── data-model/
@@ -1441,19 +1441,19 @@ OpsMind/
 第一个需要完成的详细领域文档是：
 
 ```text
-docs/low-level-design/domains/02-ticket-workflow.md
+docs/low-level-design/domains/02-ticket-workflow/
 ```
 
 然后按顺序完成：
 
 ```text
-03-agent-runtime-orchestration.md
-05-tool-integration-gateway.md
-06-policy-approval-governance.md
-04-memory-knowledge.md
-01-user-access-authentication.md
-08-observability-platform.md
-07-evaluation-improvement.md
+03-agent-runtime-orchestration/
+05-tool-integration-gateway/
+06-policy-approval-governance/
+04-memory-knowledge/
+01-user-access-authentication/
+08-observability-platform/
+07-evaluation-improvement/
 ```
 
 Ticket Workflow 稳定后，其他领域才能可靠定义自己的状态变化、事件和完成条件。

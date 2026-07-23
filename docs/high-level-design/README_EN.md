@@ -254,7 +254,7 @@ User submits: “I cannot log in to the Housing Portal; Duo keeps failing.”
 ## 4.7 Deliverable
 
 ```text
-docs/system-design/01-mvp-scope-and-golden-path.md
+docs/high-level-design/01-mvp-scope-and-golden-path.md
 ```
 
 ---
@@ -366,9 +366,9 @@ External identity, MFA, device, and network systems remain independently owned.
 ## 5.4 Deliverables
 
 ```text
-docs/system-design/diagrams/system-context.png
-docs/system-design/diagrams/six-layer-architecture.png
-docs/system-design/diagrams/layer-domain-matrix.png
+docs/high-level-design/diagrams/system-context.png
+docs/high-level-design/diagrams/six-layer-architecture.png
+docs/high-level-design/diagrams/layer-domain-matrix.png
 ```
 
 ---
@@ -534,7 +534,7 @@ Every domain specification must include:
 ## 6.9 Deliverable
 
 ```text
-docs/system-design/02-domain-boundaries.md
+docs/high-level-design/02-domain-boundaries.md
 ```
 
 ---
@@ -615,8 +615,8 @@ sequenceDiagram
 ## 7.4 Deliverables
 
 ```text
-docs/system-design/03-golden-path-sequence.md
-docs/system-design/diagrams/golden-path-sequence.svg
+docs/high-level-design/03-golden-path-sequence.md
+docs/high-level-design/diagrams/golden-path-sequence.svg
 ```
 
 ---
@@ -689,9 +689,9 @@ CANCELLED
 ## 8.4 Deliverables
 
 ```text
-docs/system-design/04-state-machines.md
-docs/system-design/diagrams/ticket-state-machine.svg
-docs/system-design/diagrams/agent-workflow-state-machine.svg
+docs/high-level-design/04-state-machines.md
+docs/high-level-design/diagrams/ticket-state-machine.svg
+docs/high-level-design/diagrams/agent-workflow-state-machine.svg
 ```
 
 ---
@@ -735,7 +735,7 @@ Create a separate service only when required for:
 ## 9.4 Deliverable
 
 ```text
-docs/system-design/05-service-boundaries.md
+docs/high-level-design/05-service-boundaries.md
 ```
 
 ---
@@ -820,8 +820,8 @@ evaluation.requested
 ## 10.4 Deliverables
 
 ```text
-docs/system-design/06-api-contracts.md
-docs/system-design/07-event-catalog.md
+docs/high-level-design/06-api-contracts.md
+docs/high-level-design/07-event-catalog.md
 ```
 
 ---
@@ -934,9 +934,9 @@ audit.audit_events
 ## 11.5 Deliverables
 
 ```text
-docs/system-design/08-data-ownership.md
-docs/system-design/09-data-model.md
-docs/system-design/diagrams/data-ownership.svg
+docs/high-level-design/08-data-ownership.md
+docs/high-level-design/09-data-model.md
+docs/high-level-design/diagrams/data-ownership.svg
 ```
 
 ---
@@ -988,8 +988,8 @@ ticket_id
 ## 12.4 Deliverables
 
 ```text
-docs/system-design/10-failure-recovery.md
-docs/system-design/11-consistency-model.md
+docs/high-level-design/10-failure-recovery.md
+docs/high-level-design/11-consistency-model.md
 ```
 
 ---
@@ -1067,8 +1067,8 @@ Agent proposes action
 ## 13.5 Deliverables
 
 ```text
-docs/system-design/12-security-and-approval.md
-docs/system-design/13-audit-model.md
+docs/high-level-design/12-security-and-approval.md
+docs/high-level-design/13-audit-model.md
 ```
 
 ---
@@ -1148,7 +1148,7 @@ Resolved ticket
 ## 14.5 Deliverable
 
 ```text
-docs/system-design/14-memory-and-knowledge.md
+docs/high-level-design/14-memory-and-knowledge.md
 ```
 
 ---
@@ -1225,8 +1225,8 @@ Collect traces
 ## 15.5 Deliverables
 
 ```text
-docs/system-design/15-evaluation-strategy.md
-docs/system-design/16-controlled-improvement.md
+docs/high-level-design/15-evaluation-strategy.md
+docs/high-level-design/16-controlled-improvement.md
 ```
 
 ---
@@ -1301,9 +1301,9 @@ Docker Compose
 ## 16.6 Deliverables
 
 ```text
-docs/system-design/17-observability.md
-docs/system-design/18-deployment.md
-docs/system-design/diagrams/deployment.svg
+docs/high-level-design/17-observability.md
+docs/high-level-design/18-deployment.md
+docs/high-level-design/diagrams/deployment.svg
 ```
 
 ---
@@ -1473,50 +1473,29 @@ docs/adr/
 OpsMind/
 ├── README.md
 ├── docs/
-│   ├── system-design/
-│   │   ├── 01-mvp-scope-and-golden-path.md
-│   │   ├── 02-domain-boundaries.md
-│   │   ├── 03-golden-path-sequence.md
-│   │   ├── 04-state-machines.md
-│   │   ├── 05-service-boundaries.md
-│   │   ├── 06-api-contracts.md
-│   │   ├── 07-event-catalog.md
-│   │   ├── 08-data-ownership.md
-│   │   ├── 09-data-model.md
-│   │   ├── 10-failure-recovery.md
-│   │   ├── 11-consistency-model.md
-│   │   ├── 12-security-and-approval.md
-│   │   ├── 13-audit-model.md
-│   │   ├── 14-memory-and-knowledge.md
-│   │   ├── 15-evaluation-strategy.md
-│   │   ├── 16-controlled-improvement.md
-│   │   ├── 17-observability.md
-│   │   ├── 18-deployment.md
+│   ├── high-level-design/
+│   ├── low-level-design/
+│   │   ├── README_CN.md
+│   │   ├── README_EN.md
+│   │   ├── domains/
+│   │   │   ├── 01-user-access-authentication/
+│   │   │   ├── 02-ticket-workflow/
+│   │   │   ├── 03-agent-runtime-orchestration/
+│   │   │   ├── 04-memory-knowledge/
+│   │   │   ├── 05-tool-integration-gateway/
+│   │   │   ├── 06-policy-approval-governance/
+│   │   │   ├── 07-evaluation-improvement/
+│   │   │   └── 08-observability-platform/
+│   │   ├── api/
+│   │   ├── events/
+│   │   ├── data-model/
 │   │   └── diagrams/
 │   └── adr/
-│       ├── ADR-001-event-driven-architecture.md
-│       ├── ADR-002-message-broker.md
-│       └── ...
 ├── apps/
-│   ├── web-portal/
-│   └── api-gateway/
 ├── services/
-│   ├── ticket-workflow-service/
-│   ├── agent-runtime-service/
-│   ├── memory-knowledge-service/
-│   ├── tool-policy-gateway/
-│   └── mock-enterprise-services/
 ├── packages/
-│   ├── event-schemas/
-│   ├── api-contracts/
-│   └── observability/
 ├── infrastructure/
-│   ├── docker-compose/
-│   └── kubernetes/
 └── tests/
-    ├── integration/
-    ├── failure-injection/
-    └── evaluation/
 ```
 
 ---
@@ -1557,9 +1536,9 @@ The system-design phase should produce:
 Do not create every microservice yet. Complete and review these documents first:
 
 ```text
-1. docs/system-design/01-mvp-scope-and-golden-path.md
-2. docs/system-design/03-golden-path-sequence.md
-3. docs/system-design/04-state-machines.md
+1. docs/high-level-design/01-mvp-scope-and-golden-path.md
+2. docs/high-level-design/03-golden-path-sequence.md
+3. docs/high-level-design/04-state-machines.md
 ```
 
 After these are stable, continue with:
