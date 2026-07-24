@@ -1,0 +1,60 @@
+name: Ticket Workflow CI
+
+on:
+  pull_request:
+    paths:
+      - "services/ticket-workflow-service/**"
+      - "packages/event-contracts/**"
+      - "packages/api-contracts/**"
+      - "infrastructure/**"
+      - "docs/specs/domains/02-ticket-workflow/**"
+      - "docs/low-level-design/domains/02-ticket-workflow/**"
+      - "docs/implementation-plans/domains/02-ticket-workflow/**"
+  push:
+    branches:
+      - main
+    paths:
+      - "services/ticket-workflow-service/**"
+      - "packages/event-contracts/**"
+      - "packages/api-contracts/**"
+      - "infrastructure/**"
+
+defaults:
+  run:
+    working-directory: services/ticket-workflow-service
+
+jobs:
+  verify:
+    name: Build and Verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('services/ticket-workflow-service/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Build and verify
+        run: ./mvnw -B clean verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ticket-workflow-test-reports
+          path: |
+            services/ticket-workflow-service/target/surefire-reports/**
+            services/ticket-workflow-service/target/failsafe-reports/**
+            services/ticket-workflow-service/target/site/jacoco/**
+          if-no-files-found: warn

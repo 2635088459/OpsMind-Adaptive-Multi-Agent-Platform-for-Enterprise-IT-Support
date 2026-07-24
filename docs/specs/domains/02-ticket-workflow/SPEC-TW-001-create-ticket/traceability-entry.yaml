@@ -1,0 +1,121 @@
+SPEC-TW-001:
+  title: Create Ticket
+  phase: IMP-TW-P01
+
+  design:
+    use_cases:
+      - UC-01
+    api:
+      - API-001
+    state_transitions:
+      - SM-001
+    published_events:
+      - PUB-001
+    business_invariants:
+      - BI-001
+      - BI-002
+      - BI-003
+      - BI-004
+      - BI-005
+      - BI-006
+      - BI-007
+      - BI-008
+      - BI-011
+      - BI-080
+      - BI-081
+      - BI-082
+      - BI-085
+      - BI-087
+      - BI-088
+      - BI-095
+      - BI-097
+      - BI-101
+      - BI-102
+      - BI-104
+      - BI-105
+      - BI-108
+      - BI-109
+      - BI-110
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+
+  planned_implementation:
+    entry_point:
+      - PublicTicketController
+    application:
+      - CreateTicketUseCase
+      - CreateTicketApplicationService
+      - CreateTicketCommand
+      - CreateTicketResult
+    domain:
+      - Ticket
+      - TicketCreated
+      - TicketId
+      - TicketDisplayId
+      - RequesterId
+      - TicketTitle
+      - TicketDescription
+      - ApplicationCode
+      - TicketSource
+    persistence:
+      - TicketPersistenceAdapter
+      - TicketResolutionCyclePersistenceAdapter
+      - TicketSlaPersistenceAdapter
+      - TicketHistoryPersistenceAdapter
+      - AuditPersistenceAdapter
+      - OutboxPersistenceAdapter
+      - IdempotencyPersistenceAdapter
+
+  planned_tests:
+    domain:
+      - TicketCreationTest
+      - TicketTitleTest
+      - TicketDescriptionTest
+      - ApplicationCodeTest
+      - TicketCreatedDomainEventTest
+    application:
+      - CreateTicketApplicationServiceTest
+      - CreateTicketAuthorizationTest
+      - CreateTicketIdempotencyReplayTest
+    api:
+      - CreateTicketControllerTest
+      - CreateTicketValidationTest
+      - CreateTicketSecurityTest
+      - CreateTicketMassAssignmentTest
+      - CreateTicketErrorContractTest
+    integration:
+      - FlywayCreateTicketMigrationIT
+      - CreateTicketPersistenceIT
+      - CreateInitialResolutionCycleIT
+      - CreateInitialSlaCycleIT
+      - CreateTicketAtomicityIT
+      - CreateTicketIdempotencyIT
+      - CreateTicketConcurrentIdempotencyIT
+      - CreateTicketStaleIdempotencyIT
+    contract:
+      - TicketCreatedEventContractTest
+      - TicketCreatedEventRedactionTest
+      - CreateTicketAuditRedactionTest
+    architecture:
+      - LayerDependencyTest
+    observability:
+      - CreateTicketTelemetryTest
+
+  status:
+    specification: proposed
+    tests: not_started
+    implementation: not_started
+    verification: not_started

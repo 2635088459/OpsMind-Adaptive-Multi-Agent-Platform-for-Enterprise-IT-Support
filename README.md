@@ -929,13 +929,22 @@ Every request receives a `trace_id` that propagates through the portal, gateway,
 ## 21. Repository Structure
 
 ```text
-OpsMind/
-├── README.md
+opsmind-adaptive-multi-agent-platform/
+├── apps/
+│   ├── employee-portal/
+│   └── support-console/
 ├── docs/
+│   ├── adr/
 │   ├── high-level-design/
-│   ├── low-level-design/
 │   │   ├── README_CN.md
-│   │   ├── README_EN.md
+│   │   └── README_EN.md
+│   ├── low-level-design/
+│   │   ├── shared/
+│   │   │   ├── api/
+│   │   │   ├── data-model/
+│   │   │   ├── diagrams/
+│   │   │   ├── events/
+│   │   │   └── technology-baseline/
 │   │   ├── domains/
 │   │   │   ├── 01-user-access-authentication/
 │   │   │   ├── 02-ticket-workflow/
@@ -945,16 +954,35 @@ OpsMind/
 │   │   │   ├── 06-policy-approval-governance/
 │   │   │   ├── 07-evaluation-improvement/
 │   │   │   └── 08-observability-platform/
-│   │   ├── api/
-│   │   ├── events/
-│   │   ├── data-model/
-│   │   └── diagrams/
-│   └── adr/
-├── apps/
+│   │   ├── README_CN.md
+│   │   └── README_EN.md
+│   ├── implementation-plans/
+│   │   └── domains/
+│   │       └── 02-ticket-workflow/
+│   ├── specs/
+│   │   └── domains/
+│   │       └── 02-ticket-workflow/
+│   └── traceability/
+│       └── 02-ticket-workflow/
 ├── services/
+│   └── ticket-workflow-service/
 ├── packages/
+│   ├── event-contracts/
+│   ├── api-contracts/
+│   └── test-support/
 ├── infrastructure/
-└── tests/
+│   ├── docker-compose/
+│   ├── postgres/
+│   ├── rabbitmq/
+│   ├── keycloak/
+│   └── observability/
+├── tests/
+│   ├── end-to-end/
+│   ├── contract/
+│   ├── performance/
+│   ├── chaos/
+│   └── security/
+└── README.md
 ```
 
 ---

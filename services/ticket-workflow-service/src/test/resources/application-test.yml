@@ -1,0 +1,28 @@
+spring:
+  flyway:
+    enabled: true
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://test-issuer.opsmind.invalid/realms/test
+
+opsmind:
+  ticket:
+    requester-pseudonymization-secret: test-only-pseudonymization-secret
+
+management:
+  tracing:
+    sampling:
+      probability: 0.0
+  otlp:
+    metrics:
+      export:
+        enabled: false
+    tracing:
+      export:
+        enabled: false
+
+logging:
+  level:
+    dev.opsmind.ticketworkflow: DEBUG

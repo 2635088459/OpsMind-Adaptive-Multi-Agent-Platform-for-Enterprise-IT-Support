@@ -1,0 +1,40 @@
+name: opsmind-local-platform
+
+services:
+  postgres:
+    image: postgres:18.4
+    container_name: opsmind-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ticket_workflow}
+      POSTGRES_USER: ${DB_USERNAME:-ticket_workflow}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - opsmind-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-ticket_workflow} -d ${DB_NAME:-ticket_workflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4.3.4-management
+    container_name: opsmind-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - opsmind-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  opsmind-postgres-data:
+  opsmind-rabbitmq-data:
