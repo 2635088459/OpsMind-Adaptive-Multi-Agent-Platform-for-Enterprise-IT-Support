@@ -34,7 +34,9 @@ public class AuditPersistenceAdapter implements AuditRecordPort {
             entry.commandId(),
             entry.outcome(),
             entry.dataClassification(),
-            entry.occurredAt()
+            entry.occurredAt(),
+            entry.viewType(),
+            entry.fieldsPolicyVersion()
         ));
     }
 }

@@ -208,7 +208,9 @@ public class CreateTicketApplicationService implements CreateTicketUseCase {
             command.commandId(),
             "SUCCESS",
             "SENSITIVE",
-            now
+            now,
+            null,
+            null
         ));
 
         for (TicketDomainEvent event : ticket.pullDomainEvents()) {

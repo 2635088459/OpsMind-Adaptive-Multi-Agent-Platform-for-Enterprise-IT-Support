@@ -20,6 +20,8 @@ public record AuditRecordEntry(
     String commandId,
     String outcome,
     String dataClassification,
-    Instant occurredAt
+    Instant occurredAt,
+    String viewType,
+    String fieldsPolicyVersion
 ) {
 }

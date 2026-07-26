@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "The request is invalid.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-get-ticket-003",
+    "details": {
+      "fields": [
+        {
+          "field": "ticketId",
+          "reason": "must be a valid UUID"
+        }
+      ]
+    }
+  }
+}

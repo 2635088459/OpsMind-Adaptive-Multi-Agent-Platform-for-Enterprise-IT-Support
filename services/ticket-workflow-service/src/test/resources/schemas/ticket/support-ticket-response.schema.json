@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-ticket-response.json",
+  "title": "Support Ticket Detail Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ticketId",
+    "displayId",
+    "title",
+    "description",
+    "applicationCode",
+    "source",
+    "status",
+    "priority",
+    "requesterRef",
+    "assignment",
+    "resolutionCycle",
+    "sla",
+    "createdAt",
+    "updatedAt",
+    "version"
+  ],
+  "properties": {
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "displayId": {
+      "type": "string",
+      "pattern": "^INC-[0-9]+$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "applicationCode": {
+      "type": "string",
+      "enum": [
+        "HOUSING_PORTAL",
+        "EMAIL",
+        "VPN",
+        "OTHER"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "enum": [
+        "PORTAL",
+        "EMAIL",
+        "API",
+        "SYSTEM"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "NEW",
+        "TRIAGING",
+        "INVESTIGATING",
+        "WAITING_FOR_USER",
+        "WAITING_FOR_APPROVAL",
+        "EXECUTING",
+        "VERIFYING",
+        "RESOLVED",
+        "CLOSED",
+        "ESCALATED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ]
+    },
+    "requesterRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "teamId",
+        "agentId",
+        "queue"
+      ],
+      "properties": {
+        "teamId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "agentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "queue": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        }
+      }
+    },
+    "resolutionCycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cycleNumber",
+        "status"
+      ],
+      "properties": {
+        "cycleNumber": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "RESOLVED",
+            "CLOSED",
+            "REOPENED",
+            "CANCELLED"
+          ]
+        }
+      }
+    },
+    "sla": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "policyId",
+        "responseDueAt",
+        "resolutionDueAt"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "PAUSED",
+            "BREACHED",
+            "COMPLETED",
+            "CANCELLED"
+          ]
+        },
+        "policyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "responseDueAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "resolutionDueAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

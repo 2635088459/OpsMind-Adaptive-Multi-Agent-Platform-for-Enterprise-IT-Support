@@ -1,0 +1,93 @@
+SPEC-TW-002:
+  title: Get Ticket
+  phase: IMP-TW-P02
+
+  design:
+    use_cases:
+      - UC-02
+    api:
+      - API-002
+    state_transitions: []
+    published_events: []
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 04-use-cases
+      - 05-api-contracts
+      - 07-data-model
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    constraints_to_confirm:
+      - employee_resource_ownership_invariant_id
+      - support_resource_scope_rule_id
+      - employee_field_visibility_rule_id
+      - sensitive_read_audit_rule_id
+      - metric_cardinality_rule_id
+
+  planned_implementation:
+    entry_points:
+      - PublicTicketQueryController
+      - SupportTicketQueryController
+    application:
+      - GetTicketUseCase
+      - GetTicketApplicationService
+      - GetTicketQuery
+      - GetTicketResult
+      - TicketViewPolicy
+      - TicketResourceAccessPolicy
+    ports:
+      - TicketQueryPort
+      - SensitiveReadAuditPort
+    infrastructure:
+      - JdbcTicketQueryAdapter
+      - SensitiveReadAuditAdapter
+      - EmployeeTicketProjection
+      - SupportTicketProjection
+
+  schemas:
+    - schemas/employee-ticket-response.schema.json
+    - schemas/support-ticket-response.schema.json
+    - schemas/error-envelope.schema.json
+
+  planned_tests:
+    application:
+      - GetTicketApplicationServiceTest
+      - GetTicketViewPolicyTest
+      - GetTicketConditionalRequestTest
+    api:
+      - GetTicketControllerTest
+      - GetTicketInvalidIdTest
+      - GetTicketErrorContractTest
+      - GetTicketNotModifiedTest
+    security:
+      - GetTicketRequesterOwnershipTest
+      - GetTicketMissingScopeTest
+      - GetTicketSupportAuthorizationTest
+      - GetTicketResourceHidingTest
+      - GetTicketFieldVisibilityTest
+      - GetTicketAuditorPolicyTest
+    integration:
+      - GetTicketEmployeeProjectionIT
+      - GetTicketSupportProjectionIT
+      - GetTicketResourceScopeQueryIT
+      - GetTicketQueryPlanIT
+      - GetTicketSensitiveReadAuditIT
+      - GetTicketAuditFailureIT
+      - GetTicketDoesNotMutateTicketIT
+      - GetTicketDoesNotCreateOutboxIT
+    privacy:
+      - GetTicketResponseRedactionTest
+      - GetTicketTelemetryRedactionTest
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (161/161 tests). Merged into
+      docs/traceability/02-ticket-workflow/traceability-matrix.yaml with
+      full implementation/test class listing and known deviations. CI run
+      pending.

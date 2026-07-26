@@ -1,0 +1,29 @@
+{
+  "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+  "displayId": "INC-2048",
+  "title": "Cannot sign in to Housing Portal",
+  "description": "Duo keeps asking me to enroll again.",
+  "applicationCode": "HOUSING_PORTAL",
+  "source": "PORTAL",
+  "status": "NEW",
+  "priority": "UNASSIGNED",
+  "requesterRef": "usr_7f2d8a",
+  "assignment": {
+    "teamId": null,
+    "agentId": null,
+    "queue": "HOUSING_PORTAL"
+  },
+  "resolutionCycle": {
+    "cycleNumber": 1,
+    "status": "ACTIVE"
+  },
+  "sla": {
+    "state": "ACTIVE",
+    "policyId": "SLA-STANDARD-P2",
+    "responseDueAt": "2026-07-23T20:30:00Z",
+    "resolutionDueAt": "2026-07-24T16:30:00Z"
+  },
+  "createdAt": "2026-07-23T16:30:00Z",
+  "updatedAt": "2026-07-23T16:30:00Z",
+  "version": 0
+}

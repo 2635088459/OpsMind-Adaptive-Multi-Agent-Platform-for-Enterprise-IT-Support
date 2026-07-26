@@ -5,7 +5,9 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.DisplayIdGenerati
 import dev.opsmind.ticketworkflow.ticket.application.exception.EventSchemaValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.MDC;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -18,6 +20,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Maps application and validation exceptions to the approved error envelope
@@ -43,9 +46,19 @@ public class GlobalRestExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", ex.getMessage(), request);
     }
 
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The request is invalid.", request);
+    }
+
     @ExceptionHandler(TicketAuthorizationException.class)
     public ResponseEntity<ErrorResponse> handleAuthorization(TicketAuthorizationException ex, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", "The actor is not authorized to perform this action.", request);
+    }
+
+    @ExceptionHandler(TicketNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleTicketNotFound(TicketNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "The Ticket was not found.", request);
     }
 
     /**
@@ -71,7 +84,11 @@ public class GlobalRestExceptionHandler {
             .body(bodyOf("REQUEST_IN_PROGRESS", "An identical request is already being processed.", request));
     }
 
-    @ExceptionHandler({DisplayIdGenerationExhaustedException.class, EventSchemaValidationException.class})
+    @ExceptionHandler({
+        DisplayIdGenerationExhaustedException.class,
+        EventSchemaValidationException.class,
+        SensitiveReadAuditFailureException.class
+    })
     public ResponseEntity<ErrorResponse> handleInternalFailure(RuntimeException ex, HttpServletRequest request) {
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred.", request);
     }

@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "TICKET_NOT_FOUND",
+    "message": "The Ticket was not found.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-get-ticket-001",
+    "details": {}
+  }
+}

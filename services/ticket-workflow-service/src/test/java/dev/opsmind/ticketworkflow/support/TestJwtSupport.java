@@ -13,6 +13,7 @@ import java.security.NoSuchAlgorithmException;
 import java.security.interfaces.RSAPrivateKey;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -31,16 +32,26 @@ public final class TestJwtSupport {
     }
 
     public static String mintToken(String subject, String clientId, Set<String> scopes) {
+        return mintToken(subject, clientId, scopes, Map.of());
+    }
+
+    /**
+     * Like {@link #mintToken(String, String, Set)}, with room for extra
+     * claims such as {@code actor_type} or {@code support_queues} that Get
+     * Ticket's actor/scope resolution reads from the JWT.
+     */
+    public static String mintToken(String subject, String clientId, Set<String> scopes, Map<String, Object> additionalClaims) {
         try {
             Instant now = Instant.now();
-            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+            JWTClaimsSet.Builder claimsBuilder = new JWTClaimsSet.Builder()
                 .subject(subject)
                 .issuer(ISSUER)
                 .claim("azp", clientId)
                 .claim("scope", String.join(" ", scopes))
                 .issueTime(Date.from(now))
-                .expirationTime(Date.from(now.plusSeconds(300)))
-                .build();
+                .expirationTime(Date.from(now.plusSeconds(300)));
+            additionalClaims.forEach(claimsBuilder::claim);
+            JWTClaimsSet claims = claimsBuilder.build();
 
             SignedJWT signedJwt = new SignedJWT(
                 new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test-key").build(),

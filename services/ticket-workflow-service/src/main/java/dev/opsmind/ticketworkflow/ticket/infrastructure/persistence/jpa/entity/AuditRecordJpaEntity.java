@@ -64,6 +64,12 @@ public class AuditRecordJpaEntity {
     @Column(name = "occurred_at", nullable = false)
     private Instant occurredAt;
 
+    @Column(name = "view_type")
+    private String viewType;
+
+    @Column(name = "fields_policy_version")
+    private String fieldsPolicyVersion;
+
     protected AuditRecordJpaEntity() {
     }
 
@@ -84,7 +90,9 @@ public class AuditRecordJpaEntity {
         String commandId,
         String outcome,
         String dataClassification,
-        Instant occurredAt
+        Instant occurredAt,
+        String viewType,
+        String fieldsPolicyVersion
     ) {
         this.auditId = auditId;
         this.auditType = auditType;
@@ -103,6 +111,8 @@ public class AuditRecordJpaEntity {
         this.outcome = outcome;
         this.dataClassification = dataClassification;
         this.occurredAt = occurredAt;
+        this.viewType = viewType;
+        this.fieldsPolicyVersion = fieldsPolicyVersion;
     }
 
     public UUID getAuditId() {
@@ -171,5 +181,13 @@ public class AuditRecordJpaEntity {
 
     public Instant getOccurredAt() {
         return occurredAt;
+    }
+
+    public String getViewType() {
+        return viewType;
+    }
+
+    public String getFieldsPolicyVersion() {
+        return fieldsPolicyVersion;
     }
 }

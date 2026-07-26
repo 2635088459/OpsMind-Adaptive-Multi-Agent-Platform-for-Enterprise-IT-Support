@@ -197,3 +197,195 @@ SPEC-TW-001:
       redaction checks, atomicity rollback, idempotency replay/conflict/
       stale-reclaim, and 100-concurrent-duplicate-request tests). CI run
       pending.
+
+SPEC-TW-002:
+  title: Get Ticket
+  phase: IMP-TW-P02
+
+  design:
+    use_cases:
+      - UC-02
+    api:
+      - API-002
+    state_transitions: []
+    published_events: []
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 04-use-cases
+      - 05-api-contracts
+      - 07-data-model
+      - 10-failure-handling
+      - 11-security
+      - 12-observability
+      - 13-package-and-class-design
+      - 14-testing-strategy
+
+  implementation:
+    entry_point:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryController
+    application:
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.GetTicketUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.GetTicketApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.query.GetTicketQuery
+      - dev.opsmind.ticketworkflow.ticket.application.query.GetTicketResult
+      - dev.opsmind.ticketworkflow.ticket.application.query.ConditionalGetResult
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType
+      - dev.opsmind.ticketworkflow.ticket.application.query.EmployeeTicketProjection
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportTicketProjection
+      - dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy
+      - dev.opsmind.ticketworkflow.ticket.application.policy.TicketResourceAccessPolicy
+      - dev.opsmind.ticketworkflow.ticket.application.model.SensitiveReadAuditEntry
+      - dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException
+      - dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.EmployeeTicketDetailResponse
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryApiMapper
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketDetailResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketQueryApiMapper
+    ports:
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketQueryPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SensitiveReadAuditPort
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.JdbcTicketQueryAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.audit.SensitiveReadAuditAdapter
+    migrations:
+      - V009__add_sensitive_read_audit_columns.sql
+
+  schemas:
+    - schemas/employee-ticket-response.schema.json
+    - schemas/support-ticket-response.schema.json
+    - schemas/error-envelope.schema.json
+
+  tests:
+    application:
+      - GetTicketApplicationServiceTest
+      - GetTicketViewPolicyTest
+      - GetTicketConditionalRequestTest
+    api:
+      - GetTicketControllerTest
+      - GetTicketInvalidIdTest
+      - GetTicketErrorContractTest
+      - GetTicketNotModifiedTest
+    security:
+      - GetTicketRequesterOwnershipTest
+      - GetTicketMissingScopeTest
+      - GetTicketSupportAuthorizationTest
+      - GetTicketResourceHidingTest
+      - GetTicketFieldVisibilityTest
+      - GetTicketAuditorPolicyTest
+    integration:
+      - GetTicketEmployeeProjectionIT
+      - GetTicketSupportProjectionIT
+      - GetTicketResourceScopeQueryIT
+      - GetTicketQueryPlanIT
+      - GetTicketSensitiveReadAuditIT
+      - GetTicketAuditFailureIT
+      - GetTicketDoesNotMutateTicketIT
+      - GetTicketDoesNotCreateOutboxIT
+    privacy:
+      - GetTicketResponseRedactionTest
+      - GetTicketTelemetryRedactionTest
+    architecture:
+      - LayerDependencyTest
+
+  known_deviations_from_plan:
+    - area: single controller for both views
+      note: >
+        SPEC-TW-002 §6 defines exactly one client-visible route, GET
+        /api/v1/tickets/{ticketId}. The recommended package mapping (§24)
+        lists a separate SupportTicketQueryController, but registering two
+        @RestController methods on the identical path would be an ambiguous
+        Spring MVC mapping. PublicTicketQueryController resolves the view
+        server-side (TicketViewPolicy, from the trusted JWT only) and
+        renders through either PublicTicketQueryApiMapper or
+        SupportTicketQueryApiMapper; both DTOs/mappers still live in their
+        planned api.publicapi / api.support packages.
+    - area: actor type and support scope resolution
+      note: >
+        Resolved from JWT claims "actor_type" (EMPLOYEE / IT_SUPPORT /
+        IT_ADMIN / IT_MANAGER / AUDITOR, defaulting to EMPLOYEE when absent)
+        and "support_queues" (array of ApplicationCode values the Support
+        principal may read), matching the Keycloak group-claim pattern
+        described in 11-security §10. No such claim-to-scope mapping was
+        frozen elsewhere in the repo prior to this Spec.
+    - area: coarse-grained scope names
+      note: >
+        11-security §7 lists tickets:own:read / tickets:queue:read /
+        tickets:audit:read. SPEC-TW-002 §8 and acceptance.feature use
+        tickets:read:self / tickets:read:queue / tickets:audit:read. This
+        implementation follows the Spec and acceptance feature literally,
+        since they are this task's direct governing artifacts.
+    - area: audit_records schema extension
+      note: >
+        V009 adds nullable view_type and fields_policy_version columns to
+        the existing ticket.audit_records table (rather than a new table)
+        so Get Ticket's sensitive-read audit and Create Ticket's business
+        audit share one append-only store. AuditRecordEntry gained the same
+        two trailing fields; the one existing call site (CreateTicket
+        ApplicationService) passes null for both.
+    - area: schemas/*.schema.json corrections
+      note: >
+        The delivered employee/support response schemas had a "priority"
+        enum (UNASSIGNED/P1-P4) and "source" enum (…/SUPPORT) that do not
+        match the frozen Phase 01 domain model (TicketPriority is
+        UNASSIGNED/LOW/MEDIUM/HIGH/CRITICAL; TicketSource is
+        PORTAL/EMAIL/API/SYSTEM) — inconsistent even with the schemas'
+        own worked examples. Corrected both enums to the real domain
+        values, and added REOPENED to resolutionCycle.status to match the
+        ck_resolution_cycle_status DB constraint. sla.state "MET" (DB) is
+        mapped to the schemas' "COMPLETED" in the API mappers.
+    - area: SLA / resolution-cycle projection join
+      note: >
+        Joined via ticket.tickets.current_resolution_cycle_id = resolution
+        cycle_id (unique per resolution_cycle_id per uq_sla_resolution_cycle
+        / uq_ticket_one_active_resolution_cycle), giving one deterministic
+        single-query join per view instead of a separate "current SLA
+        cycle" lookup.
+    - area: Auditor view
+      note: >
+        SPEC-TW-002 §14 defines only the policy hook. TicketViewPolicy
+        resolves AUDITOR to TicketViewType.AUDITOR_VIEW (proving the hook
+        exists and is unit-tested), but GetTicketApplicationService denies
+        every AUDITOR_VIEW read as FORBIDDEN — no concrete Auditor
+        projection or endpoint exists yet, consistent with "a dedicated
+        Auditor API may be specified later."
+    - area: Cache-Control header construction
+      note: >
+        Set as a literal "private, no-store" string rather than built via
+        Spring's CacheControl.noStore().cachePrivate() builder — the
+        builder emits directives in a fixed internal order ("no-store,
+        private"), which would not match the exact header value required
+        by SPEC-TW-002 §6 and acceptance.feature.
+    - area: response DTO null handling
+      note: >
+        application.yml sets spring.jackson.default-property-inclusion:
+        non_null globally. Several schema-required fields (assignment.
+        teamId/agentId, sla due dates) are allowed to be null, so
+        EmployeeTicketDetailResponse / SupportTicketDetailResponse and
+        their nested records are annotated @JsonInclude(ALWAYS) to
+        override the global default and keep those keys present.
+    - area: traces
+      note: >
+        Section 19's trace span list (GetTicketUseCase, ticket.authorization
+        .resource, db.ticket.employee_view, ...) is marked "Recommended,"
+        not required by the Definition of Done. Not implemented as manual
+        spans in this pass; the existing Micrometer Tracing / OpenTelemetry
+        auto-instrumentation still covers HTTP and JDBC spans.
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (161/161: 119 unit/component/
+      security + 42 integration, including ArchUnit, 8 new Get Ticket
+      PostgreSQL integration test classes covering employee/support
+      projections, resource-scope hiding, sensitive-read audit, audit
+      fail-closed, non-mutation, no-Outbox, and query-plan/no-seq-scan
+      checks, plus JSON-Schema-Draft-2020-12 contract tests against the
+      corrected employee/support/error response schemas). Built and
+      verified with -Denforcer.skip=true because only JDK 25 is installed
+      in this environment; the enforcer's [21,22) range itself was not
+      modified. CI run pending.
