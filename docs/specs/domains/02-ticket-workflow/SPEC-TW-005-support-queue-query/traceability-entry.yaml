@@ -1,0 +1,107 @@
+SPEC-TW-005:
+  title: Support Queue Query
+  phase: IMP-TW-P02
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+    - SPEC-TW-003
+
+  design:
+    use_cases:
+      - UC-05
+    api:
+      - API-005
+    state_transitions: []
+    published_events: []
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 04-use-cases
+      - 05-api-contracts
+      - 07-data-model
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    constraints_to_confirm:
+      - support_queue_scope_rule_id
+      - support_queue_field_visibility_rule_id
+      - support_queue_pagination_invariant_id
+      - support_queue_audit_policy_id
+      - support_queue_query_performance_id
+
+  planned_implementation:
+    entry_point:
+      - SupportTicketQueryController
+    application:
+      - QuerySupportQueueUseCase
+      - QuerySupportQueueApplicationService
+      - SupportQueueQuery
+      - SupportQueueFilters
+      - SupportQueueResult
+      - SupportTicketSummary
+      - SupportQueueCursor
+      - SupportQueueScope
+      - SupportQueueSortVersion
+    ports:
+      - SupportQueueQueryPort
+      - SupportQueueScopePort
+    infrastructure:
+      - JdbcSupportQueueQueryAdapter
+      - SupportQueueProjection
+      - SupportQueueCursorCodec
+      - SupportQueueCursorSigner
+      - SupportQueueQuerySql
+
+  schemas:
+    - schemas/support-queue-response.schema.json
+    - schemas/support-ticket-summary.schema.json
+    - schemas/invalid-cursor-error.schema.json
+    - schemas/forbidden-filter-scope-error.schema.json
+    - schemas/error-envelope.schema.json
+
+  planned_tests:
+    application:
+      - QuerySupportQueueApplicationServiceTest
+      - SupportQueueFilterValidationTest
+      - SupportQueuePageSizeTest
+      - SupportQueueSortRankingTest
+    authorization:
+      - SupportQueueRoleTest
+      - SupportQueueScopeAuthorizationIT
+      - SupportQueueFilterScopeTest
+      - SupportQueueUnassignedAuthorizationTest
+      - SupportQueueCrossTenantIsolationIT
+    cursor:
+      - SupportQueueCursorCodecTest
+      - SupportQueueCursorSignatureTest
+      - SupportQueueCursorExpiryTest
+      - SupportQueueCursorFilterBindingTest
+      - SupportQueueCursorScopeBindingTest
+      - SupportQueueCursorActorBindingTest
+      - SupportQueueCursorSortVersionTest
+      - SupportQueueEvaluationTimeTest
+    api:
+      - SupportQueueControllerTest
+      - SupportQueueEmptyResponseTest
+      - SupportQueueErrorContractTest
+    integration:
+      - SupportQueueProjectionIT
+      - SupportQueueDefaultStateFilterIT
+      - SupportQueueFilterIT
+      - SupportQueueStableSortIT
+      - SupportQueueKeysetPaginationIT
+      - SupportQueueQueryPlanIT
+      - SupportQueueDoesNotMutateTicketIT
+      - SupportQueueDoesNotCreateOutboxIT
+    privacy:
+      - SupportQueueFieldVisibilityTest
+      - SupportQueueResponseRedactionTest
+      - SupportQueueTelemetryRedactionTest
+
+  status:
+    specification: proposed
+    tests: not_started
+    implementation: not_started
+    verification: not_started

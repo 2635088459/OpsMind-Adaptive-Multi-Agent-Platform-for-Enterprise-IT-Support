@@ -1,0 +1,26 @@
+{
+  "items": [
+    {
+      "ticketId": "018f0d00-2222-7222-8222-222222222222",
+      "displayId": "INC-2046",
+      "title": "Email account locked",
+      "applicationCode": "EMAIL",
+      "status": "RESOLVED",
+      "priority": "P3",
+      "createdAt": "2026-07-20T12:00:00Z",
+      "updatedAt": "2026-07-21T14:00:00Z",
+      "version": 5
+    }
+  ],
+  "page": {
+    "limit": 2,
+    "hasMore": false,
+    "nextCursor": null
+  },
+  "appliedFilters": {
+    "status": [],
+    "applicationCode": [],
+    "createdFrom": null,
+    "createdTo": null
+  }
+}

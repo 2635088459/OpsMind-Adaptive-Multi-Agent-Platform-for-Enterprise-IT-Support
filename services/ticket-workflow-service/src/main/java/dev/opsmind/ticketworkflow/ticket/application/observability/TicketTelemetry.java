@@ -4,6 +4,7 @@ import dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ApplicationCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketSource;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.stereotype.Component;
@@ -78,6 +79,37 @@ public class TicketTelemetry {
 
     public void recordSensitiveReadAuditFailure() {
         Counter.builder("opsmind_ticket_sensitive_read_audit_failure_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startListTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopListTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_list_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordList(boolean cursorPresent, boolean hasFilters, int resultCount) {
+        Counter.builder("opsmind_ticket_list_total")
+            .tag("cursor_present", String.valueOf(cursorPresent))
+            .tag("has_filters", String.valueOf(hasFilters))
+            .register(meterRegistry)
+            .increment();
+        DistributionSummary.builder("opsmind_ticket_list_result_count")
+            .register(meterRegistry)
+            .record(resultCount);
+    }
+
+    public void recordListInvalidCursor() {
+        Counter.builder("opsmind_ticket_list_invalid_cursor_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordListAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_list_authorization_denied_total")
             .register(meterRegistry)
             .increment();
     }

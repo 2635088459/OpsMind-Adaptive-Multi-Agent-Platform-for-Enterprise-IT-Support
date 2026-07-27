@@ -4,8 +4,10 @@ import dev.opsmind.ticketworkflow.configuration.SecurityConfiguration;
 import dev.opsmind.ticketworkflow.support.TestSecurityConfiguration;
 import dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryApiMapper;
 import dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryController;
+import dev.opsmind.ticketworkflow.ticket.api.publicapi.RequesterTicketListApiMapper;
 import dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketQueryApiMapper;
 import dev.opsmind.ticketworkflow.ticket.application.port.in.GetTicketUseCase;
+import dev.opsmind.ticketworkflow.ticket.application.port.in.ListRequesterTicketsUseCase;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** SPEC-TW-002 §6/§18: a malformed Ticket UUID is rejected with 400 VALIDATION_ERROR. */
 @WebMvcTest(PublicTicketQueryController.class)
-@Import({SecurityConfiguration.class, PublicTicketQueryApiMapper.class, TestSecurityConfiguration.class})
+@Import({SecurityConfiguration.class, PublicTicketQueryApiMapper.class, RequesterTicketListApiMapper.class, TestSecurityConfiguration.class})
 @Tag("component")
 class GetTicketInvalidIdTest {
 
@@ -34,6 +36,9 @@ class GetTicketInvalidIdTest {
 
     @MockitoBean
     private SupportTicketQueryApiMapper supportTicketQueryApiMapper;
+
+    @MockitoBean
+    private ListRequesterTicketsUseCase listRequesterTicketsUseCase;
 
     @Test
     void shouldReturn400ForMalformedTicketId() throws Exception {

@@ -48,7 +48,8 @@ class GetTicketFieldVisibilityTest {
     void supportResponseShouldPseudonymizeRequesterAndExcludeSecrets() throws Exception {
         SupportTicketProjection projection = GetTicketFixtures.supportProjection(GetTicketFixtures.DEFAULT_TICKET_ID, "employee-123");
         RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(new TicketWorkflowProperties(
-            "unit-test-secret", new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24))
+            "unit-test-secret", "unit-test-cursor-secret",
+            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24))
         ));
         SupportTicketDetailResponse response = new SupportTicketQueryApiMapper(pseudonymizer).toResponse(projection);
 

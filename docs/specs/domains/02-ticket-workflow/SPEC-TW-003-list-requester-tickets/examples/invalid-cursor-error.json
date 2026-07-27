@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "INVALID_CURSOR",
+    "message": "The pagination cursor is invalid or expired.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-list-ticket-001",
+    "details": {}
+  }
+}

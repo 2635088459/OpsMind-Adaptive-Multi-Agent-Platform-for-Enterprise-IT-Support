@@ -1,0 +1,34 @@
+{
+  "items": [],
+  "page": {
+    "limit": 25,
+    "hasMore": false,
+    "nextCursor": null,
+    "evaluationTime": "2026-07-25T19:00:00Z",
+    "consistency": "LIVE"
+  },
+  "sort": {
+    "version": 1,
+    "fields": [
+      "slaRank:asc",
+      "priorityRank:asc",
+      "createdAt:asc",
+      "ticketId:asc"
+    ]
+  },
+  "appliedFilters": {
+    "status": [],
+    "priority": [],
+    "applicationCode": [
+      "HOUSING_PORTAL"
+    ],
+    "assignedTeam": [],
+    "assignedAgent": null,
+    "unassignedOnly": false,
+    "slaState": [
+      "BREACHED"
+    ],
+    "createdFrom": null,
+    "createdTo": null
+  }
+}

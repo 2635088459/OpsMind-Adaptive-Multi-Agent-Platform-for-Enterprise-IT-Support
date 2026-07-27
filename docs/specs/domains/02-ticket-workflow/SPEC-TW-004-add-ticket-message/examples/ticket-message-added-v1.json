@@ -1,0 +1,22 @@
+{
+  "eventId": "0190abcd-1234-7000-8000-000000000099",
+  "eventType": "ticket.message.added",
+  "eventVersion": "1.0",
+  "occurredAt": "2026-07-25T18:30:00Z",
+  "producer": "ticket-workflow-service",
+  "traceId": "8f03aabbccddeeff0011223344556677",
+  "correlationId": "corr-add-message-001",
+  "aggregateType": "TicketMessage",
+  "aggregateId": "0190abcd-1234-7000-8000-000000000001",
+  "aggregateVersion": 0,
+  "partitionKey": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+  "dataClassification": "INTERNAL",
+  "payload": {
+    "messageId": "0190abcd-1234-7000-8000-000000000001",
+    "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+    "messageType": "PUBLIC_REQUESTER_MESSAGE",
+    "visibility": "PUBLIC",
+    "authorType": "EMPLOYEE",
+    "createdAt": "2026-07-25T18:30:00Z"
+  }
+}

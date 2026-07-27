@@ -1,0 +1,14 @@
+{
+  "items": [],
+  "page": {
+    "limit": 20,
+    "hasMore": false,
+    "nextCursor": null
+  },
+  "appliedFilters": {
+    "status": [],
+    "applicationCode": [],
+    "createdFrom": null,
+    "createdTo": null
+  }
+}

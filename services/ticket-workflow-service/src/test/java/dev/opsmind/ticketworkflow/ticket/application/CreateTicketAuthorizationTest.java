@@ -51,6 +51,7 @@ class CreateTicketAuthorizationTest {
         RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(
             new dev.opsmind.ticketworkflow.configuration.TicketWorkflowProperties(
                 "unit-test-secret",
+                "unit-test-cursor-secret",
                 new dev.opsmind.ticketworkflow.configuration.TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24))
             )
         );

@@ -1,0 +1,115 @@
+SPEC-TW-004:
+  title: Add Ticket Message
+  phase: IMP-TW-P02
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+
+  design:
+    use_cases:
+      - UC-04
+    api:
+      - API-004
+    state_transitions: []
+    published_events:
+      - ticket.message.added.v1
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    constraints_to_confirm:
+      - message_append_only_invariant_id
+      - message_visibility_invariant_id
+      - terminal_state_message_rule_id
+      - employee_message_ownership_rule_id
+      - internal_note_scope_rule_id
+      - message_event_contract_id
+
+  planned_implementation:
+    entry_points:
+      - PublicTicketMessageController
+      - SupportTicketMessageController
+    application:
+      - AddTicketMessageUseCase
+      - AddTicketMessageApplicationService
+      - AddTicketMessageCommand
+      - AddTicketMessageResult
+    domain:
+      - TicketMessage
+      - TicketMessageId
+      - TicketMessageType
+      - MessageVisibility
+      - MessageContent
+      - MessageAuthor
+      - TicketMessageAdded
+    ports:
+      - TicketMessageRepository
+      - TicketMessageWriteGuardPort
+      - AuditRecordPort
+      - OutboxEventRepository
+      - IdempotencyRepository
+    infrastructure:
+      - TicketMessageJpaEntity
+      - TicketMessagePersistenceMapper
+      - TicketMessagePersistenceAdapter
+      - TicketMessageAddedEventMapper
+
+  schemas:
+    - schemas/employee-add-message-request.schema.json
+    - schemas/support-add-message-request.schema.json
+    - schemas/add-message-response.schema.json
+    - schemas/ticket-message-added-v1.schema.json
+    - schemas/error-envelope.schema.json
+
+  planned_tests:
+    domain:
+      - TicketMessageTest
+      - MessageContentTest
+      - TicketMessageTypeVisibilityTest
+      - TicketMessageAddedDomainEventTest
+    application:
+      - AddTicketMessageApplicationServiceTest
+      - AddTicketMessageStateGuardTest
+      - AddTicketMessageAuthorizationTest
+      - AddTicketMessageIdempotencyReplayTest
+    api:
+      - AddEmployeeMessageControllerTest
+      - AddSupportMessageControllerTest
+      - AddTicketMessageValidationTest
+      - AddTicketMessageMassAssignmentTest
+      - AddTicketMessageErrorContractTest
+    security:
+      - AddRequesterMessageOwnershipIT
+      - AddSupportMessageScopeIT
+      - AddInternalNoteScopeIT
+      - AddInternalNoteVisibilityTest
+    integration:
+      - FlywayTicketMessageMigrationIT
+      - AddTicketMessagePersistenceIT
+      - AddTicketMessageAtomicityIT
+      - AddTicketMessageDoesNotMutateTicketIT
+      - AddTicketMessageIdempotencyIT
+      - AddTicketMessageConcurrentIdempotencyIT
+      - AddTicketMessageStaleIdempotencyIT
+    contract:
+      - TicketMessageAddedEventContractTest
+      - TicketMessageAddedEventRedactionTest
+      - TicketMessageAuditRedactionTest
+      - TicketMessageTelemetryRedactionTest
+
+  status:
+    specification: proposed
+    tests: not_started
+    implementation: not_started
+    verification: not_started

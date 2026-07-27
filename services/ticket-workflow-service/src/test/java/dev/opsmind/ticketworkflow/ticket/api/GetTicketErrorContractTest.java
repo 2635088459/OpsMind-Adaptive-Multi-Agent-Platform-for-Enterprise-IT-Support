@@ -5,10 +5,12 @@ import dev.opsmind.ticketworkflow.support.GetTicketFixtures;
 import dev.opsmind.ticketworkflow.support.TestSecurityConfiguration;
 import dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryApiMapper;
 import dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryController;
+import dev.opsmind.ticketworkflow.ticket.api.publicapi.RequesterTicketListApiMapper;
 import dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketQueryApiMapper;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.port.in.GetTicketUseCase;
+import dev.opsmind.ticketworkflow.ticket.application.port.in.ListRequesterTicketsUseCase;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** SPEC-TW-002 §18: every error follows the shared envelope and never leaks internals. */
 @WebMvcTest(PublicTicketQueryController.class)
-@Import({SecurityConfiguration.class, PublicTicketQueryApiMapper.class, TestSecurityConfiguration.class})
+@Import({SecurityConfiguration.class, PublicTicketQueryApiMapper.class, RequesterTicketListApiMapper.class, TestSecurityConfiguration.class})
 @Tag("component")
 class GetTicketErrorContractTest {
 
@@ -41,6 +43,9 @@ class GetTicketErrorContractTest {
 
     @MockitoBean
     private SupportTicketQueryApiMapper supportTicketQueryApiMapper;
+
+    @MockitoBean
+    private ListRequesterTicketsUseCase listRequesterTicketsUseCase;
 
     @Test
     void shouldReturnSafeEnvelopeWhenTicketNotFound() throws Exception {

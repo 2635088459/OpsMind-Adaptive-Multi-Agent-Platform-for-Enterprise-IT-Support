@@ -1,0 +1,16 @@
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "The message content is invalid.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-add-message-002",
+    "details": {
+      "fields": [
+        {
+          "field": "content",
+          "reason": "must not be blank or contain prohibited secrets"
+        }
+      ]
+    }
+  }
+}

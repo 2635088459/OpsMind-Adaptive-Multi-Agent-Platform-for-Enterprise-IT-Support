@@ -1,0 +1,64 @@
+{
+  "items": [
+    {
+      "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+      "displayId": "INC-2048",
+      "title": "Cannot sign in to Housing Portal",
+      "applicationCode": "HOUSING_PORTAL",
+      "status": "INVESTIGATING",
+      "priority": "P2",
+      "requesterRef": "usr_7f2d8a",
+      "assignment": {
+        "teamId": "TEAM-HOUSING",
+        "agentId": null,
+        "unassigned": true
+      },
+      "sla": {
+        "state": "AT_RISK",
+        "responseDueAt": "2026-07-25T19:15:00Z",
+        "resolutionDueAt": "2026-07-26T16:30:00Z",
+        "urgencyRank": 1
+      },
+      "createdAt": "2026-07-23T16:30:00Z",
+      "updatedAt": "2026-07-25T18:30:00Z",
+      "version": 4
+    }
+  ],
+  "page": {
+    "limit": 25,
+    "hasMore": false,
+    "nextCursor": null,
+    "evaluationTime": "2026-07-25T19:00:00Z",
+    "consistency": "LIVE"
+  },
+  "sort": {
+    "version": 1,
+    "fields": [
+      "slaRank:asc",
+      "priorityRank:asc",
+      "createdAt:asc",
+      "ticketId:asc"
+    ]
+  },
+  "appliedFilters": {
+    "status": [
+      "INVESTIGATING"
+    ],
+    "priority": [
+      "P2"
+    ],
+    "applicationCode": [
+      "HOUSING_PORTAL"
+    ],
+    "assignedTeam": [
+      "TEAM-HOUSING"
+    ],
+    "assignedAgent": null,
+    "unassignedOnly": true,
+    "slaState": [
+      "AT_RISK"
+    ],
+    "createdFrom": "2026-07-01T00:00:00Z",
+    "createdTo": "2026-08-01T00:00:00Z"
+  }
+}

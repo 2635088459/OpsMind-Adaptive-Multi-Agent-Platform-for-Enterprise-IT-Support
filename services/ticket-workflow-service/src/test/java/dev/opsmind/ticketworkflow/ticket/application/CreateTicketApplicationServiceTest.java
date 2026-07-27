@@ -97,6 +97,7 @@ class CreateTicketApplicationServiceTest {
         RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(
             new dev.opsmind.ticketworkflow.configuration.TicketWorkflowProperties(
                 "unit-test-secret",
+                "unit-test-cursor-secret",
                 new dev.opsmind.ticketworkflow.configuration.TicketWorkflowProperties.Sla(
                     "DEFAULT", java.time.Duration.ofHours(4), java.time.Duration.ofHours(24)
                 )

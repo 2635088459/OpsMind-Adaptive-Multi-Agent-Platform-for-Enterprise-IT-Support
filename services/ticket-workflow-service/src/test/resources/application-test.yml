@@ -10,6 +10,7 @@ spring:
 opsmind:
   ticket:
     requester-pseudonymization-secret: test-only-pseudonymization-secret
+    list-cursor-signing-secret: test-only-cursor-signing-secret
 
 management:
   tracing:

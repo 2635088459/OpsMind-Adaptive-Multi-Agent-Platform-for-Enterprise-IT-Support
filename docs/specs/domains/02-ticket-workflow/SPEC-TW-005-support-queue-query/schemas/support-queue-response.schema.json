@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-queue-response.json",
+  "title": "Support Queue Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "page",
+    "sort",
+    "appliedFilters"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "support-ticket-summary.schema.json"
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limit",
+        "hasMore",
+        "nextCursor",
+        "evaluationTime",
+        "consistency"
+      ],
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "evaluationTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "consistency": {
+          "const": "LIVE"
+        }
+      }
+    },
+    "sort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "fields"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "fields": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "slaRank:asc"
+            },
+            {
+              "const": "priorityRank:asc"
+            },
+            {
+              "const": "createdAt:asc"
+            },
+            {
+              "const": "ticketId:asc"
+            }
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    },
+    "appliedFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "priority",
+        "applicationCode",
+        "assignedTeam",
+        "assignedAgent",
+        "unassignedOnly",
+        "slaState",
+        "createdFrom",
+        "createdTo"
+      ],
+      "properties": {
+        "status": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "priority": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "enum": [
+              "UNASSIGNED",
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          }
+        },
+        "applicationCode": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "enum": [
+              "HOUSING_PORTAL",
+              "EMAIL",
+              "VPN",
+              "OTHER"
+            ]
+          }
+        },
+        "assignedTeam": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "assignedAgent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "unassignedOnly": {
+          "type": "boolean"
+        },
+        "slaState": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "enum": [
+              "BREACHED",
+              "AT_RISK",
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED"
+            ]
+          }
+        },
+        "createdFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "createdTo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

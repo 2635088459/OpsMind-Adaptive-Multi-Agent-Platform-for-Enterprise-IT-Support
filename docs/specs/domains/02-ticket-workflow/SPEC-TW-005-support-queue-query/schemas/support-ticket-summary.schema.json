@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-ticket-summary.json",
+  "title": "Support Ticket Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ticketId",
+    "displayId",
+    "title",
+    "applicationCode",
+    "status",
+    "priority",
+    "requesterRef",
+    "assignment",
+    "sla",
+    "createdAt",
+    "updatedAt",
+    "version"
+  ],
+  "properties": {
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "displayId": {
+      "type": "string",
+      "pattern": "^INC-[0-9]+$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "applicationCode": {
+      "type": "string",
+      "enum": [
+        "HOUSING_PORTAL",
+        "EMAIL",
+        "VPN",
+        "OTHER"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "NEW",
+        "TRIAGING",
+        "INVESTIGATING",
+        "WAITING_FOR_USER",
+        "WAITING_FOR_APPROVAL",
+        "EXECUTING",
+        "VERIFYING",
+        "RESOLVED",
+        "ESCALATED",
+        "FAILED"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ]
+    },
+    "requesterRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "teamId",
+        "agentId",
+        "unassigned"
+      ],
+      "properties": {
+        "teamId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "agentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "unassigned": {
+          "type": "boolean"
+        }
+      }
+    },
+    "sla": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "responseDueAt",
+        "resolutionDueAt",
+        "urgencyRank"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "BREACHED",
+            "AT_RISK",
+            "ACTIVE",
+            "PAUSED",
+            "COMPLETED"
+          ]
+        },
+        "responseDueAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "resolutionDueAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "urgencyRank": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        }
+      }
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

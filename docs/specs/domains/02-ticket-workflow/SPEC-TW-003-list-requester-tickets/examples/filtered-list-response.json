@@ -1,0 +1,30 @@
+{
+  "items": [
+    {
+      "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+      "displayId": "INC-2048",
+      "title": "Cannot sign in to Housing Portal",
+      "applicationCode": "HOUSING_PORTAL",
+      "status": "NEW",
+      "priority": "UNASSIGNED",
+      "createdAt": "2026-07-23T16:30:00Z",
+      "updatedAt": "2026-07-23T16:30:00Z",
+      "version": 0
+    }
+  ],
+  "page": {
+    "limit": 20,
+    "hasMore": false,
+    "nextCursor": null
+  },
+  "appliedFilters": {
+    "status": [
+      "NEW"
+    ],
+    "applicationCode": [
+      "HOUSING_PORTAL"
+    ],
+    "createdFrom": "2026-07-01T00:00:00Z",
+    "createdTo": "2026-08-01T00:00:00Z"
+  }
+}

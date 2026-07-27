@@ -8,6 +8,7 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "opsmind.ticket")
 public record TicketWorkflowProperties(
     String requesterPseudonymizationSecret,
+    String listCursorSigningSecret,
     Sla sla
 ) {
 

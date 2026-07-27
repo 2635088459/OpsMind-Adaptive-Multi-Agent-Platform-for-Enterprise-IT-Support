@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/ticket-summary.json",
+  "title": "Requester Ticket Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ticketId",
+    "displayId",
+    "title",
+    "applicationCode",
+    "status",
+    "priority",
+    "createdAt",
+    "updatedAt",
+    "version"
+  ],
+  "properties": {
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "displayId": {
+      "type": "string",
+      "pattern": "^INC-[0-9]+$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "applicationCode": {
+      "type": "string",
+      "enum": [
+        "HOUSING_PORTAL",
+        "EMAIL",
+        "VPN",
+        "OTHER"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "NEW",
+        "TRIAGING",
+        "INVESTIGATING",
+        "WAITING_FOR_USER",
+        "WAITING_FOR_APPROVAL",
+        "EXECUTING",
+        "VERIFYING",
+        "RESOLVED",
+        "CLOSED",
+        "ESCALATED",
+        "FAILED",
+        "CANCELLED"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "UNASSIGNED",
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL"
+      ]
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

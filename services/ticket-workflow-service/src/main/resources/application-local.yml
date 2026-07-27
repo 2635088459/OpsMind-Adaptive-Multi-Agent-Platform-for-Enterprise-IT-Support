@@ -17,6 +17,7 @@ spring:
 opsmind:
   ticket:
     requester-pseudonymization-secret: ${TICKET_REQUESTER_PSEUDONYMIZATION_SECRET:opsmind-local-dev-secret-change-me}
+    list-cursor-signing-secret: ${TICKET_LIST_CURSOR_SIGNING_SECRET:opsmind-local-dev-cursor-secret-change-me}
 
 management:
   otlp:

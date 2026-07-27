@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/add-message-response.json",
+  "title": "Add Ticket Message Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "messageId",
+    "ticketId",
+    "messageType",
+    "visibility",
+    "authorType",
+    "content",
+    "createdAt",
+    "version"
+  ],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "messageType": {
+      "type": "string",
+      "enum": [
+        "PUBLIC_REQUESTER_MESSAGE",
+        "PUBLIC_SUPPORT_MESSAGE",
+        "INTERNAL_SUPPORT_NOTE"
+      ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "PUBLIC",
+        "INTERNAL"
+      ]
+    },
+    "authorType": {
+      "type": "string",
+      "enum": [
+        "EMPLOYEE",
+        "IT_SUPPORT",
+        "IT_ADMIN",
+        "IT_MANAGER"
+      ]
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "version": {
+      "type": "integer",
+      "const": 0
+    }
+  }
+}

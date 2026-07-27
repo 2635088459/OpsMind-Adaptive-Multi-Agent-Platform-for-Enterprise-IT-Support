@@ -1,0 +1,10 @@
+{
+  "messageId": "0190abcd-1234-7000-8000-000000000001",
+  "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+  "messageType": "PUBLIC_REQUESTER_MESSAGE",
+  "visibility": "PUBLIC",
+  "authorType": "EMPLOYEE",
+  "content": "I restarted the VPN client, but the error still appears.",
+  "createdAt": "2026-07-25T18:30:00Z",
+  "version": 0
+}

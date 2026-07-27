@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/requester-ticket-list-response.json",
+  "title": "Requester Ticket List Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "page",
+    "appliedFilters"
+  ],
+  "$defs": {
+    "ticketSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ticketId",
+        "displayId",
+        "title",
+        "applicationCode",
+        "status",
+        "priority",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ],
+      "properties": {
+        "ticketId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "displayId": {
+          "type": "string",
+          "pattern": "^INC-[0-9]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "applicationCode": {
+          "type": "string",
+          "enum": [
+            "HOUSING_PORTAL",
+            "EMAIL",
+            "VPN",
+            "OTHER"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NEW",
+            "TRIAGING",
+            "INVESTIGATING",
+            "WAITING_FOR_USER",
+            "WAITING_FOR_APPROVAL",
+            "EXECUTING",
+            "VERIFYING",
+            "RESOLVED",
+            "CLOSED",
+            "ESCALATED",
+            "FAILED",
+            "CANCELLED"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "UNASSIGNED",
+            "LOW",
+            "MEDIUM",
+            "HIGH",
+            "CRITICAL"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "#/$defs/ticketSummary"
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limit",
+        "hasMore",
+        "nextCursor"
+      ],
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 2048
+        }
+      }
+    },
+    "appliedFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "applicationCode",
+        "createdFrom",
+        "createdTo"
+      ],
+      "properties": {
+        "status": {
+          "type": "array",
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "applicationCode": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "HOUSING_PORTAL",
+              "EMAIL",
+              "VPN",
+              "OTHER"
+            ]
+          }
+        },
+        "createdFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "createdTo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket-message-added-v1.json",
+  "title": "ticket.message.added.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "producer",
+    "traceId",
+    "correlationId",
+    "aggregateType",
+    "aggregateId",
+    "aggregateVersion",
+    "partitionKey",
+    "dataClassification",
+    "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string"
+    },
+    "eventType": {
+      "const": "ticket.message.added"
+    },
+    "eventVersion": {
+      "const": "1.0"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "ticket-workflow-service"
+    },
+    "traceId": {
+      "type": "string"
+    },
+    "correlationId": {
+      "type": "string"
+    },
+    "aggregateType": {
+      "const": "TicketMessage"
+    },
+    "aggregateId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "aggregateVersion": {
+      "const": 0
+    },
+    "partitionKey": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "dataClassification": {
+      "const": "INTERNAL"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "messageId",
+        "ticketId",
+        "messageType",
+        "visibility",
+        "authorType",
+        "createdAt"
+      ],
+      "properties": {
+        "messageId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "ticketId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "messageType": {
+          "type": "string",
+          "enum": [
+            "PUBLIC_REQUESTER_MESSAGE",
+            "PUBLIC_SUPPORT_MESSAGE",
+            "INTERNAL_SUPPORT_NOTE"
+          ]
+        },
+        "visibility": {
+          "type": "string",
+          "enum": [
+            "PUBLIC",
+            "INTERNAL"
+          ]
+        },
+        "authorType": {
+          "type": "string",
+          "enum": [
+            "EMPLOYEE",
+            "IT_SUPPORT",
+            "IT_ADMIN",
+            "IT_MANAGER"
+          ]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

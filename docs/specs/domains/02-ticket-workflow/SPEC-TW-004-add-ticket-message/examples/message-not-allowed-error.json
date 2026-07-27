@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "MESSAGE_NOT_ALLOWED_IN_STATE",
+    "message": "A message cannot be added while the Ticket is in its current state.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-add-message-003",
+    "details": {}
+  }
+}

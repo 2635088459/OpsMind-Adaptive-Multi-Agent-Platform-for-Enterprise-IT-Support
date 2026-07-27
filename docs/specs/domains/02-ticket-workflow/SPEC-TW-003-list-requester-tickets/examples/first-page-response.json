@@ -1,0 +1,37 @@
+{
+  "items": [
+    {
+      "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+      "displayId": "INC-2048",
+      "title": "Cannot sign in to Housing Portal",
+      "applicationCode": "HOUSING_PORTAL",
+      "status": "NEW",
+      "priority": "UNASSIGNED",
+      "createdAt": "2026-07-23T16:30:00Z",
+      "updatedAt": "2026-07-23T16:30:00Z",
+      "version": 0
+    },
+    {
+      "ticketId": "018f0e00-1111-7111-8111-111111111111",
+      "displayId": "INC-2047",
+      "title": "VPN authentication failed",
+      "applicationCode": "VPN",
+      "status": "INVESTIGATING",
+      "priority": "P2",
+      "createdAt": "2026-07-22T18:00:00Z",
+      "updatedAt": "2026-07-23T08:15:00Z",
+      "version": 3
+    }
+  ],
+  "page": {
+    "limit": 2,
+    "hasMore": true,
+    "nextCursor": "eyJ2ZXJzaW9uIjoxLCJsYXN0Q3JlYXRlZEF0IjoiMjAyNi0wNy0yMlQxODowMDowMFoifQ.signature"
+  },
+  "appliedFilters": {
+    "status": [],
+    "applicationCode": [],
+    "createdFrom": null,
+    "createdTo": null
+  }
+}

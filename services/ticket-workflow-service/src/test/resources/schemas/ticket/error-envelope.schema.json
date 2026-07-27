@@ -26,6 +26,10 @@
             "UNAUTHENTICATED",
             "FORBIDDEN",
             "TICKET_NOT_FOUND",
+            "INVALID_CURSOR",
+            "IDEMPOTENCY_KEY_REUSED",
+            "REQUEST_IN_PROGRESS",
+            "RATE_LIMITED",
             "DEPENDENCY_UNAVAILABLE",
             "INTERNAL_ERROR"
           ]

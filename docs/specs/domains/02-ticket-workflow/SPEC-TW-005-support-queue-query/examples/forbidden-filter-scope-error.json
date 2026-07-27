@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "FILTER_OUTSIDE_AUTHORIZED_SCOPE",
+    "message": "One or more requested filters are outside the authorized Support Queue scope.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-support-queue-002",
+    "details": {}
+  }
+}

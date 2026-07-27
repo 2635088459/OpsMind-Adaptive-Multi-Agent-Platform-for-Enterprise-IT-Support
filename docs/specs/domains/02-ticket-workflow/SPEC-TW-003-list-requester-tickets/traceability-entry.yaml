@@ -1,0 +1,97 @@
+SPEC-TW-003:
+  title: List Requester Tickets
+  phase: IMP-TW-P02
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+
+  design:
+    use_cases:
+      - UC-03
+    api:
+      - API-003
+    state_transitions: []
+    published_events: []
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 04-use-cases
+      - 05-api-contracts
+      - 07-data-model
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    constraints_to_confirm:
+      - requester_ownership_invariant_id
+      - pagination_stability_invariant_id
+      - field_visibility_rule_id
+      - cursor_integrity_rule_id
+      - metric_cardinality_rule_id
+
+  planned_implementation:
+    entry_point:
+      - PublicTicketQueryController
+    application:
+      - ListRequesterTicketsUseCase
+      - ListRequesterTicketsApplicationService
+      - ListRequesterTicketsQuery
+      - RequesterTicketListResult
+      - RequesterTicketSummary
+      - TicketListFilters
+      - TicketListCursor
+    ports:
+      - RequesterTicketQueryPort
+    infrastructure:
+      - JdbcRequesterTicketQueryAdapter
+      - TicketListCursorCodec
+      - TicketListCursorSigner
+      - RequesterTicketQuerySql
+
+  schemas:
+    - schemas/requester-ticket-list-response.schema.json
+    - schemas/ticket-summary.schema.json
+    - schemas/invalid-cursor-error.schema.json
+    - schemas/error-envelope.schema.json
+
+  planned_tests:
+    application:
+      - ListRequesterTicketsApplicationServiceTest
+      - ListRequesterTicketsFilterValidationTest
+      - ListRequesterTicketsPageSizeTest
+    cursor:
+      - TicketListCursorCodecTest
+      - TicketListCursorSignatureTest
+      - TicketListCursorExpiryTest
+      - TicketListCursorFilterBindingTest
+      - TicketListCursorPrincipalBindingTest
+    api:
+      - ListRequesterTicketsControllerTest
+      - ListRequesterTicketsErrorContractTest
+      - ListRequesterTicketsEmptyResponseTest
+    security:
+      - ListRequesterTicketsOwnershipIT
+      - ListRequesterTicketsCrossUserIsolationIT
+    integration:
+      - ListRequesterTicketsProjectionIT
+      - ListRequesterTicketsCursorIT
+      - ListRequesterTicketsStableSortIT
+      - ListRequesterTicketsConcurrentInsertIT
+      - ListRequesterTicketsFilterIT
+      - ListRequesterTicketsQueryPlanIT
+      - ListRequesterTicketsDoesNotMutateIT
+      - ListRequesterTicketsDoesNotCreateOutboxIT
+    privacy:
+      - ListRequesterTicketsResponseRedactionTest
+      - ListRequesterTicketsTelemetryRedactionTest
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (230/230 tests). Merged into
+      docs/traceability/02-ticket-workflow/traceability-matrix.yaml with
+      full implementation/test class listing and known deviations. CI run
+      pending.

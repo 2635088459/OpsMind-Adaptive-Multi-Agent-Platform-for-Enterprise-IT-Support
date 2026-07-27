@@ -4,11 +4,14 @@ import dev.opsmind.ticketworkflow.ticket.api.exception.RequestValidationExceptio
 import dev.opsmind.ticketworkflow.ticket.application.exception.DisplayIdGenerationExhaustedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.EventSchemaValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.security.authorization.AuthorizationDeniedException;
@@ -30,6 +33,8 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
  */
 @RestControllerAdvice
 public class GlobalRestExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalRestExceptionHandler.class);
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleBeanValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
@@ -59,6 +64,16 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(TicketNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleTicketNotFound(TicketNotFoundException ex, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "The Ticket was not found.", request);
+    }
+
+    /**
+     * Never exposes why the cursor was rejected (malformed, tampered,
+     * expired, or bound to different filters/sort/actor) — SPEC-TW-003
+     * §15.
+     */
+    @ExceptionHandler(InvalidCursorException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCursor(InvalidCursorException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "INVALID_CURSOR", "The pagination cursor is invalid or expired.", request);
     }
 
     /**
@@ -98,8 +113,14 @@ public class GlobalRestExceptionHandler {
         return build(HttpStatus.SERVICE_UNAVAILABLE, "DEPENDENCY_UNAVAILABLE", "A required dependency is unavailable.", request);
     }
 
+    /**
+     * Logs server-side so operators retain visibility into unexpected
+     * failures, while the response body stays generic — no stack trace,
+     * SQL, or exception class name reaches the client.
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
+        log.error("unexpected error handling {} {}", request.getMethod(), request.getRequestURI(), ex);
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred.", request);
     }
 

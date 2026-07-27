@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "IDEMPOTENCY_KEY_REUSED",
+    "message": "The Idempotency-Key was already used for a different request.",
+    "traceId": "8f03aabbccddeeff0011223344556677",
+    "correlationId": "corr-add-message-004",
+    "details": {}
+  }
+}

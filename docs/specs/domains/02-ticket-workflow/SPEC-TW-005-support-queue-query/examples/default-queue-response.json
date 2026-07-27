@@ -1,0 +1,77 @@
+{
+  "items": [
+    {
+      "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+      "displayId": "INC-2048",
+      "title": "Cannot sign in to Housing Portal",
+      "applicationCode": "HOUSING_PORTAL",
+      "status": "INVESTIGATING",
+      "priority": "P2",
+      "requesterRef": "usr_7f2d8a",
+      "assignment": {
+        "teamId": "TEAM-HOUSING",
+        "agentId": null,
+        "unassigned": true
+      },
+      "sla": {
+        "state": "AT_RISK",
+        "responseDueAt": "2026-07-25T19:15:00Z",
+        "resolutionDueAt": "2026-07-26T16:30:00Z",
+        "urgencyRank": 1
+      },
+      "createdAt": "2026-07-23T16:30:00Z",
+      "updatedAt": "2026-07-25T18:30:00Z",
+      "version": 4
+    },
+    {
+      "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a92",
+      "displayId": "INC-2049",
+      "title": "Email account locked",
+      "applicationCode": "EMAIL",
+      "status": "NEW",
+      "priority": "P3",
+      "requesterRef": "usr_38ac11",
+      "assignment": {
+        "teamId": "TEAM-IDENTITY",
+        "agentId": "agent-200",
+        "unassigned": false
+      },
+      "sla": {
+        "state": "ACTIVE",
+        "responseDueAt": "2026-07-25T22:00:00Z",
+        "resolutionDueAt": "2026-07-26T22:00:00Z",
+        "urgencyRank": 2
+      },
+      "createdAt": "2026-07-24T10:00:00Z",
+      "updatedAt": "2026-07-25T17:00:00Z",
+      "version": 2
+    }
+  ],
+  "page": {
+    "limit": 25,
+    "hasMore": true,
+    "nextCursor": "eyJ2ZXJzaW9uIjoxLCJvcGVyYXRpb24iOiJzdXBwb3J0UXVldWUifQ.signature",
+    "evaluationTime": "2026-07-25T19:00:00Z",
+    "consistency": "LIVE"
+  },
+  "sort": {
+    "version": 1,
+    "fields": [
+      "slaRank:asc",
+      "priorityRank:asc",
+      "createdAt:asc",
+      "ticketId:asc"
+    ]
+  },
+  "appliedFilters": {
+    "status": [],
+    "priority": [],
+    "applicationCode": [],
+    "assignedTeam": [],
+    "assignedAgent": null,
+    "unassignedOnly": false,
+    "slaState": [],
+    "createdFrom": null,
+    "createdTo": null
+  }
+}

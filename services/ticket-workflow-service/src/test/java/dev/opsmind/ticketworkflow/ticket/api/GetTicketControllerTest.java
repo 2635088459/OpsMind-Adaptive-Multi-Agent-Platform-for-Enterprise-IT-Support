@@ -5,8 +5,10 @@ import dev.opsmind.ticketworkflow.support.GetTicketFixtures;
 import dev.opsmind.ticketworkflow.support.TestSecurityConfiguration;
 import dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryApiMapper;
 import dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryController;
+import dev.opsmind.ticketworkflow.ticket.api.publicapi.RequesterTicketListApiMapper;
 import dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketQueryApiMapper;
 import dev.opsmind.ticketworkflow.ticket.application.port.in.GetTicketUseCase;
+import dev.opsmind.ticketworkflow.ticket.application.port.in.ListRequesterTicketsUseCase;
 import dev.opsmind.ticketworkflow.ticket.application.query.ConditionalGetResult;
 import dev.opsmind.ticketworkflow.ticket.application.query.GetTicketResult;
 import org.junit.jupiter.api.Tag;
@@ -29,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(PublicTicketQueryController.class)
-@Import({SecurityConfiguration.class, PublicTicketQueryApiMapper.class, TestSecurityConfiguration.class})
+@Import({SecurityConfiguration.class, PublicTicketQueryApiMapper.class, RequesterTicketListApiMapper.class, TestSecurityConfiguration.class})
 @Tag("component")
 class GetTicketControllerTest {
 
@@ -43,6 +45,9 @@ class GetTicketControllerTest {
 
     @MockitoBean
     private SupportTicketQueryApiMapper supportTicketQueryApiMapper;
+
+    @MockitoBean
+    private ListRequesterTicketsUseCase listRequesterTicketsUseCase;
 
     @Test
     void shouldReturn200WithEmployeeViewAndSecurityHeaders() throws Exception {

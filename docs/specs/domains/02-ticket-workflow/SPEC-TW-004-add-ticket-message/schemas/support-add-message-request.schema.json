@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-add-message-request.json",
+  "title": "Support Add Ticket Message Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "content",
+    "messageType"
+  ],
+  "properties": {
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "messageType": {
+      "type": "string",
+      "enum": [
+        "PUBLIC_SUPPORT_MESSAGE",
+        "INTERNAL_SUPPORT_NOTE"
+      ]
+    }
+  }
+}
