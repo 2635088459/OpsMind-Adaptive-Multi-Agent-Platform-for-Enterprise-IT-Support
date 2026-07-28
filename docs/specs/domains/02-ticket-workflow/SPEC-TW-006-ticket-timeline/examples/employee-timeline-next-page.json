@@ -1,0 +1,40 @@
+{
+  "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+  "displayId": "INC-2048",
+  "viewType": "EMPLOYEE_PUBLIC_VIEW",
+  "items": [
+    {
+      "itemId": "MESSAGE:0190abcd-1234-7000-8000-000000000002",
+      "itemType": "PUBLIC_SUPPORT_MESSAGE",
+      "visibility": "PUBLIC",
+      "occurredAt": "2026-07-25T19:00:00Z",
+      "actor": {
+        "type": "IT_SUPPORT",
+        "displayLabel": "IT Support"
+      },
+      "summary": "IT Support added a message",
+      "content": "We are reviewing the VPN authentication logs.",
+      "metadata": {
+        "fromStatus": null,
+        "toStatus": null,
+        "messageType": "PUBLIC_SUPPORT_MESSAGE",
+        "relatedVersion": 0
+      }
+    }
+  ],
+  "page": {
+    "limit": 3,
+    "hasMore": false,
+    "nextCursor": null,
+    "snapshotAt": "2026-07-25T20:00:00Z",
+    "consistency": "SNAPSHOT"
+  },
+  "sort": {
+    "version": 1,
+    "fields": [
+      "occurredAt:asc",
+      "itemTypeRank:asc",
+      "itemId:asc"
+    ]
+  }
+}

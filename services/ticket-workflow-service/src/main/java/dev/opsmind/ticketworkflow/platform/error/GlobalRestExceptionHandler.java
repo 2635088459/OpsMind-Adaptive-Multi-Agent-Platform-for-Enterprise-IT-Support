@@ -3,6 +3,7 @@ package dev.opsmind.ticketworkflow.platform.error;
 import dev.opsmind.ticketworkflow.ticket.api.exception.RequestValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.DisplayIdGenerationExhaustedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.EventSchemaValidationException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuthorizedScopeException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
@@ -60,6 +61,17 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(TicketAuthorizationException.class)
     public ResponseEntity<ErrorResponse> handleAuthorization(TicketAuthorizationException ex, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", "The actor is not authorized to perform this action.", request);
+    }
+
+    /**
+     * Distinct from {@link TicketAuthorizationException} (missing the Queue
+     * scope entirely, 403 FORBIDDEN): this covers a requested filter value
+     * that falls outside an otherwise-authorized actor's scope (SPEC-TW-005
+     * §7), and never reveals the actor's full authorized scope.
+     */
+    @ExceptionHandler(FilterOutsideAuthorizedScopeException.class)
+    public ResponseEntity<ErrorResponse> handleFilterOutsideAuthorizedScope(FilterOutsideAuthorizedScopeException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "FILTER_OUTSIDE_AUTHORIZED_SCOPE", "One or more requested filters are outside the authorized Support Queue scope.", request);
     }
 
     @ExceptionHandler(TicketNotFoundException.class)

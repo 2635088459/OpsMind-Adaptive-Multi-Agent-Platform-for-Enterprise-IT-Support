@@ -57,7 +57,7 @@ class ListRequesterTicketsApplicationServiceTest {
 
         TicketWorkflowProperties properties = new TicketWorkflowProperties(
             "unit-test-secret", "unit-test-cursor-secret",
-            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24))
+            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4))
         );
         cursorCodec = new TicketListCursorCodec(new ObjectMapper().findAndRegisterModules(), new TicketListCursorSigner(properties));
 

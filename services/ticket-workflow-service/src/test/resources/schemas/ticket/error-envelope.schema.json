@@ -29,6 +29,7 @@
             "INVALID_CURSOR",
             "IDEMPOTENCY_KEY_REUSED",
             "REQUEST_IN_PROGRESS",
+            "FILTER_OUTSIDE_AUTHORIZED_SCOPE",
             "RATE_LIMITED",
             "DEPENDENCY_UNAVAILABLE",
             "INTERNAL_ERROR"

@@ -15,7 +15,8 @@ public record TicketWorkflowProperties(
     public record Sla(
         @DefaultValue("DEFAULT") String defaultPolicyId,
         @DefaultValue("PT4H") Duration responseDue,
-        @DefaultValue("PT24H") Duration resolutionDue
+        @DefaultValue("PT24H") Duration resolutionDue,
+        @DefaultValue("PT4H") Duration atRiskWindow
     ) {
     }
 }

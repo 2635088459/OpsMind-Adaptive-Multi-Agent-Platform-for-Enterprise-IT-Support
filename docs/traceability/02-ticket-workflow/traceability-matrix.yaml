@@ -789,3 +789,243 @@ SPEC-TW-004:
       verified with -Denforcer.skip=true because only JDK 25 is installed
       in this environment; the enforcer's [21,22) range itself was not
       modified. CI run pending.
+
+SPEC-TW-005:
+  title: Support Queue Query
+  phase: IMP-TW-P02
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+    - SPEC-TW-003
+
+  design:
+    use_cases:
+      - UC-05
+    api:
+      - API-005
+    state_transitions: []
+    published_events: []
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 04-use-cases
+      - 05-api-contracts
+      - 07-data-model
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+
+  implementation:
+    entry_point:
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketQueryController
+    application:
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.QuerySupportQueueUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.QuerySupportQueueApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueQuery
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueFilters
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueScope
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportTicketSummary
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueResult
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueCursor
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueSortVersion
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueKeysetPosition
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueuePriority
+      - dev.opsmind.ticketworkflow.ticket.application.query.SlaQueueState
+      - dev.opsmind.ticketworkflow.ticket.application.cursor.SupportQueueCursorCodec
+      - dev.opsmind.ticketworkflow.ticket.application.cursor.SupportQueueCursorSigner
+      - dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueScopeAdapter
+      - dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuthorizedScopeException
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportQueueResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTicketSummaryResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportQueueApiMapper
+    ports:
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueQueryPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueScopePort
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.JdbcSupportQueueQueryAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.SupportQueueQuerySql
+    migrations:
+      - V012__add_support_queue_indexes.sql
+
+  schemas:
+    - schemas/support-queue-response.schema.json
+    - schemas/support-ticket-summary.schema.json
+    - schemas/invalid-cursor-error.schema.json
+    - schemas/forbidden-filter-scope-error.schema.json
+    - schemas/error-envelope.schema.json
+
+  tests:
+    application:
+      - QuerySupportQueueApplicationServiceTest
+      - SupportQueueFilterValidationTest
+      - SupportQueuePageSizeTest
+      - SupportQueueSortRankingTest
+    authorization:
+      - SupportQueueRoleTest
+      - SupportQueueScopeAuthorizationIT
+      - SupportQueueFilterScopeTest
+      - SupportQueueUnassignedAuthorizationTest
+      - SupportQueueCrossTenantIsolationIT
+    cursor:
+      - SupportQueueCursorCodecTest
+      - SupportQueueCursorSignatureTest
+      - SupportQueueCursorExpiryTest
+      - SupportQueueCursorFilterBindingTest
+      - SupportQueueCursorScopeBindingTest
+      - SupportQueueCursorActorBindingTest
+      - SupportQueueCursorSortVersionTest
+      - SupportQueueEvaluationTimeTest
+    api:
+      - SupportQueueControllerTest
+      - SupportQueueEmptyResponseTest
+      - SupportQueueErrorContractTest
+    integration:
+      - SupportQueueProjectionIT
+      - SupportQueueDefaultStateFilterIT
+      - SupportQueueFilterIT
+      - SupportQueueStableSortIT
+      - SupportQueueKeysetPaginationIT
+      - SupportQueueQueryPlanIT
+      - SupportQueueDoesNotMutateTicketIT
+      - SupportQueueDoesNotCreateOutboxIT
+    privacy:
+      - SupportQueueFieldVisibilityTest
+      - SupportQueueResponseRedactionTest
+      - SupportQueueTelemetryRedactionTest
+    architecture:
+      - LayerDependencyTest
+
+  known_deviations_from_plan:
+    - area: SupportQueuePriority wire-label mapping over the existing TicketPriority scale
+      note: >
+        TicketPriority (UNASSIGNED/LOW/MEDIUM/HIGH/CRITICAL, established by
+        SPEC-TW-001) does not match this spec's required wire-level
+        UNASSIGNED/P1/P2/P3/P4 filter-and-response contract.
+        SupportQueuePriority is the single mapping point (CRITICAL=P1
+        rank 0 ... UNASSIGNED rank 4), used only at the SQL/response
+        boundary; domain/DB storage is unchanged. Note Get Ticket's
+        Support view (SPEC-TW-002) still emits the raw LOW/MEDIUM/HIGH/
+        CRITICAL value for the same field on the same Ticket — this is a
+        pre-existing, out-of-scope inconsistency between the two
+        endpoints, not something this spec's response schema permits it
+        to fix (its priority enum is a strict, machine-validated set).
+    - area: AT_RISK and live BREACHED computed in SQL, not persisted
+      note: >
+        ticket.ticket_sla_cycles only records ACTIVE/PAUSED/MET/BREACHED/
+        CANCELLED. AT_RISK, and a BREACHED state for a cycle whose
+        resolution_due_at has already passed but has not yet been swept
+        to the persisted BREACHED status, are both derived in
+        SupportQueueQuerySql from resolution_due_at against the cursor
+        session's fixed evaluationTime plus a newly added configurable
+        opsmind.ticket.sla.at-risk-window (TicketWorkflowProperties.Sla,
+        default PT4H). This state does not exist as a persisted value
+        anywhere else in the codebase.
+    - area: SupportQueueScope narrower than the spec's illustrative model
+      note: >
+        Section 5's SupportQueueScope model also lists allowedTenantIds,
+        allowedRegions, maximumDataClassification, and allowUnassigned.
+        None are implemented: no tenant, region, or per-Ticket
+        data-classification column exists anywhere in the current domain
+        model, and no acceptance scenario requires allowUnassigned as a
+        separate authorization gate distinct from the tickets:read:queue
+        scope check already performed.
+    - area: team scope validates the assignedTeam filter, not a blanket row-level predicate
+      note: >
+        allowedTeamIds (from a new support_teams JWT claim) validates the
+        assignedTeam filter and defaults to the actor's complete
+        approved team set when the filter is omitted (§7). It is
+        deliberately not applied as a blanket SQL authorization predicate:
+        Tickets with current_team_id IS NULL (not yet triaged/routed to a
+        team) stay visible to any actor already authorized for the
+        Ticket's application, since current_team_id is not used as an
+        authorization dimension anywhere else in this codebase (Get
+        Ticket's Support view treats it as display-only).
+    - area: assignedAgent filter restricted to self unless IT_ADMIN/IT_MANAGER
+      note: >
+        Section 9 says assignedAgent "is limited to the actor or their
+        approved management scope," but no management-hierarchy data
+        model exists anywhere in this codebase. Implemented as: the
+        requested assignedAgent must equal the actor's own subject unless
+        actor_type is IT_ADMIN or IT_MANAGER, which may query any agent.
+    - area: requesterRef reuses RequesterPseudonymizer's hmac-sha256 format
+      note: >
+        The spec's example JSON shows a cosmetic "usr_7f2d8a"-style
+        reference, but requesterRef is pseudonymized with the exact same
+        RequesterPseudonymizer used by Get Ticket's Support view
+        (SPEC-TW-002), producing "hmac-sha256:<hex>", so the same
+        requester maps to the same reference on both endpoints. The
+        response schema places no pattern constraint on this field (only
+        length), so this is schema-compliant.
+    - area: SupportQueueProjection consolidated into SupportTicketSummary
+      note: >
+        The plan lists SupportQueueProjection (infrastructure.query) and
+        SupportTicketSummary (application.query) as separate types for
+        an identical row shape. One record serves as both the JDBC
+        row-mapper output and the application-layer query result item,
+        mirroring the RequesterTicketSummary precedent from SPEC-TW-003
+        rather than introducing a redundant intermediate mapping step.
+    - area: SupportQueuePageResponse implemented as a nested Page record
+      note: >
+        Implemented as SupportQueueResponse.Page rather than a separate
+        top-level class, matching the RequesterTicketListResponse.Page
+        precedent from SPEC-TW-003.
+    - area: optional SUPPORT_QUEUE_ACCESSED summary audit record not implemented
+      note: >
+        Section 21 describes this as policy-dependent ("Policy may
+        require..."). No acceptance scenario or Definition-of-Done
+        checkbox requires it, and implementing untested audit behavior
+        risks a false sense of coverage; SupportQueueDoesNotCreateOutboxIT
+        confirms zero audit_records rows are created by a Queue query.
+    - area: dedicated SupportTicketQueryController instead of a third PublicTicketQueryController route
+      note: >
+        /api/v1/support/tickets is already a distinct path prefix from
+        /api/v1/tickets (unlike Get Ticket/List Requester Tickets, which
+        share one path and therefore share one controller), so there is
+        no Spring MVC route-ambiguity reason to merge controllers. A
+        dedicated class in ticket.api.support also matches this spec's
+        own package mapping (§27) exactly.
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (451/451: 345 unit/component/
+      security/contract + 106 integration, including ArchUnit and 10 new
+      Support Queue PostgreSQL integration test classes covering
+      field-level projection, the default non-terminal-status filter,
+      every filter dimension (status/priority/applicationCode/
+      assignedTeam/assignedAgent/unassignedOnly/slaState/date-range),
+      slaRank/priorityRank/createdAt/ticketId stable sort and tie-
+      breaking, keyset pagination (walk-all-pages, no-repeat-across-
+      pages), query-plan/no-seq-scan, non-mutation of the Ticket,
+      no-Outbox/no-audit-row creation, SQL-level application/team scope
+      authorization, and cross-actor scope isolation including cursor
+      rejection after a scope change. Two real production bugs were
+      found and fixed during IT verification: (1) a PostgreSQL
+      parameter-type-inference failure on the nullable assignedAgent
+      filter ("could not determine data type of parameter"), the same
+      class of issue as SPEC-TW-003's nullable date-filter bug, fixed
+      with an explicit ::text cast; (2) new IT test fixtures seeding
+      CLOSED/CANCELLED Tickets violated ticket.tickets' status-specific
+      CHECK constraints (missing closed_at/close_reason_code/
+      cancelled_at/cancel_reason_code) — the same fix pattern already
+      applied in SPEC-TW-003's and SPEC-TW-004's fixture base classes,
+      just not yet carried into this new one. Two test-only pitfalls
+      were also found and fixed (no production code changes): fixture
+      dates fixed to a past calendar literal were historically in the
+      past relative to the query's real evaluationTime (Instant.now()),
+      causing every seeded Ticket to misclassify as BREACHED regardless
+      of test intent, fixed by anchoring SLA-sensitive fixtures to
+      Instant.now() with explicit before/after offsets; and a
+      java.util.UUID#compareTo-vs-PostgreSQL byte-wise UUID ordering
+      mismatch in one tie-breaker test (the same class of issue
+      documented during SPEC-TW-003), fixed by reading the expected
+      order back from PostgreSQL directly. Built and verified with
+      -Denforcer.skip=true because only JDK 25 is installed in this
+      environment, and with `caffeinate -dis` to prevent system sleep
+      from interrupting the ~14-15 minute unattended run. CI run
+      pending.

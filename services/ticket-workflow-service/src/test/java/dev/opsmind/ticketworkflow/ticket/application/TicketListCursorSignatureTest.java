@@ -25,7 +25,7 @@ class TicketListCursorSignatureTest {
 
     private TicketListCursorCodec codecFor(String secret) {
         TicketWorkflowProperties properties = new TicketWorkflowProperties(
-            "unit-test-secret", secret, new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24))
+            "unit-test-secret", secret, new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4))
         );
         return new TicketListCursorCodec(new ObjectMapper().findAndRegisterModules(), new TicketListCursorSigner(properties));
     }

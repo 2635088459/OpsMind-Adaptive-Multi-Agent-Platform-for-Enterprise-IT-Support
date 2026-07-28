@@ -101,7 +101,18 @@ SPEC-TW-005:
       - SupportQueueTelemetryRedactionTest
 
   status:
-    specification: proposed
-    tests: not_started
-    implementation: not_started
-    verification: not_started
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (451/451: 345 unit/component/
+      security/contract + 106 integration). See
+      docs/traceability/02-ticket-workflow/traceability-matrix.yaml's
+      SPEC-TW-005 entry for the full test breakdown, known deviations
+      from this plan, and the real bugs found and fixed during
+      verification (a PostgreSQL parameter-type-inference failure on the
+      assignedAgent filter; missing CLOSED/CANCELLED CHECK-constraint
+      fields in a new test fixture base class). Built and verified with
+      -Denforcer.skip=true because only JDK 25 is installed in this
+      environment, and with `caffeinate -dis` to prevent system sleep
+      from interrupting the run. CI run pending.

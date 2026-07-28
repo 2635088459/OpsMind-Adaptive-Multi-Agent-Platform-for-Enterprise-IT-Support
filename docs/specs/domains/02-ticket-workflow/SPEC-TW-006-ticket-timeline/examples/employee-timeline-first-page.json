@@ -1,0 +1,76 @@
+{
+  "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+  "displayId": "INC-2048",
+  "viewType": "EMPLOYEE_PUBLIC_VIEW",
+  "items": [
+    {
+      "itemId": "TICKET_CREATED:018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+      "itemType": "TICKET_CREATED",
+      "visibility": "PUBLIC",
+      "occurredAt": "2026-07-23T16:30:00Z",
+      "actor": {
+        "type": "EMPLOYEE",
+        "displayLabel": "You"
+      },
+      "summary": "Ticket created",
+      "content": null,
+      "metadata": {
+        "fromStatus": null,
+        "toStatus": null,
+        "messageType": null,
+        "relatedVersion": 0
+      }
+    },
+    {
+      "itemId": "STATUS_HISTORY:0190aaaa-0000-7000-8000-000000000001",
+      "itemType": "STATUS_CHANGED",
+      "visibility": "PUBLIC",
+      "occurredAt": "2026-07-23T16:30:00Z",
+      "actor": {
+        "type": "SYSTEM",
+        "displayLabel": "System"
+      },
+      "summary": "Status changed to NEW",
+      "content": null,
+      "metadata": {
+        "fromStatus": null,
+        "toStatus": "NEW",
+        "messageType": null,
+        "relatedVersion": 0
+      }
+    },
+    {
+      "itemId": "MESSAGE:0190abcd-1234-7000-8000-000000000001",
+      "itemType": "PUBLIC_REQUESTER_MESSAGE",
+      "visibility": "PUBLIC",
+      "occurredAt": "2026-07-25T18:30:00Z",
+      "actor": {
+        "type": "EMPLOYEE",
+        "displayLabel": "You"
+      },
+      "summary": "You added a message",
+      "content": "I restarted the VPN client, but the error still appears.",
+      "metadata": {
+        "fromStatus": null,
+        "toStatus": null,
+        "messageType": "PUBLIC_REQUESTER_MESSAGE",
+        "relatedVersion": 0
+      }
+    }
+  ],
+  "page": {
+    "limit": 3,
+    "hasMore": true,
+    "nextCursor": "eyJ2ZXJzaW9uIjoxLCJvcGVyYXRpb24iOiJ0aWNrZXRUaW1lbGluZSJ9.signature",
+    "snapshotAt": "2026-07-25T20:00:00Z",
+    "consistency": "SNAPSHOT"
+  },
+  "sort": {
+    "version": 1,
+    "fields": [
+      "occurredAt:asc",
+      "itemTypeRank:asc",
+      "itemId:asc"
+    ]
+  }
+}

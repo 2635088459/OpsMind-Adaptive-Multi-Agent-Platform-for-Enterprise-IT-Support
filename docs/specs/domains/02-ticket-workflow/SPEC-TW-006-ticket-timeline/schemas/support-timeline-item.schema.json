@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-timeline-item.schema.json",
+  "title": "Support Timeline Item",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "itemId",
+    "itemType",
+    "visibility",
+    "occurredAt",
+    "actor",
+    "summary",
+    "content",
+    "metadata"
+  ],
+  "properties": {
+    "itemId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "itemType": {
+      "type": "string",
+      "enum": [
+        "TICKET_CREATED",
+        "STATUS_CHANGED",
+        "PUBLIC_REQUESTER_MESSAGE",
+        "PUBLIC_SUPPORT_MESSAGE",
+        "INTERNAL_SUPPORT_NOTE"
+      ]
+    },
+    "visibility": {
+      "type": "string",
+      "enum": [
+        "PUBLIC",
+        "INTERNAL"
+      ]
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "displayLabel",
+        "actorRef"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "EMPLOYEE",
+            "IT_SUPPORT",
+            "IT_ADMIN",
+            "IT_MANAGER",
+            "SYSTEM"
+          ]
+        },
+        "displayLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "actorRef": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "content": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 8000
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromStatus",
+        "toStatus",
+        "messageType",
+        "transitionId",
+        "reasonCode",
+        "relatedVersion"
+      ],
+      "properties": {
+        "fromStatus": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "TRIAGING",
+                "INVESTIGATING",
+                "WAITING_FOR_USER",
+                "WAITING_FOR_APPROVAL",
+                "EXECUTING",
+                "VERIFYING",
+                "RESOLVED",
+                "CLOSED",
+                "ESCALATED",
+                "FAILED",
+                "CANCELLED"
+              ]
+            }
+          ]
+        },
+        "toStatus": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "TRIAGING",
+                "INVESTIGATING",
+                "WAITING_FOR_USER",
+                "WAITING_FOR_APPROVAL",
+                "EXECUTING",
+                "VERIFYING",
+                "RESOLVED",
+                "CLOSED",
+                "ESCALATED",
+                "FAILED",
+                "CANCELLED"
+              ]
+            }
+          ]
+        },
+        "messageType": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "PUBLIC_REQUESTER_MESSAGE",
+                "PUBLIC_SUPPORT_MESSAGE",
+                "INTERNAL_SUPPORT_NOTE"
+              ]
+            }
+          ]
+        },
+        "transitionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 50
+        },
+        "reasonCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "relatedVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

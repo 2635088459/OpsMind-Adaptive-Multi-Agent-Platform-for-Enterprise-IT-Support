@@ -99,7 +99,7 @@ class CreateTicketApplicationServiceTest {
                 "unit-test-secret",
                 "unit-test-cursor-secret",
                 new dev.opsmind.ticketworkflow.configuration.TicketWorkflowProperties.Sla(
-                    "DEFAULT", java.time.Duration.ofHours(4), java.time.Duration.ofHours(24)
+                    "DEFAULT", java.time.Duration.ofHours(4), java.time.Duration.ofHours(24), java.time.Duration.ofHours(4)
                 )
             )
         );

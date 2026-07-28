@@ -1,0 +1,347 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-queue-response.json",
+  "title": "Support Queue Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items",
+    "page",
+    "sort",
+    "appliedFilters"
+  ],
+  "$defs": {
+    "supportTicketSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ticketId",
+        "displayId",
+        "title",
+        "applicationCode",
+        "status",
+        "priority",
+        "requesterRef",
+        "assignment",
+        "sla",
+        "createdAt",
+        "updatedAt",
+        "version"
+      ],
+      "properties": {
+        "ticketId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "displayId": {
+          "type": "string",
+          "pattern": "^INC-[0-9]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "applicationCode": {
+          "type": "string",
+          "enum": [
+            "HOUSING_PORTAL",
+            "EMAIL",
+            "VPN",
+            "OTHER"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NEW",
+            "TRIAGING",
+            "INVESTIGATING",
+            "WAITING_FOR_USER",
+            "WAITING_FOR_APPROVAL",
+            "EXECUTING",
+            "VERIFYING",
+            "RESOLVED",
+            "ESCALATED",
+            "FAILED"
+          ]
+        },
+        "priority": {
+          "type": "string",
+          "enum": [
+            "UNASSIGNED",
+            "P1",
+            "P2",
+            "P3",
+            "P4"
+          ]
+        },
+        "requesterRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "assignment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "teamId",
+            "agentId",
+            "unassigned"
+          ],
+          "properties": {
+            "teamId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 128
+            },
+            "agentId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 128
+            },
+            "unassigned": {
+              "type": "boolean"
+            }
+          }
+        },
+        "sla": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "responseDueAt",
+            "resolutionDueAt",
+            "urgencyRank"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "BREACHED",
+                "AT_RISK",
+                "ACTIVE",
+                "PAUSED",
+                "COMPLETED"
+              ]
+            },
+            "responseDueAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "resolutionDueAt": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "urgencyRank": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4
+            }
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/supportTicketSummary"
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limit",
+        "hasMore",
+        "nextCursor",
+        "evaluationTime",
+        "consistency"
+      ],
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "evaluationTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "consistency": {
+          "const": "LIVE"
+        }
+      }
+    },
+    "sort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "fields"
+      ],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "const": 1
+        },
+        "fields": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "slaRank:asc"
+            },
+            {
+              "const": "priorityRank:asc"
+            },
+            {
+              "const": "createdAt:asc"
+            },
+            {
+              "const": "ticketId:asc"
+            }
+          ],
+          "items": false,
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    },
+    "appliedFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "priority",
+        "applicationCode",
+        "assignedTeam",
+        "assignedAgent",
+        "unassignedOnly",
+        "slaState",
+        "createdFrom",
+        "createdTo"
+      ],
+      "properties": {
+        "status": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 10,
+          "items": {
+            "type": "string"
+          }
+        },
+        "priority": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "enum": [
+              "UNASSIGNED",
+              "P1",
+              "P2",
+              "P3",
+              "P4"
+            ]
+          }
+        },
+        "applicationCode": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 4,
+          "items": {
+            "type": "string",
+            "enum": [
+              "HOUSING_PORTAL",
+              "EMAIL",
+              "VPN",
+              "OTHER"
+            ]
+          }
+        },
+        "assignedTeam": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "assignedAgent": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "unassignedOnly": {
+          "type": "boolean"
+        },
+        "slaState": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "enum": [
+              "BREACHED",
+              "AT_RISK",
+              "ACTIVE",
+              "PAUSED",
+              "COMPLETED"
+            ]
+          }
+        },
+        "createdFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "createdTo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

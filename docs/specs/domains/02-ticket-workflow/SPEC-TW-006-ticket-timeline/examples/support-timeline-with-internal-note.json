@@ -1,0 +1,64 @@
+{
+  "ticketId": "018f0f1e-7b31-7a00-8f42-31f9b25b1a91",
+  "displayId": "INC-2048",
+  "viewType": "SUPPORT_INTERNAL_VIEW",
+  "items": [
+    {
+      "itemId": "STATUS_HISTORY:0190aaaa-0000-7000-8000-000000000002",
+      "itemType": "STATUS_CHANGED",
+      "visibility": "PUBLIC",
+      "occurredAt": "2026-07-25T17:00:00Z",
+      "actor": {
+        "type": "IT_SUPPORT",
+        "displayLabel": "Support agent",
+        "actorRef": "agent_7b91"
+      },
+      "summary": "Status changed from NEW to INVESTIGATING",
+      "content": null,
+      "metadata": {
+        "fromStatus": "NEW",
+        "toStatus": "INVESTIGATING",
+        "messageType": null,
+        "transitionId": "SM-003",
+        "reasonCode": "INVESTIGATION_STARTED",
+        "relatedVersion": 1
+      }
+    },
+    {
+      "itemId": "MESSAGE:0190abcd-1234-7000-8000-000000000003",
+      "itemType": "INTERNAL_SUPPORT_NOTE",
+      "visibility": "INTERNAL",
+      "occurredAt": "2026-07-25T19:10:00Z",
+      "actor": {
+        "type": "IT_SUPPORT",
+        "displayLabel": "Support agent",
+        "actorRef": "agent_7b91"
+      },
+      "summary": "Internal support note added",
+      "content": "Identity verification is still required.",
+      "metadata": {
+        "fromStatus": null,
+        "toStatus": null,
+        "messageType": "INTERNAL_SUPPORT_NOTE",
+        "transitionId": null,
+        "reasonCode": null,
+        "relatedVersion": 0
+      }
+    }
+  ],
+  "page": {
+    "limit": 50,
+    "hasMore": false,
+    "nextCursor": null,
+    "snapshotAt": "2026-07-25T20:00:00Z",
+    "consistency": "SNAPSHOT"
+  },
+  "sort": {
+    "version": 1,
+    "fields": [
+      "occurredAt:asc",
+      "itemTypeRank:asc",
+      "itemId:asc"
+    ]
+  }
+}

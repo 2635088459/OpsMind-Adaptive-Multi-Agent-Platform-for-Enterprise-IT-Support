@@ -156,4 +156,40 @@ public class TicketTelemetry {
             .register(meterRegistry)
             .increment();
     }
+
+    public Timer.Sample startSupportQueueTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopSupportQueueTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_support_queue_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordSupportQueueList(boolean cursorPresent, int resultCount) {
+        Counter.builder("opsmind_support_queue_list_total")
+            .tag("cursor_present", String.valueOf(cursorPresent))
+            .register(meterRegistry)
+            .increment();
+        DistributionSummary.builder("opsmind_support_queue_result_count")
+            .register(meterRegistry)
+            .record(resultCount);
+    }
+
+    public void recordSupportQueueInvalidCursor() {
+        Counter.builder("opsmind_support_queue_invalid_cursor_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSupportQueueAuthorizationDenied() {
+        Counter.builder("opsmind_support_queue_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSupportQueueFilterOutsideScope() {
+        Counter.builder("opsmind_support_queue_filter_outside_scope_total")
+            .register(meterRegistry)
+            .increment();
+    }
 }

@@ -1,0 +1,119 @@
+SPEC-TW-006:
+  title: Ticket Timeline
+  phase: IMP-TW-P02
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+    - SPEC-TW-004
+    - SPEC-TW-005
+
+  design:
+    use_cases:
+      - UC-06
+    api:
+      - API-006
+    state_transitions: []
+    published_events: []
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 07-data-model
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    constraints_to_confirm:
+      - timeline_visibility_invariant_id
+      - timeline_ordering_invariant_id
+      - timeline_snapshot_pagination_invariant_id
+      - support_internal_timeline_scope_rule_id
+      - timeline_sensitive_read_audit_rule_id
+      - timeline_query_performance_id
+
+  planned_implementation:
+    entry_points:
+      - TicketTimelineController
+      - SupportTicketTimelineController
+    application:
+      - GetTicketTimelineUseCase
+      - GetTicketTimelineApplicationService
+      - TicketTimelineQuery
+      - TicketTimelineResult
+      - TicketTimelineItem
+      - TicketTimelineCursor
+      - TicketTimelineViewType
+      - TicketTimelineSortVersion
+      - TimelineSnapshot
+      - TicketTimelineViewPolicy
+    ports:
+      - TicketTimelineQueryPort
+      - SensitiveReadAuditPort
+    infrastructure:
+      - JdbcTicketTimelineQueryAdapter
+      - TicketTimelineProjection
+      - TicketTimelineCursorCodec
+      - TicketTimelineCursorSigner
+      - TicketTimelineQuerySql
+
+  schemas:
+    - schemas/employee-timeline-response.schema.json
+    - schemas/support-timeline-response.schema.json
+    - schemas/employee-timeline-item.schema.json
+    - schemas/support-timeline-item.schema.json
+    - schemas/invalid-cursor-error.schema.json
+    - schemas/error-envelope.schema.json
+
+  planned_tests:
+    application:
+      - GetTicketTimelineApplicationServiceTest
+      - TicketTimelineViewPolicyTest
+      - TicketTimelineMappingTest
+      - TicketTimelinePageSizeTest
+    authorization:
+      - TicketTimelineRequesterOwnershipIT
+      - TicketTimelineSupportScopeIT
+      - TicketTimelineResourceHidingTest
+      - EmployeeTimelineVisibilityTest
+      - SupportPublicTimelineVisibilityTest
+      - SupportInternalTimelineVisibilityTest
+      - AuditorTimelinePolicyTest
+    cursor:
+      - TicketTimelineCursorCodecTest
+      - TicketTimelineCursorSignatureTest
+      - TicketTimelineCursorExpiryTest
+      - TicketTimelineCursorTicketBindingTest
+      - TicketTimelineCursorActorBindingTest
+      - TicketTimelineCursorScopeBindingTest
+      - TicketTimelineCursorViewBindingTest
+      - TicketTimelineCursorSortVersionTest
+      - TicketTimelineSnapshotPaginationIT
+      - TicketTimelineNewItemAfterSnapshotIT
+    api:
+      - TicketTimelineControllerTest
+      - TicketTimelineInvalidIdTest
+      - TicketTimelineEmptyResponseTest
+      - TicketTimelineErrorContractTest
+    integration:
+      - TicketTimelineProjectionIT
+      - TicketTimelineOrderingIT
+      - TicketTimelineEqualTimestampTieBreakerIT
+      - TicketTimelinePublicOnlyQueryIT
+      - TicketTimelineInternalQueryIT
+      - TicketTimelineQueryPlanIT
+      - TicketTimelineDoesNotMutateTicketIT
+      - TicketTimelineDoesNotCreateOutboxIT
+    audit_and_privacy:
+      - TicketTimelineSensitiveReadAuditIT
+      - TicketTimelineAuditFailureIT
+      - TicketTimelineResponseRedactionTest
+      - TicketTimelineTelemetryRedactionTest
+
+  status:
+    specification: proposed
+    tests: not_started
+    implementation: not_started
+    verification: not_started

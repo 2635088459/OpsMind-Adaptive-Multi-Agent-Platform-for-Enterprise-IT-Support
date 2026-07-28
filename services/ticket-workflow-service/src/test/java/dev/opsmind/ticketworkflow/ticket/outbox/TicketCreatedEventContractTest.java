@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TicketCreatedEventContractTest {
 
     private final RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(
-        new TicketWorkflowProperties("contract-test-secret", "unit-test-cursor-secret", new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24)))
+        new TicketWorkflowProperties("contract-test-secret", "unit-test-cursor-secret", new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4)))
     );
     private final TicketIntegrationEventMapper mapper = new TicketIntegrationEventMapper(pseudonymizer);
     private final JsonSchemaEventValidator validator = new JsonSchemaEventValidator(new ObjectMapper());
