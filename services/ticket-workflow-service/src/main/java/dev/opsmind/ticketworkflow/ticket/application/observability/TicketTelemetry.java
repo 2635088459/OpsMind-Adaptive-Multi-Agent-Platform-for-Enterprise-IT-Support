@@ -1,6 +1,8 @@
 package dev.opsmind.ticketworkflow.ticket.application.observability;
 
 import dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType;
+import dev.opsmind.ticketworkflow.ticket.domain.message.MessageVisibility;
+import dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessageType;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ApplicationCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketSource;
 import io.micrometer.core.instrument.Counter;
@@ -110,6 +112,47 @@ public class TicketTelemetry {
 
     public void recordListAuthorizationDenied() {
         Counter.builder("opsmind_ticket_list_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startMessageAddTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopMessageAddTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_message_add_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordMessageAdd(String actorType, TicketMessageType messageType, MessageVisibility visibility) {
+        Counter.builder("opsmind_ticket_message_add_total")
+            .tag("actor_type", actorType)
+            .tag("message_type", messageType.name())
+            .tag("visibility", visibility.name())
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordMessageReplay() {
+        Counter.builder("opsmind_ticket_message_replay_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordMessageStateRejected() {
+        Counter.builder("opsmind_ticket_message_state_rejected_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordMessageAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_message_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordMessageSecretRejected() {
+        Counter.builder("opsmind_ticket_message_secret_rejected_total")
             .register(meterRegistry)
             .increment();
     }

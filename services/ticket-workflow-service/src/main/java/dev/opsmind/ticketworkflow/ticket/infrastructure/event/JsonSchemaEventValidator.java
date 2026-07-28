@@ -25,7 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class JsonSchemaEventValidator implements EventSchemaValidator {
 
     private static final Map<String, String> SCHEMA_LOCATIONS = Map.of(
-        "ticket.created:1", "event-schemas/ticket/published/ticket-created-v1.schema.json"
+        "ticket.created:1", "event-schemas/ticket/published/ticket-created-v1.schema.json",
+        "ticket.message.added:1", "event-schemas/ticket/published/ticket-message-added-v1.schema.json"
     );
 
     private final JsonSchemaFactory schemaFactory;

@@ -109,7 +109,16 @@ SPEC-TW-004:
       - TicketMessageTelemetryRedactionTest
 
   status:
-    specification: proposed
-    tests: not_started
-    implementation: not_started
-    verification: not_started
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (333/333: 252 unit/component/
+      security/contract + 81 integration). See
+      docs/traceability/02-ticket-workflow/traceability-matrix.yaml's
+      SPEC-TW-004 entry for the full test breakdown, known deviations
+      from this plan, and the two real bugs found and fixed during
+      verification (Surefire/Failsafe fork isolation for a Testcontainers-
+      backed test; audit_records not cleared between test methods in one
+      IT class). Built and verified with -Denforcer.skip=true because
+      only JDK 25 is installed in this environment. CI run pending.

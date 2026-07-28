@@ -8,6 +8,7 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorExce
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.TicketMessageNotAllowedInStateException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -64,6 +65,11 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(TicketNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleTicketNotFound(TicketNotFoundException ex, HttpServletRequest request) {
         return build(HttpStatus.NOT_FOUND, "TICKET_NOT_FOUND", "The Ticket was not found.", request);
+    }
+
+    @ExceptionHandler(TicketMessageNotAllowedInStateException.class)
+    public ResponseEntity<ErrorResponse> handleMessageNotAllowedInState(TicketMessageNotAllowedInStateException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "MESSAGE_NOT_ALLOWED_IN_STATE", "A message cannot be added while the Ticket is in its current state.", request);
     }
 
     /**
