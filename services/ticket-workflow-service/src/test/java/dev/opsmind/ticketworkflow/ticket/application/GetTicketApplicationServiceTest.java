@@ -114,8 +114,7 @@ class GetTicketApplicationServiceTest {
         verify(sensitiveReadAuditPort).recordSensitiveRead(captor.capture());
         assertThat(captor.getValue().actorId()).isEqualTo("support-100");
         assertThat(captor.getValue().resourceId()).isEqualTo(TICKET_ID.toString());
-        assertThat(captor.getValue().viewType())
-            .isEqualTo(dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType.SUPPORT_VIEW);
+        assertThat(captor.getValue().viewType()).isEqualTo("SUPPORT_VIEW");
         assertThat(captor.getValue().outcome()).isEqualTo("SUCCESS");
     }
 

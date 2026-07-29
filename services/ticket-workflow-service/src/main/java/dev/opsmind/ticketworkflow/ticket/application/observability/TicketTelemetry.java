@@ -1,5 +1,6 @@
 package dev.opsmind.ticketworkflow.ticket.application.observability;
 
+import dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineViewType;
 import dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType;
 import dev.opsmind.ticketworkflow.ticket.domain.message.MessageVisibility;
 import dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessageType;
@@ -189,6 +190,49 @@ public class TicketTelemetry {
 
     public void recordSupportQueueFilterOutsideScope() {
         Counter.builder("opsmind_support_queue_filter_outside_scope_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startTimelineTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopTimelineTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_timeline_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordTimeline(TicketTimelineViewType viewType, boolean cursorPresent, int resultCount) {
+        Counter.builder("opsmind_ticket_timeline_total")
+            .tag("view_type", viewType.name())
+            .tag("cursor_present", String.valueOf(cursorPresent))
+            .register(meterRegistry)
+            .increment();
+        DistributionSummary.builder("opsmind_ticket_timeline_result_count")
+            .register(meterRegistry)
+            .record(resultCount);
+    }
+
+    public void recordTimelineNotFound() {
+        Counter.builder("opsmind_ticket_timeline_not_found_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTimelineAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_timeline_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTimelineInvalidCursor() {
+        Counter.builder("opsmind_ticket_timeline_invalid_cursor_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTimelineSensitiveReadAuditFailure() {
+        Counter.builder("opsmind_ticket_timeline_sensitive_read_audit_failure_total")
             .register(meterRegistry)
             .increment();
     }

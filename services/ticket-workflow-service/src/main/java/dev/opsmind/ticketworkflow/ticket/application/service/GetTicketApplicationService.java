@@ -102,7 +102,7 @@ public class GetTicketApplicationService implements GetTicketUseCase {
                 query.actor().subject(),
                 query.actor().clientId(),
                 query.ticketId().toString(),
-                viewType,
+                viewType.name(),
                 FIELDS_POLICY_VERSION,
                 currentTraceId(),
                 "SUCCESS",

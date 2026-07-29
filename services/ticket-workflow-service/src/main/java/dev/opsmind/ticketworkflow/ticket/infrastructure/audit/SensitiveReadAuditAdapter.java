@@ -47,7 +47,7 @@ public class SensitiveReadAuditAdapter implements SensitiveReadAuditPort {
             entry.outcome(),
             "SENSITIVE",
             entry.occurredAt(),
-            entry.viewType().name(),
+            entry.viewType(),
             entry.fieldsPolicyVersion()
         ));
     }

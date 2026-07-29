@@ -113,7 +113,21 @@ SPEC-TW-006:
       - TicketTimelineTelemetryRedactionTest
 
   status:
-    specification: proposed
-    tests: not_started
-    implementation: not_started
-    verification: not_started
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (572/572 tests: 437 unit/
+      component/security/contract + 135 integration, zero failures,
+      zero regressions in SPEC-TW-001 through SPEC-TW-005). This pass
+      added the API/component, PostgreSQL integration, and privacy/
+      contract tiers (57 new tests across 20 new test classes plus the
+      shared AbstractTicketTimelineIT fixture base) on top of the 18
+      application/cursor/policy unit test classes already written. See
+      docs/traceability/02-ticket-workflow/traceability-matrix.yaml's
+      SPEC-TW-006 entry for the full test list, file inventory, and
+      known deviations from this plan. No production bugs were found;
+      two test-authoring-only issues were found and fixed (schema
+      conformance validated against a manually built ErrorResponse
+      instead of a live MDC-less MockMvc body; classpath URI mapping
+      added for the response schemas' cross-file $ref). CI run pending.

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/employee-timeline-item.schema.json",
+  "title": "Employee Timeline Item",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "itemId",
+    "itemType",
+    "visibility",
+    "occurredAt",
+    "actor",
+    "summary",
+    "content",
+    "metadata"
+  ],
+  "properties": {
+    "itemId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "itemType": {
+      "type": "string",
+      "enum": [
+        "TICKET_CREATED",
+        "STATUS_CHANGED",
+        "PUBLIC_REQUESTER_MESSAGE",
+        "PUBLIC_SUPPORT_MESSAGE"
+      ]
+    },
+    "visibility": {
+      "const": "PUBLIC"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "displayLabel"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "EMPLOYEE",
+            "IT_SUPPORT",
+            "SYSTEM"
+          ]
+        },
+        "displayLabel": {
+          "type": "string",
+          "enum": [
+            "You",
+            "IT Support",
+            "System"
+          ]
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "content": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 8000
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fromStatus",
+        "toStatus",
+        "messageType",
+        "relatedVersion"
+      ],
+      "properties": {
+        "fromStatus": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "TRIAGING",
+                "INVESTIGATING",
+                "WAITING_FOR_USER",
+                "WAITING_FOR_APPROVAL",
+                "EXECUTING",
+                "VERIFYING",
+                "RESOLVED",
+                "CLOSED",
+                "ESCALATED",
+                "FAILED",
+                "CANCELLED"
+              ]
+            }
+          ]
+        },
+        "toStatus": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "TRIAGING",
+                "INVESTIGATING",
+                "WAITING_FOR_USER",
+                "WAITING_FOR_APPROVAL",
+                "EXECUTING",
+                "VERIFYING",
+                "RESOLVED",
+                "CLOSED",
+                "ESCALATED",
+                "FAILED",
+                "CANCELLED"
+              ]
+            }
+          ]
+        },
+        "messageType": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "enum": [
+                "PUBLIC_REQUESTER_MESSAGE",
+                "PUBLIC_SUPPORT_MESSAGE"
+              ]
+            }
+          ]
+        },
+        "relatedVersion": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

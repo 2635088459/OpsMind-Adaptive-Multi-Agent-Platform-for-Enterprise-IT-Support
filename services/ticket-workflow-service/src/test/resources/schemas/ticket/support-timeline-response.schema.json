@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/ticket/support-timeline-response.schema.json",
+  "title": "Support Ticket Timeline Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ticketId",
+    "displayId",
+    "viewType",
+    "items",
+    "page",
+    "sort"
+  ],
+  "properties": {
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "displayId": {
+      "type": "string",
+      "pattern": "^INC-[0-9]+$"
+    },
+    "viewType": {
+      "type": "string",
+      "enum": [
+        "SUPPORT_PUBLIC_VIEW",
+        "SUPPORT_INTERNAL_VIEW"
+      ]
+    },
+    "items": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "support-timeline-item.schema.json"
+      }
+    },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "limit",
+        "hasMore",
+        "nextCursor",
+        "snapshotAt",
+        "consistency"
+      ],
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        },
+        "snapshotAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "consistency": {
+          "const": "SNAPSHOT"
+        }
+      }
+    },
+    "sort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "fields"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "fields": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "occurredAt:asc"
+            },
+            {
+              "const": "itemTypeRank:asc"
+            },
+            {
+              "const": "itemId:asc"
+            }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    }
+  }
+}
