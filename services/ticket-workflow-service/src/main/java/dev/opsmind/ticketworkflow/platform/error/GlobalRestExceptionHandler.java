@@ -1,16 +1,24 @@
 package dev.opsmind.ticketworkflow.platform.error;
 
+import dev.opsmind.ticketworkflow.ticket.api.exception.PreconditionRequiredException;
 import dev.opsmind.ticketworkflow.ticket.api.exception.RequestValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.DisplayIdGenerationExhaustedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.EventSchemaValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuthorizedScopeException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.QueueAccessDeniedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueInvalidException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketMessageNotAllowedInStateException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.TicketVersionConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.TriageCategoryInvalidException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.TriageNotAllowedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.TriageSubcategoryInvalidException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,6 +34,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.util.Map;
 
 /**
  * Maps application and validation exceptions to the approved error envelope
@@ -105,6 +115,56 @@ public class GlobalRestExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "FORBIDDEN", "The actor is not authorized to perform this action.", request);
     }
 
+    /** SPEC-TW-007 AC-08: unlike other 4xx handlers, this one deliberately exposes state. */
+    @ExceptionHandler(InvalidTicketTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidTicketTransition(InvalidTicketTransitionException ex, HttpServletRequest request) {
+        Map<String, Object> details = Map.of(
+            "currentStatus", ex.currentStatus().name(),
+            "requiredStatus", ex.requiredStatus().name()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(bodyOfWithDetails("INVALID_TICKET_STATE", "The ticket is not in the required status for this operation.", request, details));
+    }
+
+    @ExceptionHandler(TriageNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handleTriageNotAllowed(TriageNotAllowedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "TRIAGE_NOT_ALLOWED", "The actor is not permitted to triage tickets.", request);
+    }
+
+    @ExceptionHandler(QueueAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleQueueAccessDenied(QueueAccessDeniedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "QUEUE_ACCESS_DENIED", "The actor is not authorized to triage into the target Support Queue.", request);
+    }
+
+    @ExceptionHandler(TriageCategoryInvalidException.class)
+    public ResponseEntity<ErrorResponse> handleTriageCategoryInvalid(TriageCategoryInvalidException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, "TRIAGE_CATEGORY_INVALID", "The category does not exist or is not active.", request);
+    }
+
+    @ExceptionHandler(TriageSubcategoryInvalidException.class)
+    public ResponseEntity<ErrorResponse> handleTriageSubcategoryInvalid(TriageSubcategoryInvalidException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, "TRIAGE_SUBCATEGORY_INVALID", "The subcategory does not exist, is not active, or does not belong to the selected category.", request);
+    }
+
+    @ExceptionHandler(SupportQueueInvalidException.class)
+    public ResponseEntity<ErrorResponse> handleSupportQueueInvalid(SupportQueueInvalidException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, "SUPPORT_QUEUE_INVALID", "The support queue does not exist or is not active.", request);
+    }
+
+    /** SPEC-TW-007 AC-10: exposes the ticket's current version so the client can render its ETag without a second read. */
+    @ExceptionHandler(TicketVersionConflictException.class)
+    public ResponseEntity<ErrorResponse> handleTicketVersionConflict(TicketVersionConflictException ex, HttpServletRequest request) {
+        Map<String, Object> details = Map.of("currentVersion", ex.currentVersion());
+        return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED)
+            .eTag(String.valueOf(ex.currentVersion()))
+            .body(bodyOfWithDetails("VERSION_CONFLICT", "The ticket was changed by another operation.", request, details));
+    }
+
+    @ExceptionHandler(PreconditionRequiredException.class)
+    public ResponseEntity<ErrorResponse> handlePreconditionRequired(PreconditionRequiredException ex, HttpServletRequest request) {
+        return build(HttpStatus.PRECONDITION_REQUIRED, "PRECONDITION_REQUIRED", "The If-Match header is required.", request);
+    }
+
     @ExceptionHandler(IdempotencyKeyReusedException.class)
     public ResponseEntity<ErrorResponse> handleKeyReused(IdempotencyKeyReusedException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", "The idempotency key was already used with a different request.", request);
@@ -150,5 +210,11 @@ public class GlobalRestExceptionHandler {
         String traceId = MDC.get("traceId");
         String correlationId = request.getHeader("X-Correlation-Id");
         return ErrorResponse.of(code, message, traceId == null ? "" : traceId, correlationId == null ? "" : correlationId);
+    }
+
+    private ErrorResponse bodyOfWithDetails(String code, String message, HttpServletRequest request, Map<String, Object> details) {
+        String traceId = MDC.get("traceId");
+        String correlationId = request.getHeader("X-Correlation-Id");
+        return ErrorResponse.of(code, message, traceId == null ? "" : traceId, correlationId == null ? "" : correlationId, details);
     }
 }

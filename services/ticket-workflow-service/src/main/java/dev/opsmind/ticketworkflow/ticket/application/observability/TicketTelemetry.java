@@ -5,6 +5,7 @@ import dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType;
 import dev.opsmind.ticketworkflow.ticket.domain.message.MessageVisibility;
 import dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessageType;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ApplicationCode;
+import dev.opsmind.ticketworkflow.ticket.domain.value.TicketPriority;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketSource;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
@@ -233,6 +234,53 @@ public class TicketTelemetry {
 
     public void recordTimelineSensitiveReadAuditFailure() {
         Counter.builder("opsmind_ticket_timeline_sensitive_read_audit_failure_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startTriageTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopTriageTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_triage_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordTriaged(TicketPriority priority) {
+        Counter.builder("opsmind_ticket_triage_total")
+            .tag("priority", priority.name())
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTriageReplay() {
+        Counter.builder("opsmind_ticket_triage_replay_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTriageAuthorizationDenied(String reason) {
+        Counter.builder("opsmind_ticket_triage_authorization_denied_total")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTriageStateRejected() {
+        Counter.builder("opsmind_ticket_triage_state_rejected_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTriageVersionConflict() {
+        Counter.builder("opsmind_ticket_triage_version_conflict_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordTriageCatalogInvalid(String catalogType) {
+        Counter.builder("opsmind_ticket_triage_catalog_invalid_total")
+            .tag("catalog_type", catalogType)
             .register(meterRegistry)
             .increment();
     }

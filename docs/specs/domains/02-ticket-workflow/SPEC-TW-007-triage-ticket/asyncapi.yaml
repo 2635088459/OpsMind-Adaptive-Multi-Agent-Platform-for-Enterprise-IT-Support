@@ -1,0 +1,119 @@
+asyncapi: 3.1.0
+info:
+  title: OpsMind Ticket Triaged Event
+  version: 1.0.0
+  description: Event contract for SPEC-TW-007.
+channels:
+  ticketTriaged:
+    address: ticket.triaged.v1
+    messages:
+      ticketTriaged:
+        $ref: '#/components/messages/TicketTriaged'
+operations:
+  publishTicketTriaged:
+    action: send
+    channel:
+      $ref: '#/channels/ticketTriaged'
+    messages:
+      - $ref: '#/channels/ticketTriaged/messages/ticketTriaged'
+components:
+  messages:
+    TicketTriaged:
+      name: ticket.triaged.v1
+      title: Ticket Triaged
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TicketTriagedEvent'
+  schemas:
+    TicketTriagedEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - eventVersion
+        - occurredAt
+        - producer
+        - tenantId
+        - correlationId
+        - causationId
+        - actor
+        - data
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          const: ticket.triaged.v1
+        eventVersion:
+          type: integer
+          const: 1
+        occurredAt:
+          type: string
+          format: date-time
+        producer:
+          type: string
+          const: ticket-workflow-service
+        tenantId:
+          type: string
+          format: uuid
+        correlationId:
+          type: string
+          format: uuid
+        causationId:
+          type: string
+          format: uuid
+        actor:
+          $ref: '#/components/schemas/Actor'
+        data:
+          $ref: '#/components/schemas/TriageData'
+    Actor:
+      type: object
+      additionalProperties: false
+      required: [actorId, actorType]
+      properties:
+        actorId:
+          type: string
+          format: uuid
+        actorType:
+          type: string
+          enum: [USER, SERVICE, SYSTEM]
+    TriageData:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - fromStatus
+        - toStatus
+        - categoryId
+        - subcategoryId
+        - priority
+        - supportQueueId
+        - ticketVersion
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        fromStatus:
+          type: string
+          const: OPEN
+        toStatus:
+          type: string
+          const: TRIAGED
+        categoryId:
+          type: string
+          format: uuid
+        subcategoryId:
+          type: [string, 'null']
+          format: uuid
+        priority:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        supportQueueId:
+          type: string
+          format: uuid
+        ticketVersion:
+          type: integer
+          format: int64
+          minimum: 1

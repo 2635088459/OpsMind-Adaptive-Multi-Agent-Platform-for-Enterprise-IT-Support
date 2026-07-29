@@ -16,7 +16,7 @@ public class TicketHistoryPersistenceAdapter implements TicketHistoryWriter {
     }
 
     @Override
-    public void appendInitial(TicketStatusHistoryEntry entry) {
+    public void append(TicketStatusHistoryEntry entry) {
         repository.save(new TicketStatusHistoryJpaEntity(
             entry.historyId(),
             entry.ticketId().value(),

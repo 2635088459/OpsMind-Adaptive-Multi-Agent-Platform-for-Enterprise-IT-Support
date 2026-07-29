@@ -32,10 +32,17 @@ public record SupportQueueFilters(
     Instant createdTo
 ) {
 
-    private static final int MAX_STATUSES = 10;
+    private static final Set<TicketStatus> TERMINAL_STATUSES = EnumSet.of(TicketStatus.CLOSED, TicketStatus.CANCELLED);
+    /**
+     * Derived from {@link TicketStatus} rather than a fixed literal: every
+     * non-terminal status is a legal filter value, so the cap must track
+     * however many of those exist today, not the count from whenever this
+     * bound was first written (SPEC-TW-007 added {@code TRIAGED}, which
+     * silently broke a hardcoded {@code 10} here).
+     */
+    private static final int MAX_STATUSES = TicketStatus.values().length - TERMINAL_STATUSES.size();
     private static final int MAX_PRIORITIES = 5;
     private static final int MAX_APPLICATION_CODES = 4;
-    private static final Set<TicketStatus> TERMINAL_STATUSES = EnumSet.of(TicketStatus.CLOSED, TicketStatus.CANCELLED);
 
     public SupportQueueFilters {
         statuses = statuses == null || statuses.isEmpty() ? Set.of() : EnumSet.copyOf(statuses);

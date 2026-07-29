@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-triaged-v1.schema.json",
+  "title": "ticket.triaged.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticketId", "fromStatus", "toStatus", "categoryId", "subcategoryId", "priority", "supportQueueId", "ticketVersion"],
+  "properties": {
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "fromStatus": {
+      "type": "string"
+    },
+    "toStatus": {
+      "type": "string",
+      "const": "TRIAGED"
+    },
+    "categoryId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "subcategoryId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "supportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ticketVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

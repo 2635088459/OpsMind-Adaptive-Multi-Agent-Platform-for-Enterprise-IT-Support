@@ -16,4 +16,8 @@ public record ErrorResponse(ErrorDetail error) {
     public static ErrorResponse of(String code, String message, String traceId, String correlationId) {
         return new ErrorResponse(new ErrorDetail(code, message, traceId, correlationId, Map.of()));
     }
+
+    public static ErrorResponse of(String code, String message, String traceId, String correlationId, Map<String, Object> details) {
+        return new ErrorResponse(new ErrorDetail(code, message, traceId, correlationId, details));
+    }
 }

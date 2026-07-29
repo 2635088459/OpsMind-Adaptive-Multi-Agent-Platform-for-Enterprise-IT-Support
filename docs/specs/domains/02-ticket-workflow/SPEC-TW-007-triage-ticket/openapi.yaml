@@ -1,0 +1,186 @@
+openapi: 3.1.0
+info:
+  title: OpsMind Ticket Workflow - Triage Ticket
+  version: 1.0.0
+  description: HTTP contract for SPEC-TW-007.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: https://api.opsmind.dev
+    description: Production
+paths:
+  /api/v1/tickets/{ticketId}/triage:
+    post:
+      operationId: triageTicket
+      summary: Triage an open ticket
+      tags: [Ticket Workflow]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+            pattern: '^"[0-9]+"$'
+          example: '"7"'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriageTicketRequest'
+      responses:
+        '200':
+          description: Ticket triaged or successful idempotent replay
+          headers:
+            ETag:
+              required: true
+              schema:
+                type: string
+                pattern: '^"[0-9]+"$'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TriageTicketResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '412':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '428':
+          $ref: '#/components/responses/Problem'
+        '500':
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Priority:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+    TriageTicketRequest:
+      type: object
+      additionalProperties: false
+      required: [categoryId, priority, supportQueueId, reason]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        subcategoryId:
+          type: [string, 'null']
+          format: uuid
+        priority:
+          $ref: '#/components/schemas/Priority'
+        supportQueueId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    TriageTicketResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - status
+        - categoryId
+        - subcategoryId
+        - priority
+        - supportQueueId
+        - triagedBy
+        - triagedAt
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: TRIAGED
+        categoryId:
+          type: string
+          format: uuid
+        subcategoryId:
+          type: [string, 'null']
+          format: uuid
+        priority:
+          $ref: '#/components/schemas/Priority'
+        supportQueueId:
+          type: string
+          format: uuid
+        triagedBy:
+          type: string
+          format: uuid
+        triagedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    Problem:
+      type: object
+      additionalProperties: true
+      required: [type, title, status, code, detail, instance, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+  responses:
+    Problem:
+      description: Stable problem-details error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

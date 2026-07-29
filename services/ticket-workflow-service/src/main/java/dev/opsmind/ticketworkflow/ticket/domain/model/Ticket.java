@@ -2,14 +2,19 @@ package dev.opsmind.ticketworkflow.ticket.domain.model;
 
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketCreated;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketDomainEvent;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketTriaged;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ApplicationCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.RequesterId;
+import dev.opsmind.ticketworkflow.ticket.domain.value.SupportQueueId;
+import dev.opsmind.ticketworkflow.ticket.domain.value.TicketCategoryId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketDescription;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketDisplayId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketPriority;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketSource;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketStatus;
+import dev.opsmind.ticketworkflow.ticket.domain.value.TicketSubcategoryId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketTitle;
 
 import java.time.Instant;
@@ -135,6 +140,63 @@ public final class Ticket {
         ));
 
         return ticket;
+    }
+
+    /**
+     * SPEC-TW-007 §2: {@code OPEN → TRIAGED} ("OPEN" is this codebase's
+     * {@link TicketStatus#NEW}, see {@link TicketStatus}'s Javadoc).
+     * Write commands in this codebase never rehydrate a full {@link
+     * Ticket} instance from storage (the guard-projection pattern
+     * established by SPEC-TW-004 loads only the fields a command needs) —
+     * this is therefore a stateless rule over the caller-supplied current
+     * status/version rather than an instance method mutating a loaded
+     * aggregate, but it stays on {@code Ticket} because the rule belongs
+     * to the Ticket aggregate's contract, not to any one command's
+     * application service. Catalog existence/active checks and queue
+     * authorization are the caller's responsibility (they need I/O this
+     * pure method must not perform); this method only enforces the state
+     * guard and produces the event the caller persists.
+     */
+    public static TicketTriaged triage(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        long currentVersion,
+        TicketCategoryId categoryId,
+        TicketSubcategoryId subcategoryId,
+        TicketPriority priority,
+        SupportQueueId supportQueueId,
+        String triagedByActorType,
+        String triagedByActorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(categoryId, "categoryId must not be null");
+        Objects.requireNonNull(priority, "priority must not be null");
+        Objects.requireNonNull(supportQueueId, "supportQueueId must not be null");
+        Objects.requireNonNull(triagedByActorType, "triagedByActorType must not be null");
+        Objects.requireNonNull(triagedByActorId, "triagedByActorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (priority == TicketPriority.UNASSIGNED) {
+            throw new IllegalArgumentException("priority must be an explicit value, not UNASSIGNED");
+        }
+        if (currentStatus != TicketStatus.NEW) {
+            throw new InvalidTicketTransitionException(currentStatus, TicketStatus.NEW);
+        }
+
+        return new TicketTriaged(
+            ticketId,
+            currentStatus,
+            TicketStatus.TRIAGED,
+            categoryId,
+            subcategoryId,
+            priority,
+            supportQueueId,
+            triagedByActorType,
+            triagedByActorId,
+            currentVersion + 1,
+            occurredAt
+        );
     }
 
     public List<TicketDomainEvent> pullDomainEvents() {

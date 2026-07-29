@@ -46,10 +46,11 @@ class SupportQueueFilterValidationTest {
     @Test
     void shouldRejectMoreThanTenStatusValues() {
         Set<TicketStatus> allNonTerminal = EnumSet.complementOf(EnumSet.of(TicketStatus.CLOSED, TicketStatus.CANCELLED));
-        org.assertj.core.api.Assertions.assertThat(allNonTerminal.size()).isEqualTo(10);
+        // SPEC-TW-007 added TicketStatus.TRIAGED, so the non-terminal set grew from 10 to 11.
+        org.assertj.core.api.Assertions.assertThat(allNonTerminal.size()).isEqualTo(11);
 
         SupportQueueFilters result = filters(allNonTerminal, Set.of(), false, null);
-        org.assertj.core.api.Assertions.assertThat(result.statuses()).hasSize(10);
+        org.assertj.core.api.Assertions.assertThat(result.statuses()).hasSize(11);
     }
 
     @Test

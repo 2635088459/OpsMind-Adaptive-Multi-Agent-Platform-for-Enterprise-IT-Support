@@ -4,5 +4,13 @@ import dev.opsmind.ticketworkflow.ticket.application.model.TicketStatusHistoryEn
 
 public interface TicketHistoryWriter {
 
-    void appendInitial(TicketStatusHistoryEntry entry);
+    /**
+     * Appends any transition (SPEC-TW-007 §10) — the general-purpose form
+     * {@link #appendInitial(TicketStatusHistoryEntry)} now delegates to.
+     */
+    void append(TicketStatusHistoryEntry entry);
+
+    default void appendInitial(TicketStatusHistoryEntry entry) {
+        append(entry);
+    }
 }
