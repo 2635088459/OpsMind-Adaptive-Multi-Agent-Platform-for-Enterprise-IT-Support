@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-resolved-v1.schema.json",
+  "title": "ticket.resolved.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "resolutionCycleId",
+    "previousStatus",
+    "newStatus",
+    "resolutionCode",
+    "resolutionSummary",
+    "resolvedBy",
+    "resolvedAt",
+    "autoCloseDueAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "IN_PROGRESS"
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "RESOLVED"
+    },
+    "resolutionCode": {
+      "type": "string",
+      "enum": [
+        "FIXED",
+        "WORKAROUND_PROVIDED",
+        "DUPLICATE",
+        "REQUEST_FULFILLED",
+        "NOT_REPRODUCIBLE",
+        "USER_ERROR",
+        "NO_ACTION_REQUIRED"
+      ]
+    },
+    "resolutionSummary": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 5000
+    },
+    "resolvedBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "resolvedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "autoCloseDueAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,0 +1,200 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-011 Events
+  version: 1.0.0
+channels:
+  ticket.closed.v1:
+    publish:
+      summary: Ticket was closed from RESOLVED
+      message:
+        $ref: '#/components/messages/TicketClosed'
+  ticket.reopened.v1:
+    publish:
+      summary: Ticket was reopened into IN_PROGRESS
+      message:
+        $ref: '#/components/messages/TicketReopened'
+components:
+  messages:
+    TicketClosed:
+      name: ticket.closed.v1
+      payload:
+        $ref: '#/components/schemas/TicketClosedEvent'
+    TicketReopened:
+      name: ticket.reopened.v1
+      payload:
+        $ref: '#/components/schemas/TicketReopenedEvent'
+  schemas:
+    EventEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - occurredAt
+        - aggregateType
+        - aggregateId
+        - aggregateVersion
+        - correlationId
+        - causationId
+        - actor
+        - data
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        aggregateType:
+          type: string
+          const: Ticket
+        aggregateId:
+          type: string
+          format: uuid
+        aggregateVersion:
+          type: integer
+          format: int64
+        correlationId:
+          type: string
+        causationId:
+          type: string
+        actor:
+          $ref: '#/components/schemas/EventActor'
+        data:
+          type: object
+    EventActor:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - id
+      properties:
+        type:
+          type: string
+          enum:
+            - IT_SUPPORT
+            - AUTOMATION_AGENT
+            - SYSTEM
+        id:
+          type: string
+    TicketClosedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            eventType:
+              const: ticket.closed.v1
+            data:
+              $ref: '#/components/schemas/TicketClosedData'
+    TicketReopenedEvent:
+      allOf:
+        - $ref: '#/components/schemas/EventEnvelope'
+        - type: object
+          properties:
+            eventType:
+              const: ticket.reopened.v1
+            data:
+              $ref: '#/components/schemas/TicketReopenedData'
+    TicketClosedData:
+      type: object
+      additionalProperties: false
+      required:
+        - supportQueueId
+        - assigneeId
+        - resolutionCycleId
+        - previousStatus
+        - newStatus
+        - closeReasonCode
+        - closedBy
+        - closedAt
+      properties:
+        supportQueueId:
+          type: string
+          format: uuid
+        assigneeId:
+          type: string
+        resolutionCycleId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          const: RESOLVED
+        newStatus:
+          type: string
+          const: CLOSED
+        closeReasonCode:
+          $ref: '#/components/schemas/CloseReasonCode'
+        closedBy:
+          type: string
+        closedAt:
+          type: string
+          format: date-time
+    TicketReopenedData:
+      type: object
+      additionalProperties: false
+      required:
+        - supportQueueId
+        - previousResolutionCycleId
+        - newResolutionCycleId
+        - previousStatus
+        - newStatus
+        - reopenReasonCode
+        - reopenCount
+        - reopenedBy
+        - reopenedAt
+        - ownershipStatus
+      properties:
+        supportQueueId:
+          type: string
+          format: uuid
+        assigneeId:
+          type: string
+          nullable: true
+        previousResolutionCycleId:
+          type: string
+          format: uuid
+        newResolutionCycleId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          enum:
+            - RESOLVED
+            - CLOSED
+        newStatus:
+          type: string
+          const: IN_PROGRESS
+        reopenReasonCode:
+          $ref: '#/components/schemas/ReopenReasonCode'
+        reopenCount:
+          type: integer
+          minimum: 1
+        reopenedBy:
+          type: string
+        reopenedAt:
+          type: string
+          format: date-time
+        ownershipStatus:
+          type: string
+          enum:
+            - ACTIVE
+            - ASSIGNEE_INACTIVE
+            - UNASSIGNED
+    CloseReasonCode:
+      type: string
+      enum:
+        - REQUESTER_CONFIRMED
+        - SUPPORT_CONFIRMED
+        - AUTO_CLOSE_TIMEOUT
+        - NO_FURTHER_ACTION_REQUIRED
+        - DUPLICATE_CLOSED
+    ReopenReasonCode:
+      type: string
+      enum:
+        - ISSUE_RECURRED
+        - RESOLUTION_FAILED
+        - REQUESTER_REPORTED_NOT_FIXED
+        - SUPPORT_REVIEW_REQUIRED
+        - RELATED_FAILURE_DISCOVERED

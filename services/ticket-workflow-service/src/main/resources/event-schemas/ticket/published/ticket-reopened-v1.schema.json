@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-reopened-v1.schema.json",
+  "title": "ticket.reopened.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "previousResolutionCycleId",
+    "newResolutionCycleId",
+    "previousStatus",
+    "newStatus",
+    "reopenReasonCode",
+    "reopenCount",
+    "reopenedBy",
+    "reopenedAt",
+    "ownershipStatus"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": ["string", "null"]
+    },
+    "previousResolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "newResolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": ["RESOLVED", "CLOSED"]
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "IN_PROGRESS"
+    },
+    "reopenReasonCode": {
+      "type": "string",
+      "enum": [
+        "ISSUE_RECURRED",
+        "RESOLUTION_FAILED",
+        "REQUESTER_REPORTED_NOT_FIXED",
+        "SUPPORT_REVIEW_REQUIRED",
+        "RELATED_FAILURE_DISCOVERED"
+      ]
+    },
+    "reopenCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "reopenedBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "reopenedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ownershipStatus": {
+      "type": "string",
+      "enum": ["ACTIVE", "ASSIGNEE_INACTIVE", "UNASSIGNED"]
+    }
+  }
+}

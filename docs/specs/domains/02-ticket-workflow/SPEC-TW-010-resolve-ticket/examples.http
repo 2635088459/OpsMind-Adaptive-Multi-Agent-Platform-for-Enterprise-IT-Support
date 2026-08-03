@@ -1,0 +1,36 @@
+### Resolve ticket from IN_PROGRESS
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/resolution
+Authorization: Bearer {{support_token}}
+Content-Type: application/json
+If-Match: "17"
+Idempotency-Key: resolve-ticket-6c2ad02e-v17-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "resolutionCode": "FIXED",
+  "resolutionSummary": "Reinstalled the endpoint management profile and confirmed the device checked in successfully."
+}
+
+### Invalid: requester cannot resolve a ticket
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/resolution
+Authorization: Bearer {{requester_token}}
+Content-Type: application/json
+If-Match: "17"
+Idempotency-Key: resolve-ticket-6c2ad02e-v17-requester
+
+{
+  "resolutionCode": "FIXED",
+  "resolutionSummary": "Requester attempts to resolve the ticket directly."
+}
+
+### Invalid: summary too short
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/resolution
+Authorization: Bearer {{support_token}}
+Content-Type: application/json
+If-Match: "17"
+Idempotency-Key: resolve-ticket-6c2ad02e-v17-short-summary
+
+{
+  "resolutionCode": "FIXED",
+  "resolutionSummary": "Done."
+}

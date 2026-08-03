@@ -284,4 +284,275 @@ public class TicketTelemetry {
             .register(meterRegistry)
             .increment();
     }
+
+    public Timer.Sample startAssignmentTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopAssignmentTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_assignment_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordAssignmentCommand(String operation, String outcome) {
+        Counter.builder("opsmind_ticket_assignment_commands_total")
+            .tag("operation", operation)
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAssignmentAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_assignment_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAssignmentConflict(String type) {
+        Counter.builder("opsmind_ticket_assignment_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAssignmentEligibilityDenied(String reason) {
+        Counter.builder("opsmind_ticket_assignment_eligibility_denied_total")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startStatusTransitionTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopStatusTransitionTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_status_transition_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordStatusTransitionCommand(String transition, String outcome) {
+        Counter.builder("opsmind_ticket_status_transition_commands_total")
+            .tag("transition", transition)
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordStatusTransitionAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_status_transition_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordStatusTransitionConflict(String type) {
+        Counter.builder("opsmind_ticket_status_transition_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startResolutionTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopResolutionTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_resolution_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordResolutionCommand(String resolutionCode, String outcome) {
+        Counter.builder("opsmind_ticket_resolution_commands_total")
+            .tag("resolution_code", resolutionCode)
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordResolutionAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_resolution_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordResolutionConflict(String type) {
+        Counter.builder("opsmind_ticket_resolution_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startCloseTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopCloseTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_close_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordCloseCommand(String outcome) {
+        Counter.builder("opsmind_ticket_close_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordCloseAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_close_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordCloseConflict(String type) {
+        Counter.builder("opsmind_ticket_close_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startReopenTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopReopenTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_reopen_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordReopenCommand(String outcome) {
+        Counter.builder("opsmind_ticket_reopen_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordReopenAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_reopen_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordReopenConflict(String type) {
+        Counter.builder("opsmind_ticket_reopen_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startRequestUserInputTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopRequestUserInputTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_request_user_input_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordRequestUserInputCommand(String outcome) {
+        Counter.builder("opsmind_ticket_request_user_input_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordRequestUserInputAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_request_user_input_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordRequestUserInputConflict(String type) {
+        Counter.builder("opsmind_ticket_request_user_input_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startUserReplyTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopUserReplyTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_user_reply_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordUserReplyCommand(String outcome) {
+        Counter.builder("opsmind_ticket_user_reply_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordUserReplyResumeApplied(boolean resumeApplied) {
+        Counter.builder("opsmind_ticket_user_reply_resume_applied_total")
+            .tag("resume_applied", String.valueOf(resumeApplied))
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordUserReplyAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_user_reply_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordUserReplyConflict(String type) {
+        Counter.builder("opsmind_ticket_user_reply_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startRequestApprovalTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopRequestApprovalTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_request_approval_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordRequestApprovalCommand(String outcome) {
+        Counter.builder("opsmind_ticket_request_approval_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordRequestApprovalAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_request_approval_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordRequestApprovalConflict(String type) {
+        Counter.builder("opsmind_ticket_request_approval_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyApprovalGrantedTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyApprovalGrantedTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_approval_granted_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyApprovalGrantedOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_approval_granted_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApprovalGrantedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "approval.granted")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApprovalGrantedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "approval.granted")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
 }

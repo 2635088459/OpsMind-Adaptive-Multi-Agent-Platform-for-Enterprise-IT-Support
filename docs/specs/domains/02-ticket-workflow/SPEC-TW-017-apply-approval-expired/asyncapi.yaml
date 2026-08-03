@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-017 Events
+  version: 1.0.0
+channels:
+  approval.expired.v1:
+    subscribe:
+      summary: Approval expired event consumed by Ticket Workflow
+  ticket.approval-expired-applied.v1:
+    publish:
+      summary: Approval expired applied to ticket

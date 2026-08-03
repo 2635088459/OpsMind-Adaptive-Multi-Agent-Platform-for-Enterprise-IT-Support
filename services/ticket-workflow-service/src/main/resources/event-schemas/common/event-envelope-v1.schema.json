@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/common/event-envelope-v1.schema.json",
+  "title": "OpsMind Event Envelope v1 (consumer-side subset)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "eventId",
+    "eventType",
+    "eventVersion",
+    "occurredAt",
+    "producer",
+    "traceId",
+    "correlationId",
+    "ticketId",
+    "dataClassification",
+    "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "eventType": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "eventVersion": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "traceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "causationId": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "ticketId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "workflowId": {
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "dataClassification": {
+      "type": "string",
+      "enum": ["PUBLIC", "INTERNAL", "SENSITIVE"]
+    },
+    "payload": {
+      "type": "object"
+    }
+  }
+}

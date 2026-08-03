@@ -1,0 +1,270 @@
+openapi: 3.1.0
+info:
+  title: OpsMind Ticket Assignment API
+  version: 1.0.0
+  description: Command API contract for SPEC-TW-008.
+  license:
+    name: Project documentation license
+    url: https://api.opsmind.example/legal/documentation-license
+servers:
+  - url: https://api.opsmind.example
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/tickets/{ticketId}/assign:
+    post:
+      operationId: assignTicket
+      summary: Assign a triaged ticket
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnershipTargetRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OwnershipChanged'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/tickets/{ticketId}/reassign:
+    post:
+      operationId: reassignTicket
+      summary: Replace the current assignee without changing ticket status
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnershipTargetRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OwnershipChanged'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/tickets/{ticketId}/unassign:
+    post:
+      operationId: unassignTicket
+      summary: Clear ownership from an assigned ticket
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnassignRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/OwnershipChanged'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    TicketId:
+      name: ticketId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^"[1-9][0-9]*"$'
+      example: '"12"'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    OwnershipTargetRequest:
+      type: object
+      additionalProperties: false
+      required: [assigneeId, reason]
+      properties:
+        assigneeId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    UnassignRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AssigneeSummary:
+      type: object
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+    OwnershipResponse:
+      type: object
+      additionalProperties: false
+      required: [ticketId, status, assignee, assignedAt, version]
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [TRIAGED, ASSIGNED, IN_PROGRESS, WAITING_FOR_USER, WAITING_FOR_APPROVAL]
+        assignee:
+          oneOf:
+            - $ref: '#/components/schemas/AssigneeSummary'
+            - type: 'null'
+        assignedAt:
+          type: [string, 'null']
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, detail, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          enum:
+            - VALIDATION_ERROR
+            - TICKET_NOT_FOUND
+            - INVALID_TICKET_STATE
+            - TICKET_ALREADY_ASSIGNED
+            - TICKET_NOT_ASSIGNED
+            - ASSIGNEE_NOT_FOUND
+            - ASSIGNEE_INACTIVE
+            - ASSIGNEE_NOT_SUPPORT_AGENT
+            - ASSIGNEE_NOT_IN_QUEUE
+            - FORBIDDEN
+            - QUEUE_ACCESS_DENIED
+            - VERSION_CONFLICT
+            - IDEMPOTENCY_KEY_REUSED
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+  responses:
+    OwnershipChanged:
+      description: Ownership command completed
+      headers:
+        ETag:
+          required: true
+          schema:
+            type: string
+        Location:
+          required: true
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/OwnershipResponse'
+    BadRequest:
+      description: Validation failure
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Role or queue access denied
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Ticket or assignee not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: State, version, eligibility, or idempotency conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

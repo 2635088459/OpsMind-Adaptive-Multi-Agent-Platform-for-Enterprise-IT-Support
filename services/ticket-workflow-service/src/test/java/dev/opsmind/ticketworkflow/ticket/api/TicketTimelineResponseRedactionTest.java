@@ -118,7 +118,7 @@ class TicketTimelineResponseRedactionTest {
     void supportInternalResponseShouldConformToFrozenSchemaAndExcludeJwtOrCredentialKeys() throws Exception {
         RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(new TicketWorkflowProperties(
             "unit-test-secret", "unit-test-cursor-secret",
-            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4))
+            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4), Duration.ofDays(7))
         ));
         UUID internalNoteId = UUID.randomUUID();
         List<TicketTimelineItem> items = List.of(

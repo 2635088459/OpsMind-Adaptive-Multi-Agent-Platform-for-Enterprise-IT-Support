@@ -1,0 +1,186 @@
+asyncapi: 3.1.0
+info:
+  title: OpsMind Ticket Assignment Events
+  version: 1.0.0
+  description: Integration event contracts for SPEC-TW-008.
+channels:
+  ticketAssigned:
+    address: ticket.assigned.v1
+    messages:
+      event:
+        $ref: '#/components/messages/TicketAssigned'
+  ticketReassigned:
+    address: ticket.reassigned.v1
+    messages:
+      event:
+        $ref: '#/components/messages/TicketReassigned'
+  ticketUnassigned:
+    address: ticket.unassigned.v1
+    messages:
+      event:
+        $ref: '#/components/messages/TicketUnassigned'
+operations:
+  publishAssigned:
+    action: send
+    channel:
+      $ref: '#/channels/ticketAssigned'
+    messages:
+      - $ref: '#/channels/ticketAssigned/messages/event'
+  publishReassigned:
+    action: send
+    channel:
+      $ref: '#/channels/ticketReassigned'
+    messages:
+      - $ref: '#/channels/ticketReassigned/messages/event'
+  publishUnassigned:
+    action: send
+    channel:
+      $ref: '#/channels/ticketUnassigned'
+    messages:
+      - $ref: '#/channels/ticketUnassigned/messages/event'
+components:
+  messages:
+    TicketAssigned:
+      name: TicketAssigned
+      title: Ticket assigned
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CommonEnvelope'
+          - type: object
+            properties:
+              eventType:
+                const: ticket.assigned.v1
+              data:
+                $ref: '#/components/schemas/AssignedData'
+    TicketReassigned:
+      name: TicketReassigned
+      title: Ticket reassigned
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CommonEnvelope'
+          - type: object
+            properties:
+              eventType:
+                const: ticket.reassigned.v1
+              data:
+                $ref: '#/components/schemas/ReassignedData'
+    TicketUnassigned:
+      name: TicketUnassigned
+      title: Ticket unassigned
+      payload:
+        allOf:
+          - $ref: '#/components/schemas/CommonEnvelope'
+          - type: object
+            properties:
+              eventType:
+                const: ticket.unassigned.v1
+              data:
+                $ref: '#/components/schemas/UnassignedData'
+  schemas:
+    CommonEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - occurredAt
+        - tenantId
+        - aggregateType
+        - aggregateId
+        - aggregateVersion
+        - correlationId
+        - causationId
+        - actor
+        - data
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        tenantId:
+          type: string
+          format: uuid
+        aggregateType:
+          const: Ticket
+        aggregateId:
+          type: string
+          format: uuid
+        aggregateVersion:
+          type: integer
+          minimum: 1
+        correlationId:
+          type: string
+          format: uuid
+        causationId:
+          type: string
+          format: uuid
+        actor:
+          $ref: '#/components/schemas/Actor'
+        data:
+          type: object
+    Actor:
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [USER, AUTOMATION]
+        id:
+          type: string
+          format: uuid
+    BaseData:
+      type: object
+      properties:
+        supportQueueId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    AssignedData:
+      allOf:
+        - $ref: '#/components/schemas/BaseData'
+        - type: object
+          required: [supportQueueId, assigneeId, previousStatus, newStatus, reason]
+          properties:
+            assigneeId:
+              type: string
+              format: uuid
+            previousStatus:
+              const: TRIAGED
+            newStatus:
+              const: ASSIGNED
+    ReassignedData:
+      allOf:
+        - $ref: '#/components/schemas/BaseData'
+        - type: object
+          required: [supportQueueId, previousAssigneeId, assigneeId, status, reason]
+          properties:
+            previousAssigneeId:
+              type: string
+              format: uuid
+            assigneeId:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [ASSIGNED, IN_PROGRESS, WAITING_FOR_USER, WAITING_FOR_APPROVAL]
+    UnassignedData:
+      allOf:
+        - $ref: '#/components/schemas/BaseData'
+        - type: object
+          required: [supportQueueId, previousAssigneeId, previousStatus, newStatus, reason]
+          properties:
+            previousAssigneeId:
+              type: string
+              format: uuid
+            previousStatus:
+              const: ASSIGNED
+            newStatus:
+              const: TRIAGED

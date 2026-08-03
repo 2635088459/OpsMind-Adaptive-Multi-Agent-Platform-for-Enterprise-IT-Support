@@ -1,0 +1,66 @@
+### Start work
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/status-transitions
+Authorization: Bearer {{supportToken}}
+Content-Type: application/json
+If-Match: "13"
+Idempotency-Key: tw009-start-work-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "targetStatus": "IN_PROGRESS",
+  "reason": "Starting endpoint investigation"
+}
+
+### Wait for requester
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/status-transitions
+Authorization: Bearer {{supportToken}}
+Content-Type: application/json
+If-Match: "14"
+Idempotency-Key: tw009-wait-user-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "targetStatus": "WAITING_FOR_USER",
+  "reason": "Requester must provide device serial number",
+  "waitingForRequesterSince": "2026-07-31T18:35:00Z"
+}
+
+### Resume from requester wait
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/status-transitions
+Authorization: Bearer {{supportToken}}
+Content-Type: application/json
+If-Match: "15"
+Idempotency-Key: tw009-resume-user-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "targetStatus": "IN_PROGRESS",
+  "reason": "Requester provided the missing device details"
+}
+
+### Wait for approval
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/status-transitions
+Authorization: Bearer {{supportToken}}
+Content-Type: application/json
+If-Match: "16"
+Idempotency-Key: tw009-wait-approval-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "targetStatus": "WAITING_FOR_APPROVAL",
+  "reason": "Privileged remediation requires manager approval",
+  "approvalReference": "approval-req-20260731-018"
+}
+
+### Invalid: cannot resolve through generic transition endpoint
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/status-transitions
+Authorization: Bearer {{supportToken}}
+Content-Type: application/json
+If-Match: "17"
+Idempotency-Key: tw009-invalid-resolve-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "targetStatus": "RESOLVED",
+  "reason": "Resolved must use SPEC-TW-010"
+}

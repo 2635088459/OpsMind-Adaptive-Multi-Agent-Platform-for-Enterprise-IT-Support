@@ -678,8 +678,8 @@ Requesting additional information is one of the most common IT-support branches.
 ## Feature Specs
 
 ```text
-SPEC-TW-010-request-user-input
-SPEC-TW-011-user-reply-and-resume
+SPEC-TW-012-request-user-input
+SPEC-TW-013-user-reply-and-resume
 ```
 
 ## Key Requirements
@@ -718,11 +718,11 @@ Tool Gateway must not decide high-risk authorization by itself. Approval is a pr
 ## Feature Specs
 
 ```text
-SPEC-TW-012-request-approval
-SPEC-TW-013-apply-approval-granted
-SPEC-TW-014-apply-approval-rejected
-SPEC-TW-015-apply-approval-expired
-SPEC-TW-016-apply-auto-approved-policy
+SPEC-TW-014-request-approval
+SPEC-TW-015-apply-approval-granted
+SPEC-TW-016-apply-approval-rejected
+SPEC-TW-017-apply-approval-expired
+SPEC-TW-018-apply-auto-approved-policy
 ```
 
 ## Key Requirements
@@ -751,9 +751,9 @@ plus known-safe failure, unknown result, and internal failure paths.
 ## Feature Specs
 
 ```text
-SPEC-TW-017-tool-execution-completed
-SPEC-TW-018-tool-execution-failed
-SPEC-TW-019-tool-result-unknown
+SPEC-TW-019-tool-execution-completed
+SPEC-TW-020-tool-execution-failed
+SPEC-TW-021-tool-result-unknown
 ```
 
 ## Key Requirements
@@ -782,10 +782,10 @@ plus verification retry and escalation behavior.
 ## Feature Specs
 
 ```text
-SPEC-TW-020-start-verification
-SPEC-TW-021-verification-success
-SPEC-TW-022-verification-failure
-SPEC-TW-023-resolve-ticket
+SPEC-TW-022-start-verification
+SPEC-TW-023-verification-success
+SPEC-TW-024-verification-failure
+SPEC-TW-025-resolve-ticket
 ```
 
 ## Key Requirements
@@ -818,13 +818,13 @@ Retry from Failed
 ## Feature Specs
 
 ```text
-SPEC-TW-024-confirm-resolution
-SPEC-TW-025-auto-close
-SPEC-TW-026-reopen-ticket
-SPEC-TW-027-cancel-ticket
-SPEC-TW-028-assign-ticket
-SPEC-TW-029-escalate-ticket
-SPEC-TW-030-resume-escalated-ticket
+SPEC-TW-026-confirm-resolution
+SPEC-TW-027-auto-close
+SPEC-TW-028-reopen-ticket
+SPEC-TW-029-cancel-ticket
+SPEC-TW-030-assign-ticket
+SPEC-TW-031-escalate-ticket
+SPEC-TW-032-resume-escalated-ticket
 ```
 
 ## Key Requirements

@@ -53,7 +53,7 @@ class GetTicketResponseRedactionTest {
     void supportResponseWithUnassignedFieldsShouldConformToFrozenSchema() throws Exception {
         RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(new TicketWorkflowProperties(
             "unit-test-secret", "unit-test-cursor-secret",
-            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4))
+            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4), Duration.ofDays(7))
         ));
         SupportTicketDetailResponse response = new SupportTicketQueryApiMapper(pseudonymizer)
             .toResponse(GetTicketFixtures.supportProjection(GetTicketFixtures.DEFAULT_TICKET_ID, "employee-123"));

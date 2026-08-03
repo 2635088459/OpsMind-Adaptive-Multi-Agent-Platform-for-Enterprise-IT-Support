@@ -25,10 +25,22 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class JsonSchemaEventValidator implements EventSchemaValidator {
 
-    private static final Map<String, String> SCHEMA_LOCATIONS = Map.of(
-        "ticket.created:1", "event-schemas/ticket/published/ticket-created-v1.schema.json",
-        "ticket.message.added:1", "event-schemas/ticket/published/ticket-message-added-v1.schema.json",
-        "ticket.triaged:1", "event-schemas/ticket/published/ticket-triaged-v1.schema.json"
+    private static final Map<String, String> SCHEMA_LOCATIONS = Map.ofEntries(
+        Map.entry("ticket.created:1", "event-schemas/ticket/published/ticket-created-v1.schema.json"),
+        Map.entry("ticket.message.added:1", "event-schemas/ticket/published/ticket-message-added-v1.schema.json"),
+        Map.entry("ticket.triaged:1", "event-schemas/ticket/published/ticket-triaged-v1.schema.json"),
+        Map.entry("ticket.assigned:1", "event-schemas/ticket/published/ticket-assigned-v1.schema.json"),
+        Map.entry("ticket.reassigned:1", "event-schemas/ticket/published/ticket-reassigned-v1.schema.json"),
+        Map.entry("ticket.unassigned:1", "event-schemas/ticket/published/ticket-unassigned-v1.schema.json"),
+        Map.entry("ticket.status.changed:1", "event-schemas/ticket/published/ticket-status-changed-v1.schema.json"),
+        Map.entry("ticket.resolved:1", "event-schemas/ticket/published/ticket-resolved-v1.schema.json"),
+        Map.entry("ticket.closed:1", "event-schemas/ticket/published/ticket-closed-v1.schema.json"),
+        Map.entry("ticket.reopened:1", "event-schemas/ticket/published/ticket-reopened-v1.schema.json"),
+        Map.entry("ticket.user-input-requested:1", "event-schemas/ticket/published/ticket-user-input-requested-v1.schema.json"),
+        Map.entry("ticket.user-reply-received:1", "event-schemas/ticket/published/ticket-user-reply-received-v1.schema.json"),
+        Map.entry("ticket.user-input-resumed:1", "event-schemas/ticket/published/ticket-user-input-resumed-v1.schema.json"),
+        Map.entry("ticket.approval-wait-started:1", "event-schemas/ticket/published/ticket-approval-wait-started-v1.schema.json"),
+        Map.entry("ticket.approval-granted-applied:1", "event-schemas/ticket/published/ticket-approval-granted-applied-v1.schema.json")
     );
 
     private final JsonSchemaFactory schemaFactory;

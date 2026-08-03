@@ -20,6 +20,7 @@ opsmind:
       default-policy-id: DEFAULT
       response-due: PT4H
       resolution-due: PT24H
+      auto-close-due: P7D
 
 server:
   shutdown: graceful

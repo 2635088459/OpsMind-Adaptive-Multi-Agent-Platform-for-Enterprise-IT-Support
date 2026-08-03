@@ -1,0 +1,5 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-017 Apply Approval Expired
+  version: 1.0.0
+paths: {}

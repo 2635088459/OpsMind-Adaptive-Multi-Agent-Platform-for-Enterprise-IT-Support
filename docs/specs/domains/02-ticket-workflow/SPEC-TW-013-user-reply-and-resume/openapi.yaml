@@ -1,0 +1,100 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-013 User Reply and Resume
+  version: 1.0.0
+paths:
+  /api/v1/tickets/{ticketId}/user-input-requests/{requestId}/reply:
+    post:
+      summary: Reply to the current input request and resume work
+      operationId: userReplyAndResume
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserReplyRequest'
+      responses:
+        '200':
+          description: Reply saved and ticket resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserReplyResponse'
+components:
+  schemas:
+    UserReplyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - body
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 10000
+        attachmentIds:
+          type: array
+          items:
+            type: string
+          maxItems: 20
+    UserReplyResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - requestId
+        - messageId
+        - previousStatus
+        - status
+        - answeredAt
+        - resumeApplied
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        requestId:
+          type: string
+          format: uuid
+        messageId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          const: WAITING_FOR_USER
+        status:
+          type: string
+          const: IN_PROGRESS
+        answeredAt:
+          type: string
+          format: date-time
+        resumeApplied:
+          type: boolean
+        version:
+          type: integer
+          format: int64

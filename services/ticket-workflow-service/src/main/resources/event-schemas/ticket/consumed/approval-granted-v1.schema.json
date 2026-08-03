@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/consumed/approval-granted-v1.schema.json",
+  "title": "approval.granted.v1 payload (consumed)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "workflowId",
+    "actionId",
+    "actionType",
+    "approvalId",
+    "approvedAt",
+    "expiresAt"
+  ],
+  "properties": {
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "approvalId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "approvedByIdHash": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "approvedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expiresAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "toolExecutionId": {
+      "type": "string",
+      "maxLength": 128
+    }
+  }
+}

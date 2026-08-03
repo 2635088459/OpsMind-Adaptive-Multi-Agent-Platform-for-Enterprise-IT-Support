@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-user-reply-received-v1.schema.json",
+  "title": "ticket.user-reply-received.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "messageId", "repliedBy", "repliedAt"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "repliedBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "repliedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

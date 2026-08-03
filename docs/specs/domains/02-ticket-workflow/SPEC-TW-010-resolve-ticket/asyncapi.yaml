@@ -1,0 +1,131 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-010 Events
+  version: 1.0.0
+channels:
+  ticket.resolved.v1:
+    publish:
+      summary: Ticket was resolved from IN_PROGRESS
+      message:
+        $ref: '#/components/messages/TicketResolved'
+components:
+  messages:
+    TicketResolved:
+      name: ticket.resolved.v1
+      title: Ticket Resolved
+      payload:
+        $ref: '#/components/schemas/TicketResolvedEvent'
+  schemas:
+    TicketResolvedEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - occurredAt
+        - aggregateType
+        - aggregateId
+        - aggregateVersion
+        - correlationId
+        - causationId
+        - actor
+        - data
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          const: ticket.resolved.v1
+        occurredAt:
+          type: string
+          format: date-time
+        aggregateType:
+          type: string
+          const: Ticket
+        aggregateId:
+          type: string
+          format: uuid
+        aggregateVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        correlationId:
+          type: string
+        causationId:
+          type: string
+        actor:
+          $ref: '#/components/schemas/EventActor'
+        data:
+          $ref: '#/components/schemas/TicketResolvedData'
+    EventActor:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - id
+      properties:
+        type:
+          type: string
+          enum:
+            - IT_SUPPORT
+            - AUTOMATION_AGENT
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+    TicketResolvedData:
+      type: object
+      additionalProperties: false
+      required:
+        - supportQueueId
+        - assigneeId
+        - resolutionCycleId
+        - previousStatus
+        - newStatus
+        - resolutionCode
+        - resolutionSummary
+        - resolvedBy
+        - resolvedAt
+      properties:
+        supportQueueId:
+          type: string
+          format: uuid
+        assigneeId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resolutionCycleId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          const: IN_PROGRESS
+        newStatus:
+          type: string
+          const: RESOLVED
+        resolutionCode:
+          type: string
+          enum:
+            - FIXED
+            - WORKAROUND_PROVIDED
+            - DUPLICATE
+            - REQUEST_FULFILLED
+            - NOT_REPRODUCIBLE
+            - USER_ERROR
+            - NO_ACTION_REQUIRED
+        resolutionSummary:
+          type: string
+          minLength: 10
+          maxLength: 5000
+        resolvedBy:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resolvedAt:
+          type: string
+          format: date-time
+        autoCloseDueAt:
+          type: string
+          format: date-time
+          nullable: true

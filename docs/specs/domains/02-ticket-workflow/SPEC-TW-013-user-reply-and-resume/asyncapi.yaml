@@ -1,0 +1,25 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-013 Events
+  version: 1.0.0
+channels:
+  ticket.user-reply-received.v1:
+    publish:
+      summary: Requester reply was saved
+      message:
+        $ref: '#/components/messages/UserReplyReceived'
+  ticket.user-input-resumed.v1:
+    publish:
+      summary: Ticket resumed after requester reply
+      message:
+        $ref: '#/components/messages/UserInputResumed'
+components:
+  messages:
+    UserReplyReceived:
+      name: ticket.user-reply-received.v1
+      payload:
+        type: object
+    UserInputResumed:
+      name: ticket.user-input-resumed.v1
+      payload:
+        type: object

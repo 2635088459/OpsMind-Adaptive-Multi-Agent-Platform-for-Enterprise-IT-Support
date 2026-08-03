@@ -1,0 +1,104 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-012 Request User Input
+  version: 1.0.0
+paths:
+  /api/v1/tickets/{ticketId}/user-input-requests:
+    post:
+      summary: Request additional requester input
+      operationId: requestUserInput
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestUserInputRequest'
+      responses:
+        '201':
+          description: User input request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestUserInputResponse'
+components:
+  schemas:
+    RequestUserInputRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          minLength: 10
+          maxLength: 2000
+        requestedFields:
+          type: array
+          items:
+            type: string
+          maxItems: 20
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+    RequestUserInputResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - requestId
+        - previousStatus
+        - status
+        - requestedBy
+        - requestedAt
+        - waitingForRequesterSince
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        requestId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          const: IN_PROGRESS
+        status:
+          type: string
+          const: WAITING_FOR_USER
+        requestedBy:
+          type: string
+        requestedAt:
+          type: string
+          format: date-time
+        waitingForRequesterSince:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64

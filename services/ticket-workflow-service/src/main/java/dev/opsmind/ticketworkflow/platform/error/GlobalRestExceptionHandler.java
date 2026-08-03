@@ -2,6 +2,11 @@ package dev.opsmind.ticketworkflow.platform.error;
 
 import dev.opsmind.ticketworkflow.ticket.api.exception.PreconditionRequiredException;
 import dev.opsmind.ticketworkflow.ticket.api.exception.RequestValidationException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeInactiveException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotFoundException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotInQueueException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotSupportAgentException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.ApprovalRequestAlreadyOpenException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.DisplayIdGenerationExhaustedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.EventSchemaValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuthorizedScopeException;
@@ -9,6 +14,8 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReu
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.QueueAccessDeniedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.ResolutionCycleAlreadyCompletedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.ResolutionCycleNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueInvalidException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
@@ -16,9 +23,15 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TicketMessageNotA
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketVersionConflictException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TriageCategoryInvalidException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.UserInputRequestAlreadyOpenException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TriageNotAllowedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TriageSubcategoryInvalidException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketStateException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidStatusTransitionException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.ReassignmentRequiresDifferentAssigneeException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.TicketAlreadyAssignedException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.TicketNotAssignedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -133,7 +146,7 @@ public class GlobalRestExceptionHandler {
 
     @ExceptionHandler(QueueAccessDeniedException.class)
     public ResponseEntity<ErrorResponse> handleQueueAccessDenied(QueueAccessDeniedException ex, HttpServletRequest request) {
-        return build(HttpStatus.FORBIDDEN, "QUEUE_ACCESS_DENIED", "The actor is not authorized to triage into the target Support Queue.", request);
+        return build(HttpStatus.FORBIDDEN, "QUEUE_ACCESS_DENIED", "The actor is not authorized for the ticket's Support Queue.", request);
     }
 
     @ExceptionHandler(TriageCategoryInvalidException.class)
@@ -163,6 +176,82 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(PreconditionRequiredException.class)
     public ResponseEntity<ErrorResponse> handlePreconditionRequired(PreconditionRequiredException ex, HttpServletRequest request) {
         return build(HttpStatus.PRECONDITION_REQUIRED, "PRECONDITION_REQUIRED", "The If-Match header is required.", request);
+    }
+
+    /** SPEC-TW-008 §4: the multi-status counterpart to {@link InvalidTicketTransitionException} (Reassign only). */
+    @ExceptionHandler(InvalidTicketStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidTicketState(InvalidTicketStateException ex, HttpServletRequest request) {
+        Map<String, Object> details = Map.of(
+            "currentStatus", ex.currentStatus().name(),
+            "allowedStatuses", ex.allowedStatuses().stream().map(Enum::name).toList()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(bodyOfWithDetails("INVALID_TICKET_STATE", "The ticket is not in one of the allowed statuses for this operation.", request, details));
+    }
+
+    @ExceptionHandler(InvalidStatusTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidStatusTransition(InvalidStatusTransitionException ex, HttpServletRequest request) {
+        Map<String, Object> details = Map.of(
+            "currentStatus", ex.currentStatus().name(),
+            "targetStatus", ex.targetStatus().name()
+        );
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(bodyOfWithDetails("INVALID_STATUS_TRANSITION", "The requested ticket status transition is not allowed.", request, details));
+    }
+
+    @ExceptionHandler(TicketAlreadyAssignedException.class)
+    public ResponseEntity<ErrorResponse> handleTicketAlreadyAssigned(TicketAlreadyAssignedException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "TICKET_ALREADY_ASSIGNED", "The ticket already has an assignee.", request);
+    }
+
+    @ExceptionHandler(TicketNotAssignedException.class)
+    public ResponseEntity<ErrorResponse> handleTicketNotAssigned(TicketNotAssignedException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "TICKET_NOT_ASSIGNED", "The ticket has no current assignee.", request);
+    }
+
+    @ExceptionHandler(AssigneeNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleAssigneeNotFound(AssigneeNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "ASSIGNEE_NOT_FOUND", "The assignee does not exist.", request);
+    }
+
+    @ExceptionHandler(AssigneeInactiveException.class)
+    public ResponseEntity<ErrorResponse> handleAssigneeInactive(AssigneeInactiveException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "ASSIGNEE_INACTIVE", "The assignee is not active.", request);
+    }
+
+    @ExceptionHandler(AssigneeNotSupportAgentException.class)
+    public ResponseEntity<ErrorResponse> handleAssigneeNotSupportAgent(AssigneeNotSupportAgentException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "ASSIGNEE_NOT_SUPPORT_AGENT", "The assignee does not hold a support-capable role.", request);
+    }
+
+    @ExceptionHandler(AssigneeNotInQueueException.class)
+    public ResponseEntity<ErrorResponse> handleAssigneeNotInQueue(AssigneeNotInQueueException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "ASSIGNEE_NOT_IN_QUEUE", "The assignee is not a member of the ticket's support queue.", request);
+    }
+
+    @ExceptionHandler(ReassignmentRequiresDifferentAssigneeException.class)
+    public ResponseEntity<ErrorResponse> handleReassignmentRequiresDifferentAssignee(ReassignmentRequiresDifferentAssigneeException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The new assignee must differ from the current assignee.", request);
+    }
+
+    @ExceptionHandler(ResolutionCycleNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleResolutionCycleNotFound(ResolutionCycleNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "RESOLUTION_CYCLE_NOT_FOUND", "The ticket has no current resolution cycle.", request);
+    }
+
+    @ExceptionHandler(ResolutionCycleAlreadyCompletedException.class)
+    public ResponseEntity<ErrorResponse> handleResolutionCycleAlreadyCompleted(ResolutionCycleAlreadyCompletedException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "RESOLUTION_CYCLE_ALREADY_COMPLETED", "The current resolution cycle is already completed.", request);
+    }
+
+    @ExceptionHandler(UserInputRequestAlreadyOpenException.class)
+    public ResponseEntity<ErrorResponse> handleUserInputRequestAlreadyOpen(UserInputRequestAlreadyOpenException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "USER_INPUT_REQUEST_ALREADY_OPEN", "The ticket already has an open user input request.", request);
+    }
+
+    @ExceptionHandler(ApprovalRequestAlreadyOpenException.class)
+    public ResponseEntity<ErrorResponse> handleApprovalRequestAlreadyOpen(ApprovalRequestAlreadyOpenException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "APPROVAL_REQUEST_ALREADY_OPEN", "The ticket already has an open approval request.", request);
     }
 
     @ExceptionHandler(IdempotencyKeyReusedException.class)

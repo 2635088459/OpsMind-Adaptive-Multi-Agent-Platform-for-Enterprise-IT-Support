@@ -1,0 +1,284 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-011 Close and Reopen Ticket
+  version: 1.0.0
+paths:
+  /api/v1/tickets/{ticketId}/closure:
+    post:
+      summary: Close a resolved ticket
+      operationId: closeTicket
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloseTicketRequest'
+      responses:
+        '200':
+          description: Ticket closed
+          headers:
+            ETag:
+              schema:
+                type: string
+              example: '"19"'
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloseTicketResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '412':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+  /api/v1/tickets/{ticketId}/reopen:
+    post:
+      summary: Reopen a resolved or closed ticket
+      operationId: reopenTicket
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReopenTicketRequest'
+      responses:
+        '200':
+          description: Ticket reopened
+          headers:
+            ETag:
+              schema:
+                type: string
+              example: '"20"'
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReopenTicketResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '412':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '428':
+          $ref: '#/components/responses/Error'
+components:
+  parameters:
+    TicketId:
+      name: ticketId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+        example: '"18"'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    CloseTicketRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - closeReasonCode
+        - closeReason
+      properties:
+        closeReasonCode:
+          $ref: '#/components/schemas/CloseReasonCode'
+        closeReason:
+          type: string
+          minLength: 3
+          maxLength: 500
+    ReopenTicketRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - reopenReasonCode
+        - reopenReason
+      properties:
+        reopenReasonCode:
+          $ref: '#/components/schemas/ReopenReasonCode'
+        reopenReason:
+          type: string
+          minLength: 10
+          maxLength: 1000
+    CloseTicketResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - previousStatus
+        - status
+        - closeReasonCode
+        - closedBy
+        - closedAt
+        - resolutionCycleId
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          const: RESOLVED
+        status:
+          type: string
+          const: CLOSED
+        closeReasonCode:
+          $ref: '#/components/schemas/CloseReasonCode'
+        closedBy:
+          type: string
+        closedAt:
+          type: string
+          format: date-time
+        resolutionCycleId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+    ReopenTicketResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - previousStatus
+        - status
+        - previousResolutionCycleId
+        - newResolutionCycleId
+        - reopenReasonCode
+        - reopenedBy
+        - reopenedAt
+        - reopenCount
+        - ownershipStatus
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          enum:
+            - RESOLVED
+            - CLOSED
+        status:
+          type: string
+          const: IN_PROGRESS
+        previousResolutionCycleId:
+          type: string
+          format: uuid
+        newResolutionCycleId:
+          type: string
+          format: uuid
+        reopenReasonCode:
+          $ref: '#/components/schemas/ReopenReasonCode'
+        reopenedBy:
+          type: string
+        reopenedAt:
+          type: string
+          format: date-time
+        reopenCount:
+          type: integer
+          minimum: 1
+        ownershipStatus:
+          type: string
+          enum:
+            - ACTIVE
+            - ASSIGNEE_INACTIVE
+            - UNASSIGNED
+        version:
+          type: integer
+          format: int64
+    CloseReasonCode:
+      type: string
+      enum:
+        - REQUESTER_CONFIRMED
+        - SUPPORT_CONFIRMED
+        - AUTO_CLOSE_TIMEOUT
+        - NO_FURTHER_ACTION_REQUIRED
+        - DUPLICATE_CLOSED
+    ReopenReasonCode:
+      type: string
+      enum:
+        - ISSUE_RECURRED
+        - RESOLUTION_FAILED
+        - REQUESTER_REPORTED_NOT_FIXED
+        - SUPPORT_REVIEW_REQUIRED
+        - RELATED_FAILURE_DISCOVERED
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: true
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            correlationId:
+              type: string

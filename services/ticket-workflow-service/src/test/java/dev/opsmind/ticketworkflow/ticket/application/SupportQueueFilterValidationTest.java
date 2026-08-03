@@ -44,13 +44,16 @@ class SupportQueueFilterValidationTest {
     }
 
     @Test
-    void shouldRejectMoreThanTenStatusValues() {
+    void shouldAcceptExactlyAllNonTerminalStatusValues() {
+        // SupportQueueFilters.MAX_STATUSES derives from TicketStatus.values().length minus the
+        // terminal statuses (TW-007 fix, after a hardcoded "10" silently broke when TRIAGED was
+        // added) — this asserts that derivation stays correct as the enum keeps growing
+        // (TRIAGED/ASSIGNED so far, from SPEC-TW-007/008) rather than hardcoding a count here too.
         Set<TicketStatus> allNonTerminal = EnumSet.complementOf(EnumSet.of(TicketStatus.CLOSED, TicketStatus.CANCELLED));
-        // SPEC-TW-007 added TicketStatus.TRIAGED, so the non-terminal set grew from 10 to 11.
-        org.assertj.core.api.Assertions.assertThat(allNonTerminal.size()).isEqualTo(11);
 
         SupportQueueFilters result = filters(allNonTerminal, Set.of(), false, null);
-        org.assertj.core.api.Assertions.assertThat(result.statuses()).hasSize(11);
+
+        org.assertj.core.api.Assertions.assertThat(result.statuses()).hasSameSizeAs(allNonTerminal);
     }
 
     @Test

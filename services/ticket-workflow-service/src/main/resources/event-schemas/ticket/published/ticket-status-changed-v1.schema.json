@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-status-changed-v1.schema.json",
+  "title": "ticket.status-changed.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "previousStatus",
+    "newStatus",
+    "transitionId",
+    "reasonCode",
+    "reason",
+    "waitingForRequesterSince",
+    "approvalReference"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": ["ASSIGNED", "IN_PROGRESS", "WAITING_FOR_USER", "WAITING_FOR_APPROVAL"]
+    },
+    "newStatus": {
+      "type": "string",
+      "enum": ["IN_PROGRESS", "WAITING_FOR_USER", "WAITING_FOR_APPROVAL"]
+    },
+    "transitionId": {
+      "type": "string",
+      "enum": ["SM-005", "SM-006", "SM-007", "SM-008", "SM-009"]
+    },
+    "reasonCode": {
+      "type": "string",
+      "enum": ["WORK_STARTED", "WAITING_FOR_USER", "WAITING_FOR_APPROVAL", "WORK_RESUMED"]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    },
+    "waitingForRequesterSince": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "approvalReference": {
+      "type": ["string", "null"],
+      "minLength": 3,
+      "maxLength": 128
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "newStatus": { "const": "WAITING_FOR_USER" }
+        }
+      },
+      "then": {
+        "properties": {
+          "waitingForRequesterSince": { "type": "string", "format": "date-time" },
+          "approvalReference": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "newStatus": { "const": "WAITING_FOR_APPROVAL" }
+        }
+      },
+      "then": {
+        "properties": {
+          "waitingForRequesterSince": { "type": "null" },
+          "approvalReference": { "type": "string", "minLength": 3, "maxLength": 128 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "newStatus": { "const": "IN_PROGRESS" }
+        }
+      },
+      "then": {
+        "properties": {
+          "waitingForRequesterSince": { "type": "null" },
+          "approvalReference": { "type": "null" }
+        }
+      }
+    }
+  ]
+}

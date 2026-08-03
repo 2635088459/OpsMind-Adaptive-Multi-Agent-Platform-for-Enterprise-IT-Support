@@ -1,0 +1,203 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-009 Transition Ticket Status
+  version: 1.0.0
+paths:
+  /api/v1/tickets/{ticketId}/status-transitions:
+    post:
+      summary: Transition ticket status through work and waiting states
+      operationId: transitionTicketStatus
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+            example: '"13"'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransitionTicketStatusRequest'
+            examples:
+              startWork:
+                value:
+                  targetStatus: IN_PROGRESS
+                  reason: Starting endpoint investigation
+              waitForUser:
+                value:
+                  targetStatus: WAITING_FOR_USER
+                  reason: Requester must provide device serial number
+                  waitingForRequesterSince: '2026-07-31T18:35:00Z'
+              waitForApproval:
+                value:
+                  targetStatus: WAITING_FOR_APPROVAL
+                  reason: Privileged remediation requires manager approval
+                  approvalReference: approval-req-20260731-018
+      responses:
+        '200':
+          description: Status transitioned
+          headers:
+            ETag:
+              schema:
+                type: string
+              example: '"14"'
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransitionTicketStatusResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Forbidden or queue access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Invalid transition, missing assignee, or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '412':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '428':
+          description: If-Match required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  schemas:
+    TransitionTicketStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - targetStatus
+        - reason
+      properties:
+        targetStatus:
+          type: string
+          enum:
+            - IN_PROGRESS
+            - WAITING_FOR_USER
+            - WAITING_FOR_APPROVAL
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        waitingForRequesterSince:
+          type: string
+          format: date-time
+          nullable: true
+        approvalReference:
+          type: string
+          minLength: 3
+          maxLength: 128
+          nullable: true
+    TransitionTicketStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - previousStatus
+        - status
+        - reason
+        - transitionedAt
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+        status:
+          type: string
+          enum:
+            - IN_PROGRESS
+            - WAITING_FOR_USER
+            - WAITING_FOR_APPROVAL
+        reason:
+          type: string
+        waitingForRequesterSince:
+          type: string
+          format: date-time
+          nullable: true
+        approvalReference:
+          type: string
+          nullable: true
+        transitionedAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    ErrorEnvelope:
+      type: object
+      additionalProperties: true
+      required:
+        - type
+        - title
+        - status
+        - code
+        - detail
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        instance:
+          type: string
+        correlationId:
+          type: string

@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-018 Events
+  version: 1.0.0
+channels:
+  policy.action-auto-approved.v1:
+    subscribe:
+      summary: Auto-approved policy event consumed by Ticket Workflow
+  ticket.auto-approval-applied.v1:
+    publish:
+      summary: Auto approval applied to ticket

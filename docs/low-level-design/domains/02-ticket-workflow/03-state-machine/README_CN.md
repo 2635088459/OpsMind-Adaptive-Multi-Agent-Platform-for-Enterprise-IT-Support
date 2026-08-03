@@ -9,6 +9,19 @@
 
 ---
 
+> **⚠️ 对 Phase 03 已过时（2026-07-31）。** 本文档冻结的是一套 AI Agent 自动化驱动的工作流模型
+> （`NEW → TRIAGING → INVESTIGATING → EXECUTING → VERIFYING → RESOLVED → CLOSED`，依赖
+> `activeWorkflowId`、Triage Agent、Tool Gateway 和独立的 Verification 环节），但这套模型从未被实际实现：
+> `SPEC-TW-001` 到 `SPEC-TW-006` 从未给 `activeWorkflowId` 赋值，本代码库也不存在 Triage Agent、
+> Tool Gateway、Policy、Approval 或 Verification 组件。`docs/implementation-plans/domains/
+> 02-ticket-workflow/phase-03-ticket-lifecycle-and-ownership_CN.md` 规划的是一套人工客服归属驱动
+> 的生命周期（`OPEN(NEW) → TRIAGED → ASSIGNED → IN_PROGRESS → WAITING_FOR_USER/APPROVAL →
+> RESOLVED → CLOSED`），由 `SPEC-TW-007` 起开始实现，是当前对 `TicketStatus` 和工单归属的权威来源。
+> 下文第 3 节起的状态集合与转换已不反映实际实现，仅作历史存档保留。和解记录见
+> `docs/traceability/02-ticket-workflow/traceability-matrix.yaml` 的 `SPEC-TW-007`/`SPEC-TW-008` 条目。
+
+---
+
 ## 1. 文档目的
 
 本文档冻结 OpsMind Ticket Workflow 的状态集合、合法转换、触发条件、Guard、事务动作、Domain Event、Integration Event、失败行为和幂等规则。

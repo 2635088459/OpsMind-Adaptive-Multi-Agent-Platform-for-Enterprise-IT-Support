@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-unassigned-v1.schema.json",
+  "title": "ticket.unassigned.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["supportQueueId", "previousAssigneeId", "previousStatus", "newStatus", "reason"],
+  "properties": {
+    "supportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousAssigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "ASSIGNED"
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "TRIAGED"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    }
+  }
+}

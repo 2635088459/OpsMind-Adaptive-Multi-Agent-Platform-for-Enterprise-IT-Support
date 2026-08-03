@@ -46,7 +46,7 @@ class TicketTimelineResourceHidingTest {
         when(clock.now()).thenReturn(NOW);
         TicketWorkflowProperties properties = new TicketWorkflowProperties(
             "unit-test-secret", "unit-test-cursor-secret",
-            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4))
+            new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4), Duration.ofDays(7))
         );
         TicketTimelineCursorCodec codec = new TicketTimelineCursorCodec(new ObjectMapper().findAndRegisterModules(), new TicketTimelineCursorSigner(properties));
         return new GetTicketTimelineApplicationService(

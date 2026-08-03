@@ -1,0 +1,201 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-010 Resolve Ticket
+  version: 1.0.0
+paths:
+  /api/v1/tickets/{ticketId}/resolution:
+    post:
+      summary: Resolve an in-progress ticket
+      operationId: resolveTicket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+            example: '"17"'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolveTicketRequest'
+            examples:
+              fixed:
+                value:
+                  resolutionCode: FIXED
+                  resolutionSummary: Reinstalled the endpoint management profile and confirmed the device checked in successfully.
+      responses:
+        '200':
+          description: Ticket resolved
+          headers:
+            ETag:
+              schema:
+                type: string
+              example: '"18"'
+            Location:
+              schema:
+                type: string
+              example: /api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveTicketResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: Forbidden or queue access denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Ticket not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Invalid state, missing assignment, completed cycle, or idempotency conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '412':
+          description: Version conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '428':
+          description: If-Match required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  schemas:
+    ResolveTicketRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - resolutionCode
+        - resolutionSummary
+      properties:
+        resolutionCode:
+          type: string
+          enum:
+            - FIXED
+            - WORKAROUND_PROVIDED
+            - DUPLICATE
+            - REQUEST_FULFILLED
+            - NOT_REPRODUCIBLE
+            - USER_ERROR
+            - NO_ACTION_REQUIRED
+        resolutionSummary:
+          type: string
+          minLength: 10
+          maxLength: 5000
+    ResolveTicketResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - ticketId
+        - previousStatus
+        - status
+        - resolutionCode
+        - resolutionSummary
+        - resolvedBy
+        - resolvedAt
+        - resolutionCycleId
+        - version
+      properties:
+        ticketId:
+          type: string
+          format: uuid
+        previousStatus:
+          type: string
+          enum:
+            - IN_PROGRESS
+        status:
+          type: string
+          enum:
+            - RESOLVED
+        resolutionCode:
+          $ref: '#/components/schemas/ResolutionCode'
+        resolutionSummary:
+          type: string
+        resolvedBy:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        resolutionCycleId:
+          type: string
+          format: uuid
+        autoCloseDueAt:
+          type: string
+          format: date-time
+          nullable: true
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+    ResolutionCode:
+      type: string
+      enum:
+        - FIXED
+        - WORKAROUND_PROVIDED
+        - DUPLICATE
+        - REQUEST_FULFILLED
+        - NOT_REPRODUCIBLE
+        - USER_ERROR
+        - NO_ACTION_REQUIRED
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: true
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            correlationId:
+              type: string

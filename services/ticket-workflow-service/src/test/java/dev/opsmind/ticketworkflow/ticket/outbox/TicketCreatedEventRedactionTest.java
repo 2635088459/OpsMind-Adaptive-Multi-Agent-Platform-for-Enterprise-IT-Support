@@ -33,7 +33,7 @@ class TicketCreatedEventRedactionTest {
     private static final String RAW_REQUESTER_ID = "user-123";
 
     private final RequesterPseudonymizer pseudonymizer = new RequesterPseudonymizer(
-        new TicketWorkflowProperties(SECRET, "unit-test-cursor-secret", new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4)))
+        new TicketWorkflowProperties(SECRET, "unit-test-cursor-secret", new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4), Duration.ofDays(7)))
     );
     private final TicketIntegrationEventMapper mapper = new TicketIntegrationEventMapper(pseudonymizer);
 

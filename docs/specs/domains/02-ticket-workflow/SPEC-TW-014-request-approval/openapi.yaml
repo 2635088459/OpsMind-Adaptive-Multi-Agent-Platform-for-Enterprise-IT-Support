@@ -1,0 +1,12 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-014 Request Approval
+  version: 1.0.0
+paths:
+  /api/v1/tickets/{ticketId}/approval-requests:
+    post:
+      summary: Request approval for a pending action
+      operationId: requestApproval
+      responses:
+        '201':
+          description: Approval requested

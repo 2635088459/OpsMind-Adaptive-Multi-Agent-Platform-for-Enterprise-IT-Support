@@ -1,0 +1,127 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-009 Events
+  version: 1.0.0
+channels:
+  ticket.status-changed.v1:
+    publish:
+      summary: Ticket status changed through work or waiting states
+      message:
+        $ref: '#/components/messages/TicketStatusChanged'
+components:
+  messages:
+    TicketStatusChanged:
+      name: ticket.status-changed.v1
+      title: Ticket Status Changed
+      payload:
+        $ref: '#/components/schemas/TicketStatusChangedEvent'
+  schemas:
+    TicketStatusChangedEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - occurredAt
+        - aggregateType
+        - aggregateId
+        - aggregateVersion
+        - correlationId
+        - causationId
+        - actor
+        - data
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          const: ticket.status-changed.v1
+        occurredAt:
+          type: string
+          format: date-time
+        aggregateType:
+          type: string
+          const: Ticket
+        aggregateId:
+          type: string
+          format: uuid
+        aggregateVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        correlationId:
+          type: string
+        causationId:
+          type: string
+        actor:
+          $ref: '#/components/schemas/EventActor'
+        data:
+          $ref: '#/components/schemas/TicketStatusChangedData'
+    EventActor:
+      type: object
+      additionalProperties: false
+      required:
+        - type
+        - id
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+    TicketStatusChangedData:
+      type: object
+      additionalProperties: false
+      required:
+        - supportQueueId
+        - assigneeId
+        - previousStatus
+        - newStatus
+        - transitionId
+        - reasonCode
+        - reason
+      properties:
+        supportQueueId:
+          type: string
+          format: uuid
+        assigneeId:
+          type: string
+        previousStatus:
+          type: string
+          enum:
+            - ASSIGNED
+            - IN_PROGRESS
+            - WAITING_FOR_USER
+            - WAITING_FOR_APPROVAL
+        newStatus:
+          type: string
+          enum:
+            - IN_PROGRESS
+            - WAITING_FOR_USER
+            - WAITING_FOR_APPROVAL
+        transitionId:
+          type: string
+          enum:
+            - SM-005
+            - SM-006
+            - SM-007
+            - SM-008
+            - SM-009
+        reasonCode:
+          type: string
+          enum:
+            - WORK_STARTED
+            - WAITING_FOR_USER
+            - WAITING_FOR_APPROVAL
+            - WORK_RESUMED
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 500
+        waitingForRequesterSince:
+          type: string
+          format: date-time
+          nullable: true
+        approvalReference:
+          type: string
+          nullable: true

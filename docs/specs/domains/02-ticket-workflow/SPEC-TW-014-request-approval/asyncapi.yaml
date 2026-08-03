@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-014 Events
+  version: 1.0.0
+channels:
+  ticket.approval-wait-started.v1:
+    publish:
+      summary: Ticket started waiting for approval

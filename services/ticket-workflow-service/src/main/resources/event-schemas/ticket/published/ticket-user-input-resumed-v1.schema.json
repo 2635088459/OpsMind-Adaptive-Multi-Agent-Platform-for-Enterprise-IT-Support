@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-user-input-resumed-v1.schema.json",
+  "title": "ticket.user-input-resumed.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "messageId", "previousStatus", "newStatus", "resumeReason", "resumedAt"],
+  "properties": {
+    "requestId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "messageId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "WAITING_FOR_USER"
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "IN_PROGRESS"
+    },
+    "resumeReason": {
+      "type": "string",
+      "const": "USER_REPLIED"
+    },
+    "resumedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

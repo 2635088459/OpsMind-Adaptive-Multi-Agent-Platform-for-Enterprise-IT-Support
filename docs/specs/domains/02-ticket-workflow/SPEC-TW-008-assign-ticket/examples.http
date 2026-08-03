@@ -1,0 +1,66 @@
+@baseUrl = http://localhost:8080
+@token = replace-with-jwt
+@ticketId = 6c2ad02e-c394-41fb-8e38-dfffd581a59d
+@assigneeOne = 17cb78fb-c36d-4bb2-9687-84d86d726192
+@assigneeTwo = 98bf86d3-d709-448b-acd9-ef9ecbbc3d23
+
+### Assign TRIAGED -> ASSIGNED
+POST {{baseUrl}}/api/v1/tickets/{{ticketId}}/assign
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: "12"
+Idempotency-Key: assign-6c2ad02e-v12-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "assigneeId": "{{assigneeOne}}",
+  "reason": "Primary endpoint support owner"
+}
+
+### Replay assign (must return stored response without duplicate writes)
+POST {{baseUrl}}/api/v1/tickets/{{ticketId}}/assign
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: "12"
+Idempotency-Key: assign-6c2ad02e-v12-001
+X-Correlation-ID: b2a09295-5b64-4d28-8d40-ac36c7f46aec
+
+{
+  "assigneeId": "{{assigneeOne}}",
+  "reason": "Primary endpoint support owner"
+}
+
+### Reassign while preserving current status
+POST {{baseUrl}}/api/v1/tickets/{{ticketId}}/reassign
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: "13"
+Idempotency-Key: reassign-6c2ad02e-v13-001
+
+{
+  "assigneeId": "{{assigneeTwo}}",
+  "reason": "Escalated to network specialist"
+}
+
+### Unassign ASSIGNED -> TRIAGED
+POST {{baseUrl}}/api/v1/tickets/{{ticketId}}/unassign
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: "14"
+Idempotency-Key: unassign-6c2ad02e-v14-001
+
+{
+  "reason": "Agent left the support rotation"
+}
+
+### Expected conflict: stale version
+POST {{baseUrl}}/api/v1/tickets/{{ticketId}}/reassign
+Authorization: Bearer {{token}}
+Content-Type: application/json
+If-Match: "12"
+Idempotency-Key: stale-6c2ad02e-v12-001
+
+{
+  "assigneeId": "{{assigneeOne}}",
+  "reason": "Demonstrate optimistic locking"
+}

@@ -1,0 +1,13 @@
+### Request user input
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/user-input-requests
+Authorization: Bearer {{support_token}}
+Content-Type: application/json
+If-Match: "20"
+Idempotency-Key: request-input-6c2ad02e-v20-001
+X-Correlation-ID: d8f8637e-bd48-4771-bce5-7cbb925b20ee
+
+{
+  "prompt": "Please upload a screenshot of the error and confirm whether the laptop is connected to VPN.",
+  "requestedFields": ["screenshot", "vpnStatus"],
+  "expiresAt": "2026-08-05T18:00:00Z"
+}

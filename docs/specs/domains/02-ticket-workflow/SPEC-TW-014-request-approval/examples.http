@@ -1,0 +1,17 @@
+### Request approval
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/approval-requests
+Authorization: Bearer {{support_token}}
+Content-Type: application/json
+If-Match: "22"
+Idempotency-Key: request-approval-6c2ad02e-v22-001
+
+{
+  "workflowId": "wf-9000",
+  "actionId": "act-100",
+  "actionType": "RESET_MFA",
+  "riskLevel": "HIGH",
+  "riskContext": {
+    "targetSystem": "identity"
+  },
+  "reason": "MFA reset requires approval before execution."
+}

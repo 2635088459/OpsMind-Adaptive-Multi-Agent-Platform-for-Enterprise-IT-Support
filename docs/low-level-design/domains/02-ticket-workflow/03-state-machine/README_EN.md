@@ -9,6 +9,26 @@
 
 ---
 
+> **⚠️ Superseded for Phase 03 (2026-07-31).** This document froze an
+> AI-agent-automation-driven workflow model (`NEW → TRIAGING →
+> INVESTIGATING → EXECUTING → VERIFYING → RESOLVED → CLOSED`, driven by
+> `activeWorkflowId`, a Triage Agent, a Tool Gateway, and independent
+> Verification) that was never actually implemented: `SPEC-TW-001`
+> through `SPEC-TW-006` never populate `activeWorkflowId` and this
+> codebase has no Triage Agent, Tool Gateway, Policy, Approval, or
+> Verification component anywhere. `docs/implementation-plans/domains/
+> 02-ticket-workflow/phase-03-ticket-lifecycle-and-ownership_EN.md`
+> instead specifies a human-support-ownership lifecycle (`OPEN(NEW) →
+> TRIAGED → ASSIGNED → IN_PROGRESS → WAITING_FOR_USER/APPROVAL →
+> RESOLVED → CLOSED`) built by `SPEC-TW-007` onward, and is the current
+> authority for `TicketStatus` and ticket ownership going forward. The
+> state set and transitions below (Section 3 onward) no longer reflect
+> the implemented system; they are retained for historical record only.
+> See `docs/traceability/02-ticket-workflow/traceability-matrix.yaml`'s
+> `SPEC-TW-007`/`SPEC-TW-008` entries for the reconciliation record.
+
+---
+
 ## 1. Purpose
 
 This document freezes the Ticket Workflow state set, legal transitions, triggers, guards, transaction actions, domain events, integration events, failure behavior, and idempotency behavior.

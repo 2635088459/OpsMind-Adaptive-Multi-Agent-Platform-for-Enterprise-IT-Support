@@ -1,0 +1,70 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-012 Events
+  version: 1.0.0
+channels:
+  ticket.user-input-requested.v1:
+    publish:
+      summary: Additional requester input was requested
+      message:
+        $ref: '#/components/messages/UserInputRequested'
+components:
+  messages:
+    UserInputRequested:
+      name: ticket.user-input-requested.v1
+      payload:
+        $ref: '#/components/schemas/UserInputRequestedEvent'
+  schemas:
+    UserInputRequestedEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - occurredAt
+        - aggregateType
+        - aggregateId
+        - aggregateVersion
+        - actor
+        - data
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          const: ticket.user-input-requested.v1
+        occurredAt:
+          type: string
+          format: date-time
+        aggregateType:
+          type: string
+          const: Ticket
+        aggregateId:
+          type: string
+          format: uuid
+        aggregateVersion:
+          type: integer
+          format: int64
+        actor:
+          type: object
+        data:
+          type: object
+          required:
+            - requestId
+            - previousStatus
+            - newStatus
+            - requestedAt
+          properties:
+            requestId:
+              type: string
+              format: uuid
+            previousStatus:
+              type: string
+              const: IN_PROGRESS
+            newStatus:
+              type: string
+              const: WAITING_FOR_USER
+            requestedAt:
+              type: string
+              format: date-time

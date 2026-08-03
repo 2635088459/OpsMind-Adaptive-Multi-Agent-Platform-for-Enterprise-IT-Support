@@ -39,7 +39,7 @@ class SupportQueueResponseRedactionTest {
     private final JsonSchemaFactory schemaFactory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012);
     private final SupportQueueApiMapper mapper = new SupportQueueApiMapper(new RequesterPseudonymizer(new TicketWorkflowProperties(
         "unit-test-secret", "unit-test-cursor-secret",
-        new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4))
+        new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4), Duration.ofDays(7))
     )));
 
     @Test

@@ -1,0 +1,12 @@
+### Reply to the current user input request and resume
+POST http://localhost:8080/api/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/user-input-requests/3d912886-9652-4d88-8a64-1297b50f14c7/reply
+Authorization: Bearer {{requester_token}}
+Content-Type: application/json
+If-Match: "21"
+Idempotency-Key: reply-input-6c2ad02e-v21-001
+X-Correlation-ID: 5922de22-cffe-4d2d-97d0-ae9dc1f3e970
+
+{
+  "body": "The laptop is connected to VPN and I attached the screenshot of the enrollment error.",
+  "attachmentIds": ["att-001"]
+}

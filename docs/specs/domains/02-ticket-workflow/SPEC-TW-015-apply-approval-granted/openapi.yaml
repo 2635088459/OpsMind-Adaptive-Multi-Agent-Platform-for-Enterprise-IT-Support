@@ -1,0 +1,5 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-015 Apply Approval Granted
+  version: 1.0.0
+paths: {}
