@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-approval-rejected-applied-v1.schema.json",
+  "title": "ticket.approval-rejected-applied.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "ticketId",
+    "approvalRequestId",
+    "approvalId",
+    "workflowId",
+    "actionId",
+    "actionType",
+    "rejectedAt",
+    "reasonCode"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "approvalRequestId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "approvalId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "rejectedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reasonCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  }
+}

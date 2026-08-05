@@ -555,4 +555,94 @@ public class TicketTelemetry {
             .register(meterRegistry)
             .increment();
     }
+
+    public Timer.Sample startApplyApprovalRejectedTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyApprovalRejectedTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_approval_rejected_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyApprovalRejectedOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_approval_rejected_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApprovalRejectedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "approval.rejected")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApprovalRejectedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "approval.rejected")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyApprovalExpiredTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyApprovalExpiredTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_approval_expired_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyApprovalExpiredOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_approval_expired_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApprovalExpiredConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "approval.expired")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApprovalExpiredDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "approval.expired")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyAutoApprovedPolicyTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyAutoApprovedPolicyTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_auto_approved_policy_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyAutoApprovedPolicyOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_auto_approved_policy_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordPolicyActionAutoApprovedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "policy.action_auto_approved")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordPolicyActionAutoApprovedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "policy.action_auto_approved")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
 }

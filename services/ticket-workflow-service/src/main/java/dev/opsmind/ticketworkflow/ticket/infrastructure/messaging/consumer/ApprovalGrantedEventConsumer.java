@@ -15,20 +15,23 @@ import dev.opsmind.ticketworkflow.ticket.infrastructure.messaging.contract.Event
 import dev.opsmind.ticketworkflow.ticket.infrastructure.messaging.mapper.ApprovalGrantedEventMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 
 /**
- * SPEC-TW-015: consumes {@code approval.granted.v1} from {@code
- * ticket-workflow.approval-events.v1} (bound in {@code RabbitMqConfiguration}).
- * Follows 06-event-contracts §13's algorithm up through step 12 (parse →
- * validate envelope schema → validate event type/version → validate producer
- * → validate payload schema → map → apply use case); steps 13-17
- * (save/history/outbox/commit) happen inside the use case's own
- * {@code @Transactional} boundary. Any exception thrown here is handled by
- * {@code approvalEventsListenerContainerFactory}'s retry interceptor: {@link
+ * SPEC-TW-015: consumes {@code approval.granted.v1} messages routed to
+ * {@code ticket-workflow.approval-events.v1} (bound in {@code
+ * RabbitMqConfiguration}). Invoked by {@link ApprovalEventsDispatcher}, the
+ * queue's sole {@code @RabbitListener} — see that class for why a
+ * per-event-type listener on this queue does not work. Follows
+ * 06-event-contracts §13's algorithm up through step 12 (parse → validate
+ * envelope schema → validate event type/version → validate producer →
+ * validate payload schema → map → apply use case); steps 13-17 (save/
+ * history/outbox/commit) happen inside the use case's own {@code
+ * @Transactional} boundary. Any exception thrown here propagates back
+ * through the dispatcher to {@code approvalEventsListenerContainerFactory}'s
+ * retry interceptor: {@link
  * dev.opsmind.ticketworkflow.ticket.application.exception.NonRetryableConsumedEventException}
  * subclasses reject straight to the DLQ, transient database exceptions are
  * retried a bounded number of times first.
@@ -63,7 +66,6 @@ public class ApprovalGrantedEventConsumer {
         this.telemetry = telemetry;
     }
 
-    @RabbitListener(queues = "ticket-workflow.approval-events.v1", containerFactory = "approvalEventsListenerContainerFactory")
     public void onMessage(String body) {
         Map<String, Object> envelopeMap = parseJson(body);
         validator.validateEnvelope(envelopeMap);

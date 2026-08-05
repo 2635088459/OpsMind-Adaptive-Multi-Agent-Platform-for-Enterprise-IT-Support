@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/consumed/policy-action-auto-approved-v1.schema.json",
+  "title": "policy.action-auto-approved.v1 payload (consumed)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "workflowId",
+    "actionId",
+    "actionType",
+    "riskLevel",
+    "policyId",
+    "policyVersion",
+    "policyDecisionId",
+    "decidedAt"
+  ],
+  "properties": {
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "riskLevel": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "policyId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "policyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "policyDecisionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "decidedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "toolExecutionId": {
+      "type": "string",
+      "maxLength": 128
+    }
+  }
+}

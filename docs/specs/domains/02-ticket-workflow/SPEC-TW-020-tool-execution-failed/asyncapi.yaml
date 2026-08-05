@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-020 Events
+  version: 1.0.0
+channels:
+  tool.execution.failed.v1:
+    subscribe:
+      summary: Tool execution failed event consumed by Ticket Workflow
+  ticket.tool-execution-failed-applied.v1:
+    publish:
+      summary: Failed tool result applied to ticket

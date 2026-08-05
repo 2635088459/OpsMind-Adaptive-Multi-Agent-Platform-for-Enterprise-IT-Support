@@ -14,7 +14,10 @@ import java.util.Map;
 public class EventProducerAllowlist {
 
     private static final Map<String, String> ALLOWED_PRODUCERS = Map.of(
-        "approval.granted", "policy-approval-service"
+        "approval.granted", "policy-approval-service",
+        "approval.rejected", "policy-approval-service",
+        "approval.expired", "policy-approval-service",
+        "policy.action_auto_approved", "policy-approval-service"
     );
 
     public boolean isAllowed(String eventType, String producer) {

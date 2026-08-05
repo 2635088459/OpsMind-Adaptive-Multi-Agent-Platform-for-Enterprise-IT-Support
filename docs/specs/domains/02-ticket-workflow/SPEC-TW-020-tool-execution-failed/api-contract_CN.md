@@ -1,0 +1,7 @@
+# SPEC-TW-020 — API 契约
+
+事件驱动，无 public HTTP endpoint。
+
+消费：`tool.execution.failed.v1`。
+
+结果：`APPLIED_SAFE_FAILURE`、`APPLIED_PIPELINE_FAILURE`、`DUPLICATE`、`STALE`、`DLQ_SCHEMA_INVALID`、`DLQ_WRONG_PRODUCER`。

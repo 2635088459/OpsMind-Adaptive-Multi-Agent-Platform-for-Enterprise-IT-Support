@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-019 Events
+  version: 1.0.0
+channels:
+  tool.execution.completed.v1:
+    subscribe:
+      summary: Tool execution completed event consumed by Ticket Workflow
+  ticket.tool-execution-completed-applied.v1:
+    publish:
+      summary: Completed tool result applied to ticket

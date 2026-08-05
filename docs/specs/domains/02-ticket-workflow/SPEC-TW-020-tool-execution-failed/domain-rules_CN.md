@@ -1,0 +1,8 @@
+# SPEC-TW-020 — 领域规则
+
+| 当前状态 | 目标状态 | Transition ID | Reason Code |
+|---|---|---|---|
+| `EXECUTING` | `IN_PROGRESS` | `SM-022` | `TOOL_EXECUTION_FAILED_SAFE` |
+| `EXECUTING` | `FAILED` | `SM-023` | `TOOL_EXECUTION_PIPELINE_FAILED` |
+
+失败必须分类为 `KNOWN_SAFE`、`RETRYABLE_SAFE` 或 `PIPELINE_FAILED`。`UNKNOWN_SIDE_EFFECT` 必须交给 SPEC-TW-021。

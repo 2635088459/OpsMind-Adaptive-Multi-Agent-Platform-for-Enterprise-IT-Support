@@ -32,7 +32,10 @@ public class JsonSchemaConsumedEventValidator implements ConsumedEventValidator 
     private static final String ENVELOPE_SCHEMA_LOCATION = "event-schemas/common/event-envelope-v1.schema.json";
 
     private static final Map<String, String> PAYLOAD_SCHEMA_LOCATIONS = Map.of(
-        "approval.granted:1", "event-schemas/ticket/consumed/approval-granted-v1.schema.json"
+        "approval.granted:1", "event-schemas/ticket/consumed/approval-granted-v1.schema.json",
+        "approval.rejected:1", "event-schemas/ticket/consumed/approval-rejected-v1.schema.json",
+        "approval.expired:1", "event-schemas/ticket/consumed/approval-expired-v1.schema.json",
+        "policy.action_auto_approved:1", "event-schemas/ticket/consumed/policy-action-auto-approved-v1.schema.json"
     );
 
     private final JsonSchemaFactory schemaFactory;

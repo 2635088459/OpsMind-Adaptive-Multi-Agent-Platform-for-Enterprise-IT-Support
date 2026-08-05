@@ -40,7 +40,10 @@ public class JsonSchemaEventValidator implements EventSchemaValidator {
         Map.entry("ticket.user-reply-received:1", "event-schemas/ticket/published/ticket-user-reply-received-v1.schema.json"),
         Map.entry("ticket.user-input-resumed:1", "event-schemas/ticket/published/ticket-user-input-resumed-v1.schema.json"),
         Map.entry("ticket.approval-wait-started:1", "event-schemas/ticket/published/ticket-approval-wait-started-v1.schema.json"),
-        Map.entry("ticket.approval-granted-applied:1", "event-schemas/ticket/published/ticket-approval-granted-applied-v1.schema.json")
+        Map.entry("ticket.approval-granted-applied:1", "event-schemas/ticket/published/ticket-approval-granted-applied-v1.schema.json"),
+        Map.entry("ticket.approval-rejected-applied:1", "event-schemas/ticket/published/ticket-approval-rejected-applied-v1.schema.json"),
+        Map.entry("ticket.approval-expired-applied:1", "event-schemas/ticket/published/ticket-approval-expired-applied-v1.schema.json"),
+        Map.entry("ticket.auto-approval-applied:1", "event-schemas/ticket/published/ticket-auto-approval-applied-v1.schema.json")
     );
 
     private final JsonSchemaFactory schemaFactory;

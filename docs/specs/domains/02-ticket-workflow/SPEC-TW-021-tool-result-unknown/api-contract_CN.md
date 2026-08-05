@@ -1,0 +1,7 @@
+# SPEC-TW-021 — API 契约
+
+事件驱动，无 public HTTP endpoint。
+
+消费：`tool.execution.result-unknown.v1`。
+
+结果：`RECORDED_UNKNOWN`、`DUPLICATE`、`STALE`、`CONFLICT_REQUIRES_RECONCILIATION`、`DLQ_SCHEMA_INVALID`、`DLQ_WRONG_PRODUCER`。

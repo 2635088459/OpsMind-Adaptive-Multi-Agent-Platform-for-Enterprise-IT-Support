@@ -1,7 +1,10 @@
 package dev.opsmind.ticketworkflow.ticket.domain.model;
 
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalExpiredApplied;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalGrantedApplied;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalRejectedApplied;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalWaitStarted;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketAutoApprovalApplied;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketAssigned;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketClosed;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketCreated;
@@ -697,6 +700,166 @@ public final class Ticket {
             ticketId, currentStatus, TicketStatus.IN_PROGRESS, currentAssigneeId, approvalRequestId, approvalId,
             workflowId, actionId, actionType, approvedBy, approvedAt, authorizationReference, grantedEventId,
             "SM-017", "APPROVAL_GRANTED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-016 domain-rules §1: {@code WAITING_FOR_APPROVAL -> IN_PROGRESS}
+     * (transitionId {@code SM-018}, reasonCode {@code APPROVAL_REJECTED}).
+     * Mirrors {@link #applyApprovalGranted}'s shape: consumer-side
+     * classification (duplicate/stale/reference-mismatch/business-rule)
+     * happens in the Application layer against the approval-request row
+     * before this method is invoked. Rejected approval is not reusable —
+     * this method only re-asserts the ticket-level invariant and clears the
+     * ticket back to {@code IN_PROGRESS}; any future execution requires a
+     * brand new action and a brand new approval request.
+     */
+    public static TicketApprovalRejectedApplied applyApprovalRejected(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        UUID approvalRequestId,
+        String approvalId,
+        String workflowId,
+        String actionId,
+        String actionType,
+        String rejectedBy,
+        Instant rejectedAt,
+        String rejectionReason,
+        String rejectedEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(approvalRequestId, "approvalRequestId must not be null");
+        Objects.requireNonNull(approvalId, "approvalId must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(actionId, "actionId must not be null");
+        Objects.requireNonNull(actionType, "actionType must not be null");
+        Objects.requireNonNull(rejectedAt, "rejectedAt must not be null");
+        Objects.requireNonNull(rejectionReason, "rejectionReason must not be null");
+        Objects.requireNonNull(rejectedEventId, "rejectedEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.WAITING_FOR_APPROVAL) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.IN_PROGRESS);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketApprovalRejectedApplied(
+            ticketId, currentStatus, TicketStatus.IN_PROGRESS, currentAssigneeId, approvalRequestId, approvalId,
+            workflowId, actionId, actionType, rejectedBy, rejectedAt, rejectionReason, rejectedEventId,
+            "SM-018", "APPROVAL_REJECTED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-017 domain-rules §1: {@code WAITING_FOR_APPROVAL -> IN_PROGRESS}
+     * (transitionId {@code SM-019}, reasonCode {@code APPROVAL_EXPIRED}).
+     * Mirrors {@link #applyApprovalRejected}'s shape. Expired approval can
+     * never authorize execution; this method only re-asserts the
+     * ticket-level invariant and clears the ticket back to {@code
+     * IN_PROGRESS} — later execution requires a new approval request or a
+     * new auto-approved policy decision.
+     */
+    public static TicketApprovalExpiredApplied applyApprovalExpired(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        UUID approvalRequestId,
+        String approvalId,
+        String workflowId,
+        String actionId,
+        String actionType,
+        Instant expiredAt,
+        String expirationReason,
+        String expiredEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(approvalRequestId, "approvalRequestId must not be null");
+        Objects.requireNonNull(approvalId, "approvalId must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(actionId, "actionId must not be null");
+        Objects.requireNonNull(actionType, "actionType must not be null");
+        Objects.requireNonNull(expiredAt, "expiredAt must not be null");
+        Objects.requireNonNull(expirationReason, "expirationReason must not be null");
+        Objects.requireNonNull(expiredEventId, "expiredEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.WAITING_FOR_APPROVAL) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.IN_PROGRESS);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketApprovalExpiredApplied(
+            ticketId, currentStatus, TicketStatus.IN_PROGRESS, currentAssigneeId, approvalRequestId, approvalId,
+            workflowId, actionId, actionType, expiredAt, expirationReason, expiredEventId,
+            "SM-019", "APPROVAL_EXPIRED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-018 domain-rules §1: {@code IN_PROGRESS -> IN_PROGRESS}
+     * (transitionId {@code SM-020}, reasonCode {@code AUTO_APPROVAL_APPLIED}).
+     * Unlike {@link #applyApprovalGranted}/{@link #applyApprovalRejected}/
+     * {@link #applyApprovalExpired}, this never follows a SPEC-TW-014
+     * request-approval — auto-approval means the policy engine decided the
+     * action never needed to pause the ticket at all, so there is no prior
+     * {@code WAITING_FOR_APPROVAL} to leave. The ticket must still be
+     * {@code IN_PROGRESS} and assigned; the self-transition is a real
+     * recorded event (its own status-history row and version bump), not a
+     * no-op.
+     */
+    public static TicketAutoApprovalApplied applyAutoApprovedPolicy(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        UUID approvalRequestId,
+        String workflowId,
+        String actionId,
+        String actionType,
+        ApprovalRiskLevel riskLevel,
+        String policyId,
+        String policyVersion,
+        String policyDecisionId,
+        String authorizationReference,
+        Instant decidedAt,
+        String autoApprovalEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(approvalRequestId, "approvalRequestId must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(actionId, "actionId must not be null");
+        Objects.requireNonNull(actionType, "actionType must not be null");
+        Objects.requireNonNull(riskLevel, "riskLevel must not be null");
+        Objects.requireNonNull(policyId, "policyId must not be null");
+        Objects.requireNonNull(policyVersion, "policyVersion must not be null");
+        Objects.requireNonNull(policyDecisionId, "policyDecisionId must not be null");
+        Objects.requireNonNull(authorizationReference, "authorizationReference must not be null");
+        Objects.requireNonNull(decidedAt, "decidedAt must not be null");
+        Objects.requireNonNull(autoApprovalEventId, "autoApprovalEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.IN_PROGRESS) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.IN_PROGRESS);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketAutoApprovalApplied(
+            ticketId, currentStatus, TicketStatus.IN_PROGRESS, currentAssigneeId, approvalRequestId,
+            workflowId, actionId, actionType, riskLevel, policyId, policyVersion, policyDecisionId,
+            authorizationReference, decidedAt, autoApprovalEventId,
+            "SM-020", "AUTO_APPROVAL_APPLIED", currentVersion + 1, occurredAt
         );
     }
 

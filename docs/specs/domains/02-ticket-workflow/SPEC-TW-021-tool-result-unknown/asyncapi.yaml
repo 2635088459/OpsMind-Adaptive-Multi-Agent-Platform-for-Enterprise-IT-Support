@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-021 Events
+  version: 1.0.0
+channels:
+  tool.execution.result-unknown.v1:
+    subscribe:
+      summary: Tool execution unknown result consumed by Ticket Workflow
+  ticket.tool-result-unknown-recorded.v1:
+    publish:
+      summary: Unknown tool result recorded for ticket
