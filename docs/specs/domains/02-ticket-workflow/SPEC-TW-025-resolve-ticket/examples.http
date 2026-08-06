@@ -1,0 +1,12 @@
+### Resolve with verification evidence
+POST http://localhost:8080/internal/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/verified-resolution
+Authorization: Bearer {{service_token}}
+Content-Type: application/json
+If-Match: "34"
+Idempotency-Key: verified-resolve-6c2ad02e-v34-001
+
+{
+  "verificationEvidenceId": "ve-300",
+  "resolutionCode": "FIXED",
+  "resolutionSummary": "Verification confirmed the requester can sign in after MFA reset."
+}

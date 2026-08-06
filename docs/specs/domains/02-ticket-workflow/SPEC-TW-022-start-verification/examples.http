@@ -1,0 +1,12 @@
+### Start verification
+POST http://localhost:8080/internal/v1/tickets/6c2ad02e-c394-41fb-8e38-dfffd581a59d/verification/start
+Authorization: Bearer {{service_token}}
+Content-Type: application/json
+If-Match: "30"
+Idempotency-Key: start-verification-6c2ad02e-v30-001
+
+{
+  "toolResultId": "tool-result-900",
+  "verificationType": "IDENTITY_LOGIN_CHECK",
+  "reason": "Confirm the requester can sign in after MFA reset."
+}

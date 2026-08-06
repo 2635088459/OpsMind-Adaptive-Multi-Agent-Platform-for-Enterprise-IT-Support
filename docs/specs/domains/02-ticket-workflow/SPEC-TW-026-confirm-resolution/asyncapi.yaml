@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-026 Events
+  version: 1.0.0
+channels:
+  ticket.resolution-confirmed.v1:
+    publish:
+      summary: Confirm that a resolved ticket is accepted and move it to CLOSED.

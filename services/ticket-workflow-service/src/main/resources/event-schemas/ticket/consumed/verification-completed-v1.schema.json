@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/consumed/verification-completed-v1.schema.json",
+  "title": "verification.completed.v1 payload (consumed, result = SUCCESS)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "workflowId",
+    "resolutionCycleId",
+    "verificationId",
+    "attemptNumber",
+    "result",
+    "verificationEvidenceId",
+    "completedAt"
+  ],
+  "properties": {
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "verificationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "result": {
+      "type": "string",
+      "const": "SUCCESS"
+    },
+    "verificationEvidenceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "evidenceSummary": {
+      "type": ["object", "null"]
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

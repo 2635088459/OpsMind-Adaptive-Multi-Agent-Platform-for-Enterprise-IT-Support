@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-verification-success-applied-v1.schema.json",
+  "title": "ticket.verification-success-applied.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "ticketId",
+    "verificationId",
+    "verificationEvidenceId",
+    "workflowId",
+    "resolutionCycleId",
+    "attemptNumber",
+    "previousStatus",
+    "newStatus",
+    "completedAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "verificationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "verificationEvidenceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "VERIFYING"
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "VERIFYING"
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

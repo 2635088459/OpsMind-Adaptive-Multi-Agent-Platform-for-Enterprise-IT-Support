@@ -26,6 +26,9 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TriageCategoryInv
 import dev.opsmind.ticketworkflow.ticket.application.exception.UserInputRequestAlreadyOpenException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TriageNotAllowedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TriageSubcategoryInvalidException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.VerificationAttemptAlreadyActiveException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.VerificationEvidenceRequiredException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.VerificationToolResultInvalidException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketStateException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidStatusTransitionException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException;
@@ -252,6 +255,22 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(ApprovalRequestAlreadyOpenException.class)
     public ResponseEntity<ErrorResponse> handleApprovalRequestAlreadyOpen(ApprovalRequestAlreadyOpenException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "APPROVAL_REQUEST_ALREADY_OPEN", "The ticket already has an open approval request.", request);
+    }
+
+    @ExceptionHandler(VerificationAttemptAlreadyActiveException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationAttemptAlreadyActive(VerificationAttemptAlreadyActiveException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "VERIFICATION_ATTEMPT_ALREADY_ACTIVE", "The tool result already has an active verification attempt.", request);
+    }
+
+    @ExceptionHandler(VerificationToolResultInvalidException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationToolResultInvalid(VerificationToolResultInvalidException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, "VERIFICATION_TOOL_RESULT_INVALID", "The tool result does not exist or does not belong to this ticket.", request);
+    }
+
+    /** SPEC-TW-025 acceptance-criteria: "Missing evidence returns 409 VERIFICATION_REQUIRED" (also covers old/stale workflow-cycle-attempt evidence, which is rejected identically). */
+    @ExceptionHandler(VerificationEvidenceRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleVerificationEvidenceRequired(VerificationEvidenceRequiredException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "VERIFICATION_REQUIRED", "No trusted, current, successful verification evidence was found for this ticket.", request);
     }
 
     @ExceptionHandler(IdempotencyKeyReusedException.class)

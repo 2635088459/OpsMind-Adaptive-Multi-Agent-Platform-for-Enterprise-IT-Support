@@ -12,8 +12,15 @@ import dev.opsmind.ticketworkflow.ticket.domain.event.TicketDomainEvent;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketReassigned;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketReopened;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketResolved;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketResolvedWithVerification;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketStatusChanged;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketToolExecutionCompletedApplied;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketToolExecutionFailedApplied;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketToolResultUnknownRecorded;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketTriaged;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketVerificationStarted;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketVerificationFailureApplied;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketVerificationSuccessApplied;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketUnassigned;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketUserInputRequested;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketUserInputResumed;
@@ -860,6 +867,431 @@ public final class Ticket {
             workflowId, actionId, actionType, riskLevel, policyId, policyVersion, policyDecisionId,
             authorizationReference, decidedAt, autoApprovalEventId,
             "SM-020", "AUTO_APPROVAL_APPLIED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-019 domain-rules §1: {@code EXECUTING -> VERIFYING} (transitionId
+     * {@code SM-021}, reasonCode {@code TOOL_EXECUTION_COMPLETED}). Mirrors
+     * {@link #applyApprovalGranted}'s shape: consumer-side classification
+     * (duplicate/stale/reference-mismatch against the authorization on
+     * record) happens in the Application layer, against the ticket +
+     * authorizing approval-request projection, before this method is ever
+     * invoked — this pure method only re-asserts the ticket-level invariant
+     * the Tool Gateway's trust boundary already depends on: the ticket must
+     * still be {@code EXECUTING}. Tool success never resolves the ticket;
+     * only Phase 07 Verification can do that, so the target status here is
+     * always {@code VERIFYING}.
+     */
+    public static TicketToolExecutionCompletedApplied applyToolExecutionCompleted(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        String workflowId,
+        String actionId,
+        String authorizationReference,
+        String toolExecutionId,
+        String toolResultId,
+        Instant completedAt,
+        Map<String, Object> resultSummary,
+        String completedEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(actionId, "actionId must not be null");
+        Objects.requireNonNull(authorizationReference, "authorizationReference must not be null");
+        Objects.requireNonNull(toolExecutionId, "toolExecutionId must not be null");
+        Objects.requireNonNull(toolResultId, "toolResultId must not be null");
+        Objects.requireNonNull(completedAt, "completedAt must not be null");
+        Objects.requireNonNull(completedEventId, "completedEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.EXECUTING) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.VERIFYING);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketToolExecutionCompletedApplied(
+            ticketId, currentStatus, TicketStatus.VERIFYING, currentAssigneeId, workflowId, actionId,
+            authorizationReference, toolExecutionId, toolResultId, completedAt, resultSummary, completedEventId,
+            "SM-021", "TOOL_EXECUTION_COMPLETED", currentVersion + 1, occurredAt
+        );
+    }
+
+    private static final Set<String> SAFE_FAILURE_CLASSES = Set.of("KNOWN_SAFE", "RETRYABLE_SAFE");
+
+    /**
+     * SPEC-TW-020 domain-rules §1: {@code EXECUTING -> IN_PROGRESS}
+     * (transitionId {@code SM-022}, reasonCode {@code
+     * TOOL_EXECUTION_FAILED_SAFE}) when {@code failureClass} is {@code
+     * KNOWN_SAFE} or {@code RETRYABLE_SAFE} — the tool created no unknown
+     * external side effect, so work can safely continue or be replanned —
+     * or {@code EXECUTING -> FAILED} (transitionId {@code SM-023},
+     * reasonCode {@code TOOL_EXECUTION_PIPELINE_FAILED}) when it is {@code
+     * PIPELINE_FAILED} — the execution pipeline itself failed and needs
+     * explicit recovery. {@code UNKNOWN_SIDE_EFFECT} is never valid here
+     * (SPEC-TW-021's {@code tool.execution.result_unknown.v1} owns that
+     * case); the consumed-event schema already excludes it from {@code
+     * failureClass}'s enum, so reaching the {@code default} branch below
+     * would mean a validated event slipped an invariant the Application
+     * layer is supposed to guarantee before ever calling this method.
+     * Mirrors {@link #applyToolExecutionCompleted}'s shape otherwise:
+     * consumer-side classification (duplicate/stale/reference-mismatch)
+     * happens in the Application layer before this method is invoked.
+     */
+    public static TicketToolExecutionFailedApplied applyToolExecutionFailed(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        String workflowId,
+        String actionId,
+        String authorizationReference,
+        String toolExecutionId,
+        String failureCode,
+        String failureClass,
+        Instant failedAt,
+        Boolean safeToRetry,
+        String failedEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(actionId, "actionId must not be null");
+        Objects.requireNonNull(authorizationReference, "authorizationReference must not be null");
+        Objects.requireNonNull(toolExecutionId, "toolExecutionId must not be null");
+        Objects.requireNonNull(failureCode, "failureCode must not be null");
+        Objects.requireNonNull(failureClass, "failureClass must not be null");
+        Objects.requireNonNull(failedAt, "failedAt must not be null");
+        Objects.requireNonNull(failedEventId, "failedEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+
+        TicketStatus targetStatus;
+        String transitionId;
+        String reasonCode;
+        if (SAFE_FAILURE_CLASSES.contains(failureClass)) {
+            targetStatus = TicketStatus.IN_PROGRESS;
+            transitionId = "SM-022";
+            reasonCode = "TOOL_EXECUTION_FAILED_SAFE";
+        } else if ("PIPELINE_FAILED".equals(failureClass)) {
+            targetStatus = TicketStatus.FAILED;
+            transitionId = "SM-023";
+            reasonCode = "TOOL_EXECUTION_PIPELINE_FAILED";
+        } else {
+            throw new IllegalArgumentException("unsupported failureClass for tool.execution.failed: " + failureClass);
+        }
+
+        if (currentStatus != TicketStatus.EXECUTING) {
+            throw new InvalidStatusTransitionException(currentStatus, targetStatus);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketToolExecutionFailedApplied(
+            ticketId, currentStatus, targetStatus, currentAssigneeId, workflowId, actionId, authorizationReference,
+            toolExecutionId, failureCode, failureClass, failedAt, safeToRetry, failedEventId,
+            transitionId, reasonCode, currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-021 domain-rules §1: {@code EXECUTING -> ESCALATED}
+     * (transitionId {@code SM-024}, reasonCode {@code TOOL_RESULT_UNKNOWN}).
+     * An unknown result is a safety boundary — the tool may or may not have
+     * produced an external side effect, so this transition never targets
+     * {@code IN_PROGRESS} or any other status the way {@link
+     * #applyToolExecutionFailed}'s known-safe branch does; the ticket
+     * always escalates, and {@code reconciliationRequired} is always
+     * {@code true} (there is no "known unknown" that skips reconciliation).
+     * Mirrors {@link #applyToolExecutionCompleted}/{@link
+     * #applyToolExecutionFailed}'s shape otherwise: consumer-side
+     * classification (duplicate/stale/conflict-with-an-already-recorded
+     * outcome) happens in the Application layer before this method is
+     * invoked.
+     */
+    public static TicketToolResultUnknownRecorded applyToolResultUnknown(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        String workflowId,
+        String actionId,
+        String authorizationReference,
+        String toolExecutionId,
+        String unknownReason,
+        List<String> evidenceReferences,
+        Instant observedAt,
+        String recordedEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(actionId, "actionId must not be null");
+        Objects.requireNonNull(authorizationReference, "authorizationReference must not be null");
+        Objects.requireNonNull(toolExecutionId, "toolExecutionId must not be null");
+        Objects.requireNonNull(unknownReason, "unknownReason must not be null");
+        Objects.requireNonNull(observedAt, "observedAt must not be null");
+        Objects.requireNonNull(recordedEventId, "recordedEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.EXECUTING) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.ESCALATED);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketToolResultUnknownRecorded(
+            ticketId, currentStatus, TicketStatus.ESCALATED, currentAssigneeId, workflowId, actionId, authorizationReference,
+            toolExecutionId, unknownReason, evidenceReferences, observedAt, true, recordedEventId,
+            "SM-024", "TOOL_RESULT_UNKNOWN", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-022 domain-rules §1: {@code VERIFYING -> VERIFYING}
+     * (transitionId {@code SM-025}, reasonCode {@code VERIFICATION_STARTED}).
+     * Mirrors {@link #applyAutoApprovedPolicy}'s self-transition shape
+     * (SPEC-TW-018): the ticket must still be {@code VERIFYING} and
+     * assigned; the Application layer has already validated that {@code
+     * toolResultId} belongs to this ticket and computed {@code
+     * attemptNumber} and {@code resolutionCycleId} — I/O this pure method
+     * must not perform.
+     */
+    public static TicketVerificationStarted startVerification(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        String verificationId,
+        UUID resolutionCycleId,
+        String workflowId,
+        String toolResultId,
+        int attemptNumber,
+        String verificationType,
+        String reason,
+        String startedByType,
+        String startedById,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(verificationId, "verificationId must not be null");
+        Objects.requireNonNull(resolutionCycleId, "resolutionCycleId must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(toolResultId, "toolResultId must not be null");
+        Objects.requireNonNull(verificationType, "verificationType must not be null");
+        Objects.requireNonNull(startedByType, "startedByType must not be null");
+        Objects.requireNonNull(startedById, "startedById must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.VERIFYING) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.VERIFYING);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketVerificationStarted(
+            ticketId, currentStatus, TicketStatus.VERIFYING, currentAssigneeId, verificationId, resolutionCycleId,
+            workflowId, toolResultId, attemptNumber, verificationType, reason == null ? null : reason.trim(),
+            startedByType, startedById, occurredAt, "SM-025", "VERIFICATION_STARTED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-023 domain-rules §1: {@code VERIFYING -> VERIFYING}
+     * (transitionId {@code SM-026}, reasonCode {@code
+     * VERIFICATION_SUCCEEDED}). Mirrors {@link #startVerification}'s
+     * self-transition shape (SPEC-TW-022): the ticket must still be {@code
+     * VERIFYING} and assigned; the Application layer has already validated
+     * that {@code verificationId} references the current active attempt,
+     * bound to the current workflow, resolution cycle, and attempt number,
+     * before this method is ever invoked. Successful verification never
+     * resolves the ticket by itself — that is SPEC-TW-025's job, given this
+     * event's stored evidence.
+     */
+    public static TicketVerificationSuccessApplied applyVerificationSuccess(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        String verificationId,
+        String workflowId,
+        UUID resolutionCycleId,
+        int attemptNumber,
+        String verificationEvidenceId,
+        Map<String, Object> evidenceSummary,
+        Instant completedAt,
+        String completedEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(verificationId, "verificationId must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(resolutionCycleId, "resolutionCycleId must not be null");
+        Objects.requireNonNull(verificationEvidenceId, "verificationEvidenceId must not be null");
+        Objects.requireNonNull(completedAt, "completedAt must not be null");
+        Objects.requireNonNull(completedEventId, "completedEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.VERIFYING) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.VERIFYING);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketVerificationSuccessApplied(
+            ticketId, currentStatus, TicketStatus.VERIFYING, currentAssigneeId, verificationId, workflowId,
+            resolutionCycleId, attemptNumber, verificationEvidenceId, evidenceSummary, completedAt, completedEventId,
+            "SM-026", "VERIFICATION_SUCCEEDED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-024 domain-rules §1: {@code VERIFYING -> IN_PROGRESS}
+     * (transitionId {@code SM-027}, reasonCode {@code
+     * VERIFICATION_FAILED_RETRYABLE}), {@code VERIFYING -> ESCALATED}
+     * (transitionId {@code SM-028}, reasonCode {@code
+     * VERIFICATION_FAILED_LIMIT_OR_UNSAFE}), or {@code VERIFYING -> FAILED}
+     * (transitionId {@code SM-029}, reasonCode {@code
+     * VERIFICATION_PIPELINE_FAILED}). {@code unsafeResult} always wins —
+     * "unsafe result enters ESCALATED" is unconditional, checked before
+     * {@code failureClass} — followed by {@code PIPELINE_FAILED} (the
+     * verification pipeline itself broke, unrelated to retry counting),
+     * then {@code RETRYABLE}, which only returns to {@code IN_PROGRESS}
+     * while {@code hasReachedFailureLimit} is {@code false}; once the
+     * Application layer's own count of prior {@code FAILED} attempts in
+     * this resolution cycle reaches the limit ("the third failure or
+     * unsafe result escalates" — I/O this pure method must not perform),
+     * even a retryable failure escalates instead.
+     */
+    public static TicketVerificationFailureApplied applyVerificationFailure(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        long currentVersion,
+        String verificationId,
+        String workflowId,
+        UUID resolutionCycleId,
+        int attemptNumber,
+        String failureCode,
+        String failureClass,
+        boolean unsafeResult,
+        boolean hasReachedFailureLimit,
+        Instant failedAt,
+        String failedEventId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(verificationId, "verificationId must not be null");
+        Objects.requireNonNull(workflowId, "workflowId must not be null");
+        Objects.requireNonNull(resolutionCycleId, "resolutionCycleId must not be null");
+        Objects.requireNonNull(failureCode, "failureCode must not be null");
+        Objects.requireNonNull(failureClass, "failureClass must not be null");
+        Objects.requireNonNull(failedAt, "failedAt must not be null");
+        Objects.requireNonNull(failedEventId, "failedEventId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+
+        TicketStatus targetStatus;
+        String transitionId;
+        String reasonCode;
+        if (unsafeResult) {
+            targetStatus = TicketStatus.ESCALATED;
+            transitionId = "SM-028";
+            reasonCode = "VERIFICATION_FAILED_LIMIT_OR_UNSAFE";
+        } else if ("PIPELINE_FAILED".equals(failureClass)) {
+            targetStatus = TicketStatus.FAILED;
+            transitionId = "SM-029";
+            reasonCode = "VERIFICATION_PIPELINE_FAILED";
+        } else if ("RETRYABLE".equals(failureClass)) {
+            if (hasReachedFailureLimit) {
+                targetStatus = TicketStatus.ESCALATED;
+                transitionId = "SM-028";
+                reasonCode = "VERIFICATION_FAILED_LIMIT_OR_UNSAFE";
+            } else {
+                targetStatus = TicketStatus.IN_PROGRESS;
+                transitionId = "SM-027";
+                reasonCode = "VERIFICATION_FAILED_RETRYABLE";
+            }
+        } else {
+            throw new IllegalArgumentException("unsupported failureClass for verification.failed: " + failureClass);
+        }
+
+        if (currentStatus != TicketStatus.VERIFYING) {
+            throw new InvalidStatusTransitionException(currentStatus, targetStatus);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+
+        return new TicketVerificationFailureApplied(
+            ticketId, currentStatus, targetStatus, currentAssigneeId, verificationId, workflowId, resolutionCycleId,
+            attemptNumber, failureCode, failureClass, unsafeResult, failedAt, failedEventId,
+            transitionId, reasonCode, currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-025 domain-rules §1: {@code VERIFYING -> RESOLVED} (transitionId
+     * {@code SM-030}, reasonCode {@code VERIFIED_RESOLUTION}). Mirrors
+     * {@link #resolve}'s (SPEC-TW-010) resolution-code/summary validation
+     * exactly, but the source status is {@code VERIFYING}, not {@code
+     * IN_PROGRESS}, and this transition additionally carries {@code
+     * verificationId}/{@code verificationEvidenceId} — the Application layer
+     * has already validated (SPEC-TW-025 §3) that this evidence is trusted,
+     * current, and successful, bound to this ticket's current resolution
+     * cycle, before this method is ever invoked. Tool success, a proposal, or
+     * human judgment alone can never substitute for this evidence.
+     */
+    public static TicketResolvedWithVerification resolveWithVerification(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        UUID currentResolutionCycleId,
+        long currentVersion,
+        String verificationId,
+        String verificationEvidenceId,
+        ResolutionCode resolutionCode,
+        String resolutionSummary,
+        Instant autoCloseDueAt,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(currentResolutionCycleId, "currentResolutionCycleId must not be null");
+        Objects.requireNonNull(verificationId, "verificationId must not be null");
+        Objects.requireNonNull(verificationEvidenceId, "verificationEvidenceId must not be null");
+        Objects.requireNonNull(resolutionCode, "resolutionCode must not be null");
+        Objects.requireNonNull(resolutionSummary, "resolutionSummary must not be null");
+        Objects.requireNonNull(autoCloseDueAt, "autoCloseDueAt must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.VERIFYING) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.RESOLVED);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+        String trimmedSummary = resolutionSummary.trim();
+        if (trimmedSummary.length() < 10 || trimmedSummary.length() > 5000) {
+            throw new IllegalArgumentException("resolutionSummary must be 10 to 5000 characters once trimmed");
+        }
+
+        return new TicketResolvedWithVerification(
+            ticketId, currentStatus, TicketStatus.RESOLVED, currentAssigneeId, currentResolutionCycleId,
+            verificationId, verificationEvidenceId, resolutionCode, trimmedSummary, actorType, actorId, occurredAt,
+            autoCloseDueAt, "SM-030", "VERIFIED_RESOLUTION", currentVersion + 1, occurredAt
         );
     }
 

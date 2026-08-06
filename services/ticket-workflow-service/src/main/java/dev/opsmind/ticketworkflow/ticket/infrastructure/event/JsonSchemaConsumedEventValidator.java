@@ -35,7 +35,12 @@ public class JsonSchemaConsumedEventValidator implements ConsumedEventValidator 
         "approval.granted:1", "event-schemas/ticket/consumed/approval-granted-v1.schema.json",
         "approval.rejected:1", "event-schemas/ticket/consumed/approval-rejected-v1.schema.json",
         "approval.expired:1", "event-schemas/ticket/consumed/approval-expired-v1.schema.json",
-        "policy.action_auto_approved:1", "event-schemas/ticket/consumed/policy-action-auto-approved-v1.schema.json"
+        "policy.action_auto_approved:1", "event-schemas/ticket/consumed/policy-action-auto-approved-v1.schema.json",
+        "tool.execution.completed:1", "event-schemas/ticket/consumed/tool-execution-completed-v1.schema.json",
+        "tool.execution.failed:1", "event-schemas/ticket/consumed/tool-execution-failed-v1.schema.json",
+        "tool.execution.result_unknown:1", "event-schemas/ticket/consumed/tool-execution-result-unknown-v1.schema.json",
+        "verification.completed:1", "event-schemas/ticket/consumed/verification-completed-v1.schema.json",
+        "verification.failed:1", "event-schemas/ticket/consumed/verification-failed-v1.schema.json"
     );
 
     private final JsonSchemaFactory schemaFactory;

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/consumed/tool-execution-result-unknown-v1.schema.json",
+  "title": "tool.execution.result_unknown.v1 payload (consumed)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "workflowId",
+    "actionId",
+    "authorizationReference",
+    "toolExecutionId",
+    "unknownReason",
+    "observedAt"
+  ],
+  "properties": {
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionType": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "authorizationReference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "toolExecutionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "unknownReason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "evidenceReferences": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

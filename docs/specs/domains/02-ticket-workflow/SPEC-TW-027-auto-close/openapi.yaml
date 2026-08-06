@@ -1,0 +1,26 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-027 Auto Close
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/{ticketId}/auto-close:
+    post:
+      summary: Automatically close resolved tickets after the policy window expires without rejection or reopen.
+      operationId: autoCloseTicket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Phase 8 lifecycle command applied
+        '400':
+          description: Invalid command
+        '403':
+          description: Forbidden
+        '404':
+          description: Ticket not found
+        '409':
+          description: State or version conflict

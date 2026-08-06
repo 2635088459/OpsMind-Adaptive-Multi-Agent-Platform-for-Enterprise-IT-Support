@@ -1,0 +1,5 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-024 Verification Failure
+  version: 1.0.0
+paths: {}

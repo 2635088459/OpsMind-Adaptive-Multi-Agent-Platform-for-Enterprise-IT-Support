@@ -1,0 +1,12 @@
+### SPEC-TW-027 Auto Close
+POST http://localhost:8080/internal/v1/tickets/TCK-1001/auto-close
+Content-Type: application/json
+Idempotency-Key: idem-phase8-027
+
+{
+  "idempotencyKey": "idem-phase8-027",
+  "expectedVersion": 42,
+  "actorId": "user-123",
+  "reasonCode": "REQUESTED",
+  "reason": "Phase 8 lifecycle command reason"
+}

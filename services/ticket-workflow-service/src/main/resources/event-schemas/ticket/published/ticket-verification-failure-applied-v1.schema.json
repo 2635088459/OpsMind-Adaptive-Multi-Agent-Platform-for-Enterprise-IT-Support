@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-verification-failure-applied-v1.schema.json",
+  "title": "ticket.verification-failure-applied.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "ticketId",
+    "verificationId",
+    "workflowId",
+    "resolutionCycleId",
+    "attemptNumber",
+    "failureCode",
+    "failureClass",
+    "unsafeResult",
+    "previousStatus",
+    "newStatus",
+    "failedAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "verificationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "failureCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "failureClass": {
+      "type": "string",
+      "enum": ["RETRYABLE", "PIPELINE_FAILED"]
+    },
+    "unsafeResult": {
+      "type": "boolean"
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "VERIFYING"
+    },
+    "newStatus": {
+      "type": "string",
+      "enum": ["IN_PROGRESS", "ESCALATED", "FAILED"]
+    },
+    "failedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

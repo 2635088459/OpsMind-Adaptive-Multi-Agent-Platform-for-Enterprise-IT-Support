@@ -17,7 +17,12 @@ public class EventProducerAllowlist {
         "approval.granted", "policy-approval-service",
         "approval.rejected", "policy-approval-service",
         "approval.expired", "policy-approval-service",
-        "policy.action_auto_approved", "policy-approval-service"
+        "policy.action_auto_approved", "policy-approval-service",
+        "tool.execution.completed", "tool-gateway-service",
+        "tool.execution.failed", "tool-gateway-service",
+        "tool.execution.result_unknown", "tool-gateway-service",
+        "verification.completed", "verification-service",
+        "verification.failed", "verification-service"
     );
 
     public boolean isAllowed(String eventType, String producer) {

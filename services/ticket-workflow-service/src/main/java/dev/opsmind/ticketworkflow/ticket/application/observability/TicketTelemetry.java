@@ -645,4 +645,210 @@ public class TicketTelemetry {
             .register(meterRegistry)
             .increment();
     }
+
+    public Timer.Sample startApplyToolExecutionCompletedTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyToolExecutionCompletedTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_tool_execution_completed_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyToolExecutionCompletedOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_tool_execution_completed_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordToolExecutionCompletedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "tool.execution.completed")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordToolExecutionCompletedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "tool.execution.completed")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyToolExecutionFailedTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyToolExecutionFailedTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_tool_execution_failed_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyToolExecutionFailedOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_tool_execution_failed_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordToolExecutionFailedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "tool.execution.failed")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordToolExecutionFailedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "tool.execution.failed")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyToolResultUnknownTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyToolResultUnknownTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_tool_result_unknown_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyToolResultUnknownOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_tool_result_unknown_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordToolResultUnknownConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "tool.execution.result_unknown")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordToolResultUnknownDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "tool.execution.result_unknown")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startStartVerificationTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopStartVerificationTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_start_verification_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordStartVerificationCommand(String outcome) {
+        Counter.builder("opsmind_ticket_start_verification_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordStartVerificationAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_start_verification_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordStartVerificationConflict(String type) {
+        Counter.builder("opsmind_ticket_start_verification_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyVerificationSuccessTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyVerificationSuccessTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_verification_success_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyVerificationSuccessOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_verification_success_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordVerificationCompletedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "verification.completed")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordVerificationCompletedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "verification.completed")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyVerificationFailureTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyVerificationFailureTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_apply_verification_failure_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyVerificationFailureOutcome(String outcome) {
+        Counter.builder("opsmind_ticket_apply_verification_failure_outcomes_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordVerificationFailedConsumed() {
+        Counter.builder("opsmind_ticket_event_consumed_total")
+            .tag("event_type", "verification.failed")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordVerificationFailedDlq(String reason) {
+        Counter.builder("opsmind_ticket_event_dlq_total")
+            .tag("event_type", "verification.failed")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startResolveWithVerificationTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopResolveWithVerificationTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_resolve_with_verification_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordResolveWithVerificationCommand(String outcome) {
+        Counter.builder("opsmind_ticket_resolve_with_verification_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordResolveWithVerificationAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_resolve_with_verification_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordResolveWithVerificationConflict(String type) {
+        Counter.builder("opsmind_ticket_resolve_with_verification_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
 }

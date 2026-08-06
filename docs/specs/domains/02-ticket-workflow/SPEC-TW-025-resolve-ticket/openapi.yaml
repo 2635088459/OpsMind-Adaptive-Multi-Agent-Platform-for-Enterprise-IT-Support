@@ -1,0 +1,12 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-025 Resolve Ticket with Verification
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/{ticketId}/verified-resolution:
+    post:
+      summary: Resolve ticket using trusted verification evidence
+      operationId: resolveTicketWithVerification
+      responses:
+        '200':
+          description: Ticket resolved with verification evidence

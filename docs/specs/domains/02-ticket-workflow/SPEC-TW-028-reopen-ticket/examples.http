@@ -1,0 +1,12 @@
+### SPEC-TW-028 Reopen Ticket
+POST http://localhost:8080/v1/tickets/TCK-1001/reopen
+Content-Type: application/json
+Idempotency-Key: idem-phase8-028
+
+{
+  "idempotencyKey": "idem-phase8-028",
+  "expectedVersion": 42,
+  "actorId": "user-123",
+  "reasonCode": "REQUESTED",
+  "reason": "Phase 8 lifecycle command reason"
+}

@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-025 Events
+  version: 1.0.0
+channels:
+  ticket.resolved-with-verification.v1:
+    publish:
+      summary: Ticket resolved using trusted verification evidence

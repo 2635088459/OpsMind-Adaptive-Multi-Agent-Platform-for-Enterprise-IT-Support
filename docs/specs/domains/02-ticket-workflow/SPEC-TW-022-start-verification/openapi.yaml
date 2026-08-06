@@ -1,0 +1,12 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-022 Start Verification
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/{ticketId}/verification/start:
+    post:
+      summary: Start verification attempt
+      operationId: startVerification
+      responses:
+        '201':
+          description: Verification attempt started

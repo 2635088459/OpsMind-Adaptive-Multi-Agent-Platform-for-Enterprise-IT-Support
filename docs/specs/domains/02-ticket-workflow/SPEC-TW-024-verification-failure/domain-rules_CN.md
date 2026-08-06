@@ -1,0 +1,7 @@
+# SPEC-TW-024 — 领域规则
+
+| 当前状态 | 目标状态 | Transition ID | Reason Code |
+|---|---|---|---|
+| `VERIFYING` | `IN_PROGRESS` | `SM-027` | `VERIFICATION_FAILED_RETRYABLE` |
+| `VERIFYING` | `ESCALATED` | `SM-028` | `VERIFICATION_FAILED_LIMIT_OR_UNSAFE` |
+| `VERIFYING` | `FAILED` | `SM-029` | `VERIFICATION_PIPELINE_FAILED` |

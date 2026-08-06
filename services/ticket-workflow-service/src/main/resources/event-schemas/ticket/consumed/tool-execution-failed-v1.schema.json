@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/consumed/tool-execution-failed-v1.schema.json",
+  "title": "tool.execution.failed.v1 payload (consumed)",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "workflowId",
+    "actionId",
+    "authorizationReference",
+    "toolExecutionId",
+    "failureCode",
+    "failureClass",
+    "failedAt"
+  ],
+  "properties": {
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionType": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "authorizationReference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "toolExecutionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "failureCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "failureClass": {
+      "type": "string",
+      "enum": ["KNOWN_SAFE", "RETRYABLE_SAFE", "PIPELINE_FAILED"]
+    },
+    "retryable": {
+      "type": ["boolean", "null"]
+    },
+    "failedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

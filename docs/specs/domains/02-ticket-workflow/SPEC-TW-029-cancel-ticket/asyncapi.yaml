@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-029 Events
+  version: 1.0.0
+channels:
+  ticket.cancelled.v1:
+    publish:
+      summary: Cancel a non-terminal ticket and prevent further lifecycle advancement.

@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-028 Events
+  version: 1.0.0
+channels:
+  ticket.reopened.v1:
+    publish:
+      summary: Reopen a resolved or policy-eligible closed ticket and create a new resolution cycle.

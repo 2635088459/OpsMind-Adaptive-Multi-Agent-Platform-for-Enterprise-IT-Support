@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-032 Events
+  version: 1.0.0
+channels:
+  ticket.escalation-resumed.v1:
+    publish:
+      summary: Resume an escalated ticket back into active work with preserved escalation audit history.

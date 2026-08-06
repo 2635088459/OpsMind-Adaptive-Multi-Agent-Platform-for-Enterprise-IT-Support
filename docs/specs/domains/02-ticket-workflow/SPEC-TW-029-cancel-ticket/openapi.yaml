@@ -1,0 +1,26 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-029 Cancel Ticket
+  version: 1.0.0
+paths:
+  /v1/tickets/{ticketId}/cancel:
+    post:
+      summary: Cancel a non-terminal ticket and prevent further lifecycle advancement.
+      operationId: cancelTicket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Phase 8 lifecycle command applied
+        '400':
+          description: Invalid command
+        '403':
+          description: Forbidden
+        '404':
+          description: Ticket not found
+        '409':
+          description: State or version conflict

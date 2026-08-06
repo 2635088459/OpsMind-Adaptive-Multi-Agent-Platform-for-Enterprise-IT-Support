@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-024 Events
+  version: 1.0.0
+channels:
+  verification.failed.v1:
+    subscribe:
+      summary: Verification failed event consumed by Ticket Workflow
+  ticket.verification-failure-applied.v1:
+    publish:
+      summary: Verification failure applied

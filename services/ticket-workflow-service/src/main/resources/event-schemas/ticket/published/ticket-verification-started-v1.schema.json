@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-verification-started-v1.schema.json",
+  "title": "ticket.verification-started.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "ticketId",
+    "verificationId",
+    "toolResultId",
+    "workflowId",
+    "resolutionCycleId",
+    "attemptNumber",
+    "verificationType",
+    "startedAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "verificationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "toolResultId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "verificationType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

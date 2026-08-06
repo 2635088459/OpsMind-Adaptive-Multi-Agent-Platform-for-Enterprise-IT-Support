@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-031 Events
+  version: 1.0.0
+channels:
+  ticket.escalated.v1:
+    publish:
+      summary: Escalate a ticket to a higher support lane while preserving the reason and current work context.

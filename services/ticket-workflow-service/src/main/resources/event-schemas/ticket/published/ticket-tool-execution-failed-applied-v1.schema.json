@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-tool-execution-failed-applied-v1.schema.json",
+  "title": "ticket.tool-execution-failed-applied.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "ticketId",
+    "workflowId",
+    "actionId",
+    "authorizationReference",
+    "toolExecutionId",
+    "failureCode",
+    "failureClass",
+    "previousStatus",
+    "newStatus",
+    "failedAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workflowId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "actionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "authorizationReference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "toolExecutionId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "failureCode": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "failureClass": {
+      "type": "string",
+      "enum": ["KNOWN_SAFE", "RETRYABLE_SAFE", "PIPELINE_FAILED"]
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "EXECUTING"
+    },
+    "newStatus": {
+      "type": "string",
+      "enum": ["IN_PROGRESS", "FAILED"]
+    },
+    "failedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "safeToRetry": {
+      "type": ["boolean", "null"]
+    }
+  }
+}

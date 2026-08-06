@@ -43,7 +43,14 @@ public class JsonSchemaEventValidator implements EventSchemaValidator {
         Map.entry("ticket.approval-granted-applied:1", "event-schemas/ticket/published/ticket-approval-granted-applied-v1.schema.json"),
         Map.entry("ticket.approval-rejected-applied:1", "event-schemas/ticket/published/ticket-approval-rejected-applied-v1.schema.json"),
         Map.entry("ticket.approval-expired-applied:1", "event-schemas/ticket/published/ticket-approval-expired-applied-v1.schema.json"),
-        Map.entry("ticket.auto-approval-applied:1", "event-schemas/ticket/published/ticket-auto-approval-applied-v1.schema.json")
+        Map.entry("ticket.auto-approval-applied:1", "event-schemas/ticket/published/ticket-auto-approval-applied-v1.schema.json"),
+        Map.entry("ticket.tool-execution-completed-applied:1", "event-schemas/ticket/published/ticket-tool-execution-completed-applied-v1.schema.json"),
+        Map.entry("ticket.tool-execution-failed-applied:1", "event-schemas/ticket/published/ticket-tool-execution-failed-applied-v1.schema.json"),
+        Map.entry("ticket.tool-result-unknown-recorded:1", "event-schemas/ticket/published/ticket-tool-result-unknown-recorded-v1.schema.json"),
+        Map.entry("ticket.verification-started:1", "event-schemas/ticket/published/ticket-verification-started-v1.schema.json"),
+        Map.entry("ticket.verification-success-applied:1", "event-schemas/ticket/published/ticket-verification-success-applied-v1.schema.json"),
+        Map.entry("ticket.verification-failure-applied:1", "event-schemas/ticket/published/ticket-verification-failure-applied-v1.schema.json"),
+        Map.entry("ticket.resolved-with-verification:1", "event-schemas/ticket/published/ticket-resolved-with-verification-v1.schema.json")
     );
 
     private final JsonSchemaFactory schemaFactory;

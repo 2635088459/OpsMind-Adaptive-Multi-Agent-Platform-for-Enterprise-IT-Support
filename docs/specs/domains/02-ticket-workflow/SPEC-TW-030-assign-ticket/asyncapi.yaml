@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-030 Events
+  version: 1.0.0
+channels:
+  ticket.assigned.v1:
+    publish:
+      summary: Update ticket owner, queue, team, or assignee without implying progress or resolution.

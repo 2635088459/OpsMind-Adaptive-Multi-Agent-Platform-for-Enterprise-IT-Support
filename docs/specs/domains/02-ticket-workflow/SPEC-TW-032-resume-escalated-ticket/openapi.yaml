@@ -1,0 +1,26 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-032 Resume Escalated Ticket
+  version: 1.0.0
+paths:
+  /v1/tickets/{ticketId}/escalation/resume:
+    post:
+      summary: Resume an escalated ticket back into active work with preserved escalation audit history.
+      operationId: resumeEscalatedTicket
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Phase 8 lifecycle command applied
+        '400':
+          description: Invalid command
+        '403':
+          description: Forbidden
+        '404':
+          description: Ticket not found
+        '409':
+          description: State or version conflict

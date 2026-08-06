@@ -1,0 +1,11 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-023 Events
+  version: 1.0.0
+channels:
+  verification.completed.v1:
+    subscribe:
+      summary: Verification completed event consumed by Ticket Workflow
+  ticket.verification-success-applied.v1:
+    publish:
+      summary: Verification success applied

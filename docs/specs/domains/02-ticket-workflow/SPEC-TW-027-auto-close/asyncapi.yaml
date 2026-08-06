@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-027 Events
+  version: 1.0.0
+channels:
+  ticket.auto-closed.v1:
+    publish:
+      summary: Automatically close resolved tickets after the policy window expires without rejection or reopen.
