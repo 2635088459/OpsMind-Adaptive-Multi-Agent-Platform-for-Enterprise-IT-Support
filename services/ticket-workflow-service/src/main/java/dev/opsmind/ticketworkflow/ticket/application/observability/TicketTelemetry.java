@@ -851,4 +851,346 @@ public class TicketTelemetry {
             .register(meterRegistry)
             .increment();
     }
+
+    public Timer.Sample startConfirmResolutionTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopConfirmResolutionTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_confirm_resolution_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordConfirmResolutionCommand(String outcome) {
+        Counter.builder("opsmind_ticket_confirm_resolution_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordConfirmResolutionAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_confirm_resolution_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordConfirmResolutionConflict(String type) {
+        Counter.builder("opsmind_ticket_confirm_resolution_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startAutoCloseTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopAutoCloseTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_auto_close_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordAutoCloseCommand(String outcome) {
+        Counter.builder("opsmind_ticket_auto_close_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAutoCloseAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_auto_close_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAutoCloseConflict(String type) {
+        Counter.builder("opsmind_ticket_auto_close_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startRequesterReopenTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopRequesterReopenTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_requester_reopen_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordRequesterReopenCommand(String outcome) {
+        Counter.builder("opsmind_ticket_requester_reopen_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordRequesterReopenAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_requester_reopen_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordRequesterReopenConflict(String type) {
+        Counter.builder("opsmind_ticket_requester_reopen_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startCancelTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopCancelTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_cancel_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordCancelCommand(String outcome) {
+        Counter.builder("opsmind_ticket_cancel_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordCancelAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_cancel_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordCancelConflict(String type) {
+        Counter.builder("opsmind_ticket_cancel_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startAssignmentRouteTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopAssignmentRouteTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_assignment_route_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordAssignmentRouteCommand(String outcome) {
+        Counter.builder("opsmind_ticket_assignment_route_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAssignmentRouteAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_assignment_route_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAssignmentRouteConflict(String type) {
+        Counter.builder("opsmind_ticket_assignment_route_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordAssignmentRouteEligibilityDenied(String reason) {
+        Counter.builder("opsmind_ticket_assignment_route_eligibility_denied_total")
+            .tag("reason", reason)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startEscalateTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopEscalateTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_escalate_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordEscalateCommand(String outcome) {
+        Counter.builder("opsmind_ticket_escalate_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordEscalateAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_escalate_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordEscalateConflict(String type) {
+        Counter.builder("opsmind_ticket_escalate_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startEscalationResumeTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopEscalationResumeTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_ticket_escalation_resume_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordEscalationResumeCommand(String outcome) {
+        Counter.builder("opsmind_ticket_escalation_resume_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordEscalationResumeAuthorizationDenied() {
+        Counter.builder("opsmind_ticket_escalation_resume_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordEscalationResumeConflict(String type) {
+        Counter.builder("opsmind_ticket_escalation_resume_conflicts_total")
+            .tag("type", type)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startSupportQueueAuthorizationTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopSupportQueueAuthorizationTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_support_queue_authorization_duration_seconds").register(meterRegistry));
+    }
+
+    /** {@code decisionCode} is a fixed, small vocabulary (SPEC-TW-033) — safe as a low-cardinality tag. */
+    public void recordSupportQueueAuthorizationDecision(String decisionCode) {
+        Counter.builder("opsmind_support_queue_authorization_decisions_total")
+            .tag("decision_code", decisionCode)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSupportQueueAuthorizationCallerDenied() {
+        Counter.builder("opsmind_support_queue_authorization_caller_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSupportQueueAuthorizationFailClosed() {
+        Counter.builder("opsmind_support_queue_authorization_fail_closed_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startSensitiveReadAuditPolicyTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopSensitiveReadAuditPolicyTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_sensitive_read_audit_policy_duration_seconds").register(meterRegistry));
+    }
+
+    /** {@code decisionCode} is a fixed, small vocabulary (SPEC-TW-034) — safe as a low-cardinality tag. */
+    public void recordSensitiveReadAuditPolicyDecision(String decisionCode) {
+        Counter.builder("opsmind_sensitive_read_audit_policy_decisions_total")
+            .tag("decision_code", decisionCode)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSensitiveReadAuditPolicyCallerDenied() {
+        Counter.builder("opsmind_sensitive_read_audit_policy_caller_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSensitiveReadAuditPolicyFailClosed() {
+        Counter.builder("opsmind_sensitive_read_audit_policy_fail_closed_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startSecretDetectionPolicyTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopSecretDetectionPolicyTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_secret_detection_policy_duration_seconds").register(meterRegistry));
+    }
+
+    /** {@code decisionCode} is a fixed, small vocabulary (SPEC-TW-035) — safe as a low-cardinality tag; never the matched text. */
+    public void recordSecretDetectionPolicyDecision(String decisionCode) {
+        Counter.builder("opsmind_secret_detection_policy_decisions_total")
+            .tag("decision_code", decisionCode)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSecretDetectionPolicyCallerDenied() {
+        Counter.builder("opsmind_secret_detection_policy_caller_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordSecretDetectionPolicyFailClosed() {
+        Counter.builder("opsmind_secret_detection_policy_fail_closed_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startStepUpAuthenticationPolicyTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopStepUpAuthenticationPolicyTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_step_up_authentication_policy_duration_seconds").register(meterRegistry));
+    }
+
+    /** {@code decisionCode} is a fixed, small vocabulary (SPEC-TW-036) — safe as a low-cardinality tag. */
+    public void recordStepUpAuthenticationPolicyDecision(String decisionCode) {
+        Counter.builder("opsmind_step_up_authentication_policy_decisions_total")
+            .tag("decision_code", decisionCode)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordStepUpAuthenticationPolicyCallerDenied() {
+        Counter.builder("opsmind_step_up_authentication_policy_caller_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordStepUpAuthenticationPolicyFailClosed() {
+        Counter.builder("opsmind_step_up_authentication_policy_fail_closed_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startOpenReconciliationCaseTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopOpenReconciliationCaseTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_open_reconciliation_case_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordOpenReconciliationCaseCommand(String outcome) {
+        Counter.builder("opsmind_open_reconciliation_case_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordOpenReconciliationCaseAuthorizationDenied() {
+        Counter.builder("opsmind_open_reconciliation_case_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordOpenReconciliationCaseConflict() {
+        Counter.builder("opsmind_open_reconciliation_case_conflicts_total")
+            .register(meterRegistry)
+            .increment();
+    }
 }

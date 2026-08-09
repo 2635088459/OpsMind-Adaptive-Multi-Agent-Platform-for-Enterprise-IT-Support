@@ -9,6 +9,7 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TriageNotAllowedE
 import dev.opsmind.ticketworkflow.ticket.application.idempotency.IdempotencyReservationOutcome;
 import dev.opsmind.ticketworkflow.ticket.application.idempotency.RequestHashCalculator;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.AuditRecordPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.IdempotencyRepository;
@@ -86,7 +87,8 @@ class TriageTicketAuthorizationTest {
         service = new TriageTicketApplicationService(
             guardPort, categoryCatalogPort, subcategoryCatalogPort, supportQueueCatalogPort, triageRepository,
             historyWriter, auditRecordPort, outboxEventRepository, idempotencyRepository, clock,
-            new RequestHashCalculator(objectMapper), new TicketTriagedEventMapper(), telemetry, objectMapper
+            new RequestHashCalculator(objectMapper), new TicketTriagedEventMapper(), telemetry, objectMapper,
+            mock(SupportQueueAuthorizationAuditRecorder.class)
         );
     }
 

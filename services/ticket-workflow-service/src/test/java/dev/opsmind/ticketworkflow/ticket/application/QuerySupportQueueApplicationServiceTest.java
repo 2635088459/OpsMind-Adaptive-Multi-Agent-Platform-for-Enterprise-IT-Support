@@ -9,6 +9,7 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuth
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueQueryPort;
@@ -66,7 +67,7 @@ class QuerySupportQueueApplicationServiceTest {
         );
         cursorCodec = new SupportQueueCursorCodec(new ObjectMapper().findAndRegisterModules(), new SupportQueueCursorSigner(properties));
 
-        service = new QuerySupportQueueApplicationService(queryPort, cursorCodec, new TicketViewPolicy(), telemetry, clock, properties);
+        service = new QuerySupportQueueApplicationService(queryPort, cursorCodec, new TicketViewPolicy(), telemetry, clock, properties, mock(SupportQueueAuthorizationAuditRecorder.class));
     }
 
     private SupportQueueScope scope() {

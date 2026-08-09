@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-auto-closed-v1.schema.json",
+  "title": "ticket.auto-closed.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "resolutionCycleId",
+    "previousStatus",
+    "newStatus",
+    "closeReasonCode",
+    "reason",
+    "closedBy",
+    "closedAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "RESOLVED"
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "CLOSED"
+    },
+    "closeReasonCode": {
+      "type": "string",
+      "const": "AUTO_CLOSE_TIMEOUT"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    },
+    "closedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "closedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

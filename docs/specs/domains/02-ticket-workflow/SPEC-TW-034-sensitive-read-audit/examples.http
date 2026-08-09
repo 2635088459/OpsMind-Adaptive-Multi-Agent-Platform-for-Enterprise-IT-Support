@@ -1,0 +1,13 @@
+### SPEC-TW-034 Sensitive Read Audit
+POST http://localhost:8080/internal/v1/audit/sensitive-read-policy/evaluate
+Content-Type: application/json
+
+{
+  "ticketId": "TCK-1001",
+  "actorId": "user-123",
+  "actorType": "IT_SUPPORT",
+  "operation": "ticket.command",
+  "context": {
+    "supportQueueId": "00000000-0000-0000-0000-000000000001"
+  }
+}

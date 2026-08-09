@@ -11,6 +11,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SecretDetectionAuditRecorder;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SecretDetectionPolicy;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -40,6 +43,15 @@ class UserReplyValidationTest {
 
     @MockitoBean
     private UserReplyAndResumeUseCase userReplyAndResumeUseCase;
+
+    @MockitoBean
+    private SecretDetectionPolicy secretDetectionPolicy;
+
+    @MockitoBean
+    private SecretDetectionAuditRecorder secretDetectionAuditRecorder;
+
+    @MockitoBean
+    private TicketTelemetry ticketTelemetry;
 
     private String route() {
         return "/api/v1/tickets/" + TICKET_ID + "/user-input-requests/" + REQUEST_ID + "/reply";

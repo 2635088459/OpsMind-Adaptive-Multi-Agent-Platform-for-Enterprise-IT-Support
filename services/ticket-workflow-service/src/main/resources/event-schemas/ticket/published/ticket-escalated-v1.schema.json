@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-escalated-v1.schema.json",
+  "title": "ticket.escalated.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "teamId",
+    "supportQueueId",
+    "assigneeId",
+    "resolutionCycleId",
+    "workflowId",
+    "previousStatus",
+    "newStatus",
+    "escalationReasonCode",
+    "escalationReason",
+    "escalatedBy",
+    "escalatedAt"
+  ],
+  "properties": {
+    "teamId": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "workflowId": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": ["NEW", "TRIAGED", "ASSIGNED", "IN_PROGRESS", "WAITING_FOR_USER", "WAITING_FOR_APPROVAL", "EXECUTING", "VERIFYING", "RESOLVED"]
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "ESCALATED"
+    },
+    "escalationReasonCode": {
+      "type": "string",
+      "enum": ["USER_IMPACT", "SLA_RISK", "SECURITY_RISK", "REPEATED_FAILURE", "POLICY_REQUIRED", "SUPPORT_REQUEST"]
+    },
+    "escalationReason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    },
+    "escalatedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "escalatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

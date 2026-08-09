@@ -6,6 +6,7 @@ import dev.opsmind.ticketworkflow.support.TicketTimelineFixtures;
 import dev.opsmind.ticketworkflow.ticket.application.cursor.TicketTimelineCursorCodec;
 import dev.opsmind.ticketworkflow.ticket.application.cursor.TicketTimelineCursorSigner;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketTimelineViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.SensitiveReadAuditPort;
@@ -52,7 +53,7 @@ class EmployeeTimelineVisibilityTest {
         TicketTimelineCursorCodec codec = new TicketTimelineCursorCodec(new ObjectMapper().findAndRegisterModules(), new TicketTimelineCursorSigner(properties));
         GetTicketTimelineApplicationService service = new GetTicketTimelineApplicationService(
             queryPort, codec, new TicketTimelineViewPolicy(), mock(SensitiveReadAuditPort.class), mock(TicketTelemetry.class), clock
-        );
+        , mock(SensitiveReadAuditDecisionRecorder.class));
 
         service.getTimeline(new TicketTimelineQuery(TicketId.of(TICKET_ID), TicketTimelineFixtures.employeeActor("employee-123"), Set.of(), 50, null));
 

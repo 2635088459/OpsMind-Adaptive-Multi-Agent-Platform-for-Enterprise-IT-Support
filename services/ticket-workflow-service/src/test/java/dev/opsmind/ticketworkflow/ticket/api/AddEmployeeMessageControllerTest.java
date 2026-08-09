@@ -18,6 +18,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SecretDetectionAuditRecorder;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SecretDetectionPolicy;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -47,6 +50,15 @@ class AddEmployeeMessageControllerTest {
 
     @MockitoBean
     private AddTicketMessageUseCase addTicketMessageUseCase;
+
+    @MockitoBean
+    private SecretDetectionPolicy secretDetectionPolicy;
+
+    @MockitoBean
+    private SecretDetectionAuditRecorder secretDetectionAuditRecorder;
+
+    @MockitoBean
+    private TicketTelemetry ticketTelemetry;
 
     @Test
     void shouldReturn201WithLocationETagAndBodyOnSuccess() throws Exception {

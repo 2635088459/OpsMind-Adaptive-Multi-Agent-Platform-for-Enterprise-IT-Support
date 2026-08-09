@@ -3,6 +3,7 @@ package dev.opsmind.ticketworkflow.ticket.application;
 import dev.opsmind.ticketworkflow.support.GetTicketFixtures;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketResourceAccessPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
@@ -47,7 +48,7 @@ class GetTicketRequesterOwnershipTest {
             new TicketResourceAccessPolicy(),
             mock(TicketTelemetry.class),
             mock(ClockPort.class)
-        );
+        , mock(SensitiveReadAuditDecisionRecorder.class));
     }
 
     @Test

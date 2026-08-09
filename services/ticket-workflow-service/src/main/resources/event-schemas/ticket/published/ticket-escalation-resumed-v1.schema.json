@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-escalation-resumed-v1.schema.json",
+  "title": "ticket.escalation-resumed.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "teamId",
+    "supportQueueId",
+    "assigneeId",
+    "resolutionCycleId",
+    "previousStatus",
+    "newStatus",
+    "resumeReasonCode",
+    "resumeReason",
+    "resumedBy",
+    "resumedAt",
+    "ownershipStatus"
+  ],
+  "properties": {
+    "teamId": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousStatus": {
+      "type": "string",
+      "const": "ESCALATED"
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "IN_PROGRESS"
+    },
+    "resumeReasonCode": {
+      "type": "string",
+      "enum": ["ROOT_CAUSE_RESOLVED", "MITIGATION_APPLIED", "RISK_ACCEPTED", "ESCALATION_NOT_REQUIRED", "OWNER_REASSIGNED"]
+    },
+    "resumeReason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    },
+    "resumedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resumedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ownershipStatus": {
+      "type": "string",
+      "enum": ["ACTIVE", "ASSIGNEE_INACTIVE", "UNASSIGNED"]
+    }
+  }
+}

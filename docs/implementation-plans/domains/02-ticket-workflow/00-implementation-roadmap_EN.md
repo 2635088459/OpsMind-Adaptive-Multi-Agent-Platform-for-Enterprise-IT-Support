@@ -867,10 +867,10 @@ Phase 09 is a completeness and hardening phase, not the first security implement
 ## Feature Specs
 
 ```text
-SPEC-TW-031-support-queue-authorization
-SPEC-TW-032-sensitive-read-audit
-SPEC-TW-033-secret-detection
-SPEC-TW-034-step-up-authentication
+SPEC-TW-033-support-queue-authorization
+SPEC-TW-034-sensitive-read-audit
+SPEC-TW-035-secret-detection
+SPEC-TW-036-step-up-authentication
 ```
 
 ---
@@ -903,11 +903,11 @@ Unknown-result hooks must nevertheless be introduced from Phase 06.
 ## Feature Specs
 
 ```text
-SPEC-TW-035-open-reconciliation-case
-SPEC-TW-036-replay-event
-SPEC-TW-037-correction-event
-SPEC-TW-038-compensation
-SPEC-TW-039-data-integrity-repair
+SPEC-TW-037-open-reconciliation-case
+SPEC-TW-038-replay-event
+SPEC-TW-039-correction-event
+SPEC-TW-040-compensation
+SPEC-TW-041-data-integrity-repair
 ```
 
 ---

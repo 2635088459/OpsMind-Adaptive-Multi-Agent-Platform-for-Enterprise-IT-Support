@@ -11,6 +11,7 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizati
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.model.SensitiveReadAuditEntry;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketTimelineViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.SensitiveReadAuditPort;
@@ -73,7 +74,7 @@ class GetTicketTimelineApplicationServiceTest {
         );
         cursorCodec = new TicketTimelineCursorCodec(new ObjectMapper().findAndRegisterModules(), new TicketTimelineCursorSigner(properties));
 
-        service = new GetTicketTimelineApplicationService(queryPort, cursorCodec, new TicketTimelineViewPolicy(), auditPort, telemetry, clock);
+        service = new GetTicketTimelineApplicationService(queryPort, cursorCodec, new TicketTimelineViewPolicy(), auditPort, telemetry, clock, mock(SensitiveReadAuditDecisionRecorder.class));
     }
 
     private TicketTimelineQuery employeeQuery(String subject, int limit, String cursor) {

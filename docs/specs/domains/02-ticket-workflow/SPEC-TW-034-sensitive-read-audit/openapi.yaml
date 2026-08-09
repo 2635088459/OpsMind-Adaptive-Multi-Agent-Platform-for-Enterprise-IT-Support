@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-034 Sensitive Read Audit
+  version: 1.0.0
+paths:
+  /internal/v1/audit/sensitive-read-policy/evaluate:
+    post:
+      summary: Enforce audit for sensitive Ticket reads and fail closed when audit persistence fails.
+      operationId: evaluateSensitiveReadAudit
+      responses:
+        '200':
+          description: Policy evaluated
+        '400':
+          description: Invalid policy input
+        '403':
+          description: Policy denied
+        '409':
+          description: State or context conflict
+        '500':
+          description: Required guard failed closed

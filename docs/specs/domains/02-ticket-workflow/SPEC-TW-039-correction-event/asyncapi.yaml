@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-039 Recovery Events
+  version: 1.0.0
+channels:
+  ticket.correction-event-published.v1:
+    publish:
+      summary: Correct wrong facts through explicit correction events while preserving original history and audit chain.

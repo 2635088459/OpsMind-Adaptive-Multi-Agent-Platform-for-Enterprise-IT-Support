@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-assignment-updated-v1.schema.json",
+  "title": "ticket.assignment-updated.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "previousTeamId",
+    "newTeamId",
+    "previousSupportQueueId",
+    "newSupportQueueId",
+    "previousAssigneeId",
+    "newAssigneeId",
+    "reason",
+    "updatedBy",
+    "updatedAt"
+  ],
+  "properties": {
+    "status": {
+      "type": "string"
+    },
+    "previousTeamId": {
+      "type": ["string", "null"]
+    },
+    "newTeamId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "previousSupportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "newSupportQueueId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousAssigneeId": {
+      "type": ["string", "null"]
+    },
+    "newAssigneeId": {
+      "type": ["string", "null"]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    },
+    "updatedBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

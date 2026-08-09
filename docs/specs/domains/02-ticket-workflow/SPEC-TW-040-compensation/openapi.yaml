@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-040 Compensation
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/{ticketId}/compensations:
+    post:
+      summary: Execute controlled compensating actions to realign the Ticket with external side effects or workflow state.
+      operationId: executeCompensation
+      responses:
+        '200':
+          description: Recovery action accepted or applied
+        '400':
+          description: Invalid recovery command
+        '403':
+          description: Forbidden
+        '404':
+          description: Target not found
+        '409':
+          description: Recovery conflict

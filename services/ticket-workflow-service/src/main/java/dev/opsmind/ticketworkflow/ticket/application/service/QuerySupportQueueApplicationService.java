@@ -6,6 +6,8 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuth
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationDecisionCode;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.in.QuerySupportQueueUseCase;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
@@ -19,6 +21,7 @@ import dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueScope;
 import dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueSortVersion;
 import dev.opsmind.ticketworkflow.ticket.application.query.SupportTicketSummary;
 import dev.opsmind.ticketworkflow.ticket.application.query.TicketViewType;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -47,6 +50,7 @@ public class QuerySupportQueueApplicationService implements QuerySupportQueueUse
     private final TicketTelemetry telemetry;
     private final ClockPort clock;
     private final Duration atRiskWindow;
+    private final SupportQueueAuthorizationAuditRecorder authorizationAuditRecorder;
 
     public QuerySupportQueueApplicationService(
         SupportQueueQueryPort queryPort,
@@ -54,7 +58,8 @@ public class QuerySupportQueueApplicationService implements QuerySupportQueueUse
         TicketViewPolicy viewPolicy,
         TicketTelemetry telemetry,
         ClockPort clock,
-        TicketWorkflowProperties properties
+        TicketWorkflowProperties properties,
+        SupportQueueAuthorizationAuditRecorder authorizationAuditRecorder
     ) {
         this.queryPort = queryPort;
         this.cursorCodec = cursorCodec;
@@ -62,6 +67,7 @@ public class QuerySupportQueueApplicationService implements QuerySupportQueueUse
         this.telemetry = telemetry;
         this.clock = clock;
         this.atRiskWindow = properties.sla().atRiskWindow();
+        this.authorizationAuditRecorder = authorizationAuditRecorder;
     }
 
     @Override
@@ -139,18 +145,32 @@ public class QuerySupportQueueApplicationService implements QuerySupportQueueUse
 
         if (!filters.applicationCodes().isEmpty() && !scope.allowedApplicationCodes().containsAll(filters.applicationCodes())) {
             telemetry.recordSupportQueueFilterOutsideScope();
-            throw new FilterOutsideAuthorizedScopeException();
+            throw denyFilterOutsideScope(query);
         }
         if (!filters.assignedTeams().isEmpty() && !scope.allowedTeamIds().containsAll(filters.assignedTeams())) {
             telemetry.recordSupportQueueFilterOutsideScope();
-            throw new FilterOutsideAuthorizedScopeException();
+            throw denyFilterOutsideScope(query);
         }
         if (filters.assignedAgent() != null && !filters.assignedAgent().isBlank()
             && !filters.assignedAgent().equals(query.actor().subject())
             && !MANAGEMENT_SCOPE_ACTOR_TYPES.contains(query.actor().actorType())) {
             telemetry.recordSupportQueueFilterOutsideScope();
-            throw new FilterOutsideAuthorizedScopeException();
+            throw denyFilterOutsideScope(query);
         }
+    }
+
+    /** SPEC-TW-033 hardening: hooks Support Queue List's existing filter-scope rejection into the shared decision ledger/metrics, without changing which requests are allowed or denied. */
+    private FilterOutsideAuthorizedScopeException denyFilterOutsideScope(SupportQueueQuery query) {
+        authorizationAuditRecorder.recordDenied(
+            null, query.actor().subject(), query.actor().actorType(), "ticket.query",
+            SupportQueueAuthorizationDecisionCode.DENIED_SCOPE, null, currentTraceId()
+        );
+        return new FilterOutsideAuthorizedScopeException();
+    }
+
+    private String currentTraceId() {
+        String traceId = MDC.get("traceId");
+        return traceId == null ? "" : traceId;
     }
 
     private SupportQueueCursor decodeAndMatch(

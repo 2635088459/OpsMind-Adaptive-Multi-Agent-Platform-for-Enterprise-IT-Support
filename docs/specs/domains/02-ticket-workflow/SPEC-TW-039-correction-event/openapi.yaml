@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-039 Correction Event
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/{ticketId}/correction-events:
+    post:
+      summary: Correct wrong facts through explicit correction events while preserving original history and audit chain.
+      operationId: publishCorrectionEvent
+      responses:
+        '200':
+          description: Recovery action accepted or applied
+        '400':
+          description: Invalid recovery command
+        '403':
+          description: Forbidden
+        '404':
+          description: Target not found
+        '409':
+          description: Recovery conflict

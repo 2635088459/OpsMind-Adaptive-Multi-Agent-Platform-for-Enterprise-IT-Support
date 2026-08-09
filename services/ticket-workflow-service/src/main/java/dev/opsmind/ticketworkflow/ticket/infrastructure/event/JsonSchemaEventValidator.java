@@ -50,7 +50,14 @@ public class JsonSchemaEventValidator implements EventSchemaValidator {
         Map.entry("ticket.verification-started:1", "event-schemas/ticket/published/ticket-verification-started-v1.schema.json"),
         Map.entry("ticket.verification-success-applied:1", "event-schemas/ticket/published/ticket-verification-success-applied-v1.schema.json"),
         Map.entry("ticket.verification-failure-applied:1", "event-schemas/ticket/published/ticket-verification-failure-applied-v1.schema.json"),
-        Map.entry("ticket.resolved-with-verification:1", "event-schemas/ticket/published/ticket-resolved-with-verification-v1.schema.json")
+        Map.entry("ticket.resolved-with-verification:1", "event-schemas/ticket/published/ticket-resolved-with-verification-v1.schema.json"),
+        Map.entry("ticket.resolution-confirmed:1", "event-schemas/ticket/published/ticket-resolution-confirmed-v1.schema.json"),
+        Map.entry("ticket.auto-closed:1", "event-schemas/ticket/published/ticket-auto-closed-v1.schema.json"),
+        Map.entry("ticket.cancelled:1", "event-schemas/ticket/published/ticket-cancelled-v1.schema.json"),
+        Map.entry("ticket.assignment-updated:1", "event-schemas/ticket/published/ticket-assignment-updated-v1.schema.json"),
+        Map.entry("ticket.escalated:1", "event-schemas/ticket/published/ticket-escalated-v1.schema.json"),
+        Map.entry("ticket.escalation-resumed:1", "event-schemas/ticket/published/ticket-escalation-resumed-v1.schema.json"),
+        Map.entry("ticket.reconciliation-case-opened:1", "event-schemas/ticket/published/ticket-reconciliation-case-opened-v1.schema.json")
     );
 
     private final JsonSchemaFactory schemaFactory;

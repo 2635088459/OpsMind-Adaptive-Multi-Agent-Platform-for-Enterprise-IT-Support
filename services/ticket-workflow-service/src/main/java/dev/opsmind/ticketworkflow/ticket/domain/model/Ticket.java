@@ -5,14 +5,20 @@ import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalGrantedAppli
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalRejectedApplied;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketApprovalWaitStarted;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketAutoApprovalApplied;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketAutoClosed;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketAssigned;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketAssignmentUpdated;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketCancelled;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketClosed;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketCreated;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketEscalated;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketEscalationResumed;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketDomainEvent;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketReassigned;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketReopened;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketResolved;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketResolvedWithVerification;
+import dev.opsmind.ticketworkflow.ticket.domain.event.TicketResolutionConfirmed;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketStatusChanged;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketToolExecutionCompletedApplied;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketToolExecutionFailedApplied;
@@ -24,6 +30,9 @@ import dev.opsmind.ticketworkflow.ticket.domain.event.TicketVerificationSuccessA
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketUnassigned;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketUserInputRequested;
 import dev.opsmind.ticketworkflow.ticket.domain.event.TicketUserInputResumed;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.AssigneeRequiredForCurrentStatusException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.AssignmentRequiresAChangeException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.AutoCloseNotYetDueException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidStatusTransitionException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketStateException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException;
@@ -32,11 +41,15 @@ import dev.opsmind.ticketworkflow.ticket.domain.exception.TicketAlreadyAssignedE
 import dev.opsmind.ticketworkflow.ticket.domain.exception.TicketNotAssignedException;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ApplicationCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ApprovalRiskLevel;
+import dev.opsmind.ticketworkflow.ticket.domain.value.CancelReasonCode;
+import dev.opsmind.ticketworkflow.ticket.domain.value.EscalationReasonCode;
+import dev.opsmind.ticketworkflow.ticket.domain.value.EscalationResumeReasonCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.CloseReasonCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.OwnershipStatus;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ReopenReasonCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.RequesterId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.ResolutionCode;
+import dev.opsmind.ticketworkflow.ticket.domain.value.ResolutionConfirmationReasonCode;
 import dev.opsmind.ticketworkflow.ticket.domain.value.SupportQueueId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketCategoryId;
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketDescription;
@@ -467,6 +480,362 @@ public final class Ticket {
             ticketId, currentStatus, TicketStatus.CLOSED, currentAssigneeId, currentResolutionCycleId,
             closeReasonCode, trimmedReason, actorType, actorId, occurredAt,
             "SM-011", "TICKET_CLOSED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-026 domain-rules: {@code RESOLVED -> CLOSED} (transitionId
+     * {@code SM-031}, reasonCode {@code RESOLUTION_CONFIRMED}). Mirrors
+     * {@link #close}'s (SPEC-TW-011) validation shape exactly — same
+     * assignee/reason-length invariants, since a confirmed resolution is
+     * still, physically, a close — but produces its own event identity so
+     * "the requester/support actor confirmed this was fixed" stays
+     * distinguishable from an administrative close in the timeline.
+     */
+    public static TicketResolutionConfirmed confirmResolution(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        UUID currentResolutionCycleId,
+        long currentVersion,
+        ResolutionConfirmationReasonCode confirmationReasonCode,
+        String reason,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(currentResolutionCycleId, "currentResolutionCycleId must not be null");
+        Objects.requireNonNull(confirmationReasonCode, "confirmationReasonCode must not be null");
+        Objects.requireNonNull(reason, "reason must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.RESOLVED) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.CLOSED);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+        String trimmedReason = reason.trim();
+        if (trimmedReason.length() < 3 || trimmedReason.length() > 500) {
+            throw new IllegalArgumentException("reason must be 3 to 500 characters once trimmed");
+        }
+
+        return new TicketResolutionConfirmed(
+            ticketId, currentStatus, TicketStatus.CLOSED, currentAssigneeId, currentResolutionCycleId,
+            confirmationReasonCode, trimmedReason, actorType, actorId, occurredAt,
+            "SM-031", "RESOLUTION_CONFIRMED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-027 domain-rules: {@code RESOLVED -> CLOSED} (transitionId
+     * {@code SM-032}, reasonCode {@code TICKET_AUTO_CLOSED}). Mirrors
+     * {@link #close}'s (SPEC-TW-011) assignee/reason-length invariants,
+     * plus one auto-close-specific rule domain-rules calls out explicitly:
+     * "the scheduler signal is advisory; the service recomputes
+     * eligibility under lock" — {@code occurredAt} must not be before
+     * {@code autoCloseDueAt}, checked here, in the pure domain method,
+     * rather than trusting the caller's own timing.
+     */
+    public static TicketAutoClosed autoClose(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        UUID currentResolutionCycleId,
+        long currentVersion,
+        Instant autoCloseDueAt,
+        String reason,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(currentResolutionCycleId, "currentResolutionCycleId must not be null");
+        Objects.requireNonNull(autoCloseDueAt, "autoCloseDueAt must not be null");
+        Objects.requireNonNull(reason, "reason must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.RESOLVED) {
+            throw new InvalidStatusTransitionException(currentStatus, TicketStatus.CLOSED);
+        }
+        if (currentAssigneeId == null) {
+            throw new TicketNotAssignedException();
+        }
+        if (occurredAt.isBefore(autoCloseDueAt)) {
+            throw new AutoCloseNotYetDueException();
+        }
+        String trimmedReason = reason.trim();
+        if (trimmedReason.length() < 3 || trimmedReason.length() > 500) {
+            throw new IllegalArgumentException("reason must be 3 to 500 characters once trimmed");
+        }
+
+        return new TicketAutoClosed(
+            ticketId, currentStatus, TicketStatus.CLOSED, currentAssigneeId, currentResolutionCycleId,
+            CloseReasonCode.AUTO_CLOSE_TIMEOUT, trimmedReason, actorType, actorId, occurredAt,
+            "SM-032", "TICKET_AUTO_CLOSED", currentVersion + 1, occurredAt
+        );
+    }
+
+    /**
+     * SPEC-TW-029 domain-rules: {@code non-terminal mutable state ->
+     * CANCELLED}. Unlike every other single- or dual-source transition in
+     * this class, Cancel accepts six distinct source statuses (phase-08
+     * implementation-plan §4's state table) — each gets its own
+     * transitionId ({@code SM-033} through {@code SM-038}), mirroring
+     * {@link #reopen}'s one-id-per-source-status shape, all sharing
+     * reasonCode {@code TICKET_CANCELLED}. No assignee is required (unlike
+     * {@link #close}/{@link #confirmResolution}/{@link #autoClose}) — a
+     * ticket can be cancelled before it is ever assigned.
+     */
+    public static final Set<TicketStatus> CANCELLABLE_STATUSES = Set.of(
+        TicketStatus.NEW, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_FOR_USER,
+        TicketStatus.WAITING_FOR_APPROVAL, TicketStatus.VERIFYING, TicketStatus.RESOLVED
+    );
+
+    public static TicketCancelled cancel(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        String currentAssigneeId,
+        UUID currentResolutionCycleId,
+        long currentVersion,
+        CancelReasonCode cancelReasonCode,
+        String cancelReason,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(currentResolutionCycleId, "currentResolutionCycleId must not be null");
+        Objects.requireNonNull(cancelReasonCode, "cancelReasonCode must not be null");
+        Objects.requireNonNull(cancelReason, "cancelReason must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (!CANCELLABLE_STATUSES.contains(currentStatus)) {
+            throw new InvalidTicketStateException(currentStatus, CANCELLABLE_STATUSES);
+        }
+        String trimmedReason = cancelReason.trim();
+        if (trimmedReason.length() < 3 || trimmedReason.length() > 500) {
+            throw new IllegalArgumentException("cancelReason must be 3 to 500 characters once trimmed");
+        }
+
+        return new TicketCancelled(
+            ticketId, currentStatus, TicketStatus.CANCELLED, currentAssigneeId, currentResolutionCycleId,
+            cancelReasonCode, trimmedReason, actorType, actorId, occurredAt,
+            cancelTransitionId(currentStatus), "TICKET_CANCELLED", currentVersion + 1, occurredAt
+        );
+    }
+
+    private static String cancelTransitionId(TicketStatus currentStatus) {
+        return switch (currentStatus) {
+            case NEW -> "SM-033";
+            case IN_PROGRESS -> "SM-034";
+            case WAITING_FOR_USER -> "SM-035";
+            case WAITING_FOR_APPROVAL -> "SM-036";
+            case VERIFYING -> "SM-037";
+            case RESOLVED -> "SM-038";
+            default -> throw new InvalidTicketStateException(currentStatus, CANCELLABLE_STATUSES);
+        };
+    }
+
+    /**
+     * SPEC-TW-030 domain-rules: {@code mutable non-terminal state -> same
+     * lifecycle state} (transitionId {@code SM-039}, reasonCode {@code
+     * TICKET_ASSIGNMENT_UPDATED}) — a pure ownership mutation (team,
+     * Support Queue, and/or assignee) that never advances or regresses the
+     * lifecycle status, and must not touch resolution evidence (domain-
+     * rules: "must not rewrite resolution evidence" — this method never
+     * even receives any resolution field). {@code newTeamId}/{@code
+     * newSupportQueueId} are always required (the Application layer
+     * resolves {@code newTeamId} from the target queue's own catalog
+     * entry, so the two can never disagree); {@code newAssigneeId} is
+     * nullable — routing to a queue without a specific owner yet is valid.
+     */
+    public static final Set<TicketStatus> ASSIGNABLE_STATUSES = Set.of(
+        TicketStatus.NEW, TicketStatus.TRIAGED, TicketStatus.ASSIGNED, TicketStatus.IN_PROGRESS,
+        TicketStatus.WAITING_FOR_USER, TicketStatus.WAITING_FOR_APPROVAL, TicketStatus.EXECUTING,
+        TicketStatus.VERIFYING, TicketStatus.RESOLVED, TicketStatus.ESCALATED, TicketStatus.FAILED
+    );
+
+    /**
+     * SPEC-TW-031 domain-rules: mutable non-terminal states may enter
+     * ESCALATED, but already-terminal states and ESCALATED itself cannot be
+     * escalated again by this command.
+     */
+    public static final Set<TicketStatus> ESCALATABLE_STATUSES = Set.of(
+        TicketStatus.NEW, TicketStatus.TRIAGED, TicketStatus.ASSIGNED, TicketStatus.IN_PROGRESS,
+        TicketStatus.WAITING_FOR_USER, TicketStatus.WAITING_FOR_APPROVAL, TicketStatus.EXECUTING,
+        TicketStatus.VERIFYING, TicketStatus.RESOLVED
+    );
+
+    /**
+     * Mirrors every CHECK constraint requiring a non-null {@code
+     * current_support_user_id}: V014's {@code ck_tickets_assigned_fields}
+     * (ASSIGNED), V015's {@code ck_tickets_work_states_have_assignee}
+     * (IN_PROGRESS/WAITING_FOR_USER/WAITING_FOR_APPROVAL), and V016's
+     * {@code ck_tickets_resolved_fields} (RESOLVED).
+     */
+    private static final Set<TicketStatus> STATUSES_REQUIRING_ASSIGNEE = Set.of(
+        TicketStatus.ASSIGNED, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_FOR_USER,
+        TicketStatus.WAITING_FOR_APPROVAL, TicketStatus.RESOLVED
+    );
+
+    public static TicketAssignmentUpdated updateAssignment(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        long currentVersion,
+        String currentTeamId,
+        SupportQueueId currentSupportQueueId,
+        String currentAssigneeId,
+        String newTeamId,
+        SupportQueueId newSupportQueueId,
+        String newAssigneeId,
+        String reason,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(newTeamId, "newTeamId must not be null");
+        Objects.requireNonNull(newSupportQueueId, "newSupportQueueId must not be null");
+        Objects.requireNonNull(reason, "reason must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (!ASSIGNABLE_STATUSES.contains(currentStatus)) {
+            throw new InvalidTicketStateException(currentStatus, ASSIGNABLE_STATUSES);
+        }
+        boolean teamChanged = !newTeamId.equals(currentTeamId);
+        boolean queueChanged = !newSupportQueueId.equals(currentSupportQueueId);
+        boolean assigneeChanged = !Objects.equals(newAssigneeId, currentAssigneeId);
+        if (!teamChanged && !queueChanged && !assigneeChanged) {
+            throw new AssignmentRequiresAChangeException();
+        }
+        if (newAssigneeId == null && STATUSES_REQUIRING_ASSIGNEE.contains(currentStatus)) {
+            throw new AssigneeRequiredForCurrentStatusException();
+        }
+        String trimmedReason = reason.trim();
+        if (trimmedReason.length() < 3 || trimmedReason.length() > 500) {
+            throw new IllegalArgumentException("reason must be 3 to 500 characters once trimmed");
+        }
+
+        return new TicketAssignmentUpdated(
+            ticketId, currentStatus, currentStatus, currentTeamId, newTeamId, currentSupportQueueId, newSupportQueueId,
+            currentAssigneeId, newAssigneeId, trimmedReason, actorType, actorId, occurredAt,
+            "SM-039", "TICKET_ASSIGNMENT_UPDATED", currentVersion + 1, occurredAt
+        );
+    }
+
+    public static TicketEscalated escalate(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        long currentVersion,
+        String currentTeamId,
+        SupportQueueId currentSupportQueueId,
+        String currentAssigneeId,
+        UUID currentResolutionCycleId,
+        String activeWorkflowId,
+        EscalationReasonCode escalationReasonCode,
+        String escalationReason,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(currentResolutionCycleId, "currentResolutionCycleId must not be null");
+        Objects.requireNonNull(escalationReasonCode, "escalationReasonCode must not be null");
+        Objects.requireNonNull(escalationReason, "escalationReason must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (!ESCALATABLE_STATUSES.contains(currentStatus)) {
+            throw new InvalidTicketStateException(currentStatus, ESCALATABLE_STATUSES);
+        }
+        String trimmedReason = escalationReason.trim();
+        if (trimmedReason.length() < 3 || trimmedReason.length() > 500) {
+            throw new IllegalArgumentException("escalationReason must be 3 to 500 characters once trimmed");
+        }
+
+        return new TicketEscalated(
+            ticketId, currentStatus, TicketStatus.ESCALATED, currentTeamId, currentSupportQueueId, currentAssigneeId,
+            currentResolutionCycleId, activeWorkflowId, escalationReasonCode, trimmedReason, actorType, actorId,
+            occurredAt, escalationTransitionId(currentStatus), "TICKET_ESCALATED", currentVersion + 1, occurredAt
+        );
+    }
+
+    private static String escalationTransitionId(TicketStatus currentStatus) {
+        return switch (currentStatus) {
+            case NEW -> "SM-040";
+            case TRIAGED -> "SM-041";
+            case ASSIGNED -> "SM-042";
+            case IN_PROGRESS -> "SM-043";
+            case WAITING_FOR_USER -> "SM-044";
+            case WAITING_FOR_APPROVAL -> "SM-045";
+            case EXECUTING -> "SM-046";
+            case VERIFYING -> "SM-047";
+            case RESOLVED -> "SM-048";
+            default -> throw new InvalidTicketStateException(currentStatus, ESCALATABLE_STATUSES);
+        };
+    }
+
+    /**
+     * SPEC-TW-032 domain-rules: {@code ESCALATED -> IN_PROGRESS}
+     * (transitionId {@code SM-049}, reasonCode {@code
+     * TICKET_ESCALATION_RESUMED}) — the single-source-status counterpart to
+     * {@link #escalate}. {@code ownershipStatus} mirrors {@link #reopen}'s
+     * same parameter exactly: supplied by the caller (already resolved via
+     * the Support Agent Directory), never computed here, and never blocks
+     * the resume itself — "Resume must select a next owner/queue" is
+     * satisfied by reporting the current owner's standing, not by silently
+     * reassigning. Neither {@code current_resolution_cycle_id} nor {@code
+     * escalation_reason_code}/{@code escalated_at}/{@code escalated_by} are
+     * touched — domain-rules: "cannot discard the escalation resolution
+     * notes."
+     */
+    public static TicketEscalationResumed resumeEscalation(
+        TicketId ticketId,
+        TicketStatus currentStatus,
+        long currentVersion,
+        String currentTeamId,
+        SupportQueueId currentSupportQueueId,
+        String currentAssigneeId,
+        UUID currentResolutionCycleId,
+        EscalationResumeReasonCode resumeReasonCode,
+        String resumeReason,
+        OwnershipStatus ownershipStatus,
+        String actorType,
+        String actorId,
+        Instant occurredAt
+    ) {
+        Objects.requireNonNull(ticketId, "ticketId must not be null");
+        Objects.requireNonNull(currentStatus, "currentStatus must not be null");
+        Objects.requireNonNull(currentResolutionCycleId, "currentResolutionCycleId must not be null");
+        Objects.requireNonNull(resumeReasonCode, "resumeReasonCode must not be null");
+        Objects.requireNonNull(resumeReason, "resumeReason must not be null");
+        Objects.requireNonNull(ownershipStatus, "ownershipStatus must not be null");
+        Objects.requireNonNull(actorType, "actorType must not be null");
+        Objects.requireNonNull(actorId, "actorId must not be null");
+        Objects.requireNonNull(occurredAt, "occurredAt must not be null");
+        if (currentStatus != TicketStatus.ESCALATED) {
+            throw new InvalidTicketTransitionException(currentStatus, TicketStatus.ESCALATED);
+        }
+        String trimmedReason = resumeReason.trim();
+        if (trimmedReason.length() < 3 || trimmedReason.length() > 500) {
+            throw new IllegalArgumentException("resumeReason must be 3 to 500 characters once trimmed");
+        }
+
+        return new TicketEscalationResumed(
+            ticketId, TicketStatus.ESCALATED, TicketStatus.IN_PROGRESS, currentTeamId, currentSupportQueueId,
+            currentAssigneeId, currentResolutionCycleId, resumeReasonCode, trimmedReason, actorType, actorId,
+            occurredAt, ownershipStatus, "SM-049", "TICKET_ESCALATION_RESUMED", currentVersion + 1, occurredAt
         );
     }
 

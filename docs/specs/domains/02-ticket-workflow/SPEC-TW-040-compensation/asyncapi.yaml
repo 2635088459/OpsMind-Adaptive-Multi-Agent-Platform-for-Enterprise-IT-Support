@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-040 Recovery Events
+  version: 1.0.0
+channels:
+  ticket.compensation-executed.v1:
+    publish:
+      summary: Execute controlled compensating actions to realign the Ticket with external side effects or workflow state.

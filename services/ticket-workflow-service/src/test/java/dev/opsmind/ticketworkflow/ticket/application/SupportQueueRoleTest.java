@@ -8,6 +8,7 @@ import dev.opsmind.ticketworkflow.ticket.application.cursor.SupportQueueCursorCo
 import dev.opsmind.ticketworkflow.ticket.application.cursor.SupportQueueCursorSigner;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueQueryPort;
@@ -43,7 +44,7 @@ class SupportQueueRoleTest {
             new TicketWorkflowProperties.Sla("DEFAULT", Duration.ofHours(4), Duration.ofHours(24), Duration.ofHours(4), Duration.ofDays(7))
         );
         SupportQueueCursorCodec codec = new SupportQueueCursorCodec(new ObjectMapper().findAndRegisterModules(), new SupportQueueCursorSigner(properties));
-        return new QuerySupportQueueApplicationService(queryPort, codec, new TicketViewPolicy(), mock(TicketTelemetry.class), clock, properties);
+        return new QuerySupportQueueApplicationService(queryPort, codec, new TicketViewPolicy(), mock(TicketTelemetry.class), clock, properties, mock(SupportQueueAuthorizationAuditRecorder.class));
     }
 
     @ParameterizedTest

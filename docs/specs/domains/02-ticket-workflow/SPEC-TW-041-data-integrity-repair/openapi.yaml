@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-041 Data Integrity Repair
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/integrity-repairs:
+    post:
+      summary: Scan and repair controlled data-integrity issues such as missing projections or history/audit/outbox mismatch.
+      operationId: applyDataIntegrityRepair
+      responses:
+        '200':
+          description: Recovery action accepted or applied
+        '400':
+          description: Invalid recovery command
+        '403':
+          description: Forbidden
+        '404':
+          description: Target not found
+        '409':
+          description: Recovery conflict

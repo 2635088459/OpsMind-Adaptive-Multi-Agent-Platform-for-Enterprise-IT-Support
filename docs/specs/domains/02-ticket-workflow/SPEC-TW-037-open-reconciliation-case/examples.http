@@ -1,0 +1,13 @@
+### SPEC-TW-037 Open Reconciliation Case
+POST http://localhost:8080/internal/v1/tickets/TCK-1001/reconciliation-cases
+Content-Type: application/json
+Idempotency-Key: idem-phase10-037
+
+{
+  "idempotencyKey": "idem-phase10-037",
+  "actorId": "ops-operator",
+  "reasonCode": "RECOVERY_REQUIRED",
+  "reason": "Controlled recovery action for a verified inconsistency",
+  "correlationId": "corr-037",
+  "sourceReference": "event-or-case-id"
+}

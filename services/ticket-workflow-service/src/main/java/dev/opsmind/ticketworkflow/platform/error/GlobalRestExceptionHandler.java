@@ -13,10 +13,22 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuth
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.QueueAccessDeniedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.ReconciliationCaseConflictException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ResolutionCycleAlreadyCompletedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ResolutionCycleNotFoundException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SecretDetectionFailClosedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SecretDetectionPolicyConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SecretDetectionPolicyDeniedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditFailureException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditPolicyConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SensitiveReadAuditPolicyDeniedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.StepUpAuthenticationFailClosedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.StepUpAuthenticationPolicyConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.StepUpAuthenticationRequiredException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueAuthorizationConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueAuthorizationDeniedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueAuthorizationFailClosedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueInvalidException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketMessageNotAllowedInStateException;
@@ -29,6 +41,9 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TriageSubcategory
 import dev.opsmind.ticketworkflow.ticket.application.exception.VerificationAttemptAlreadyActiveException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.VerificationEvidenceRequiredException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.VerificationToolResultInvalidException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.AssigneeRequiredForCurrentStatusException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.AssignmentRequiresAChangeException;
+import dev.opsmind.ticketworkflow.ticket.domain.exception.AutoCloseNotYetDueException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketStateException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidStatusTransitionException;
 import dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException;
@@ -152,6 +167,54 @@ public class GlobalRestExceptionHandler {
         return build(HttpStatus.FORBIDDEN, "QUEUE_ACCESS_DENIED", "The actor is not authorized for the ticket's Support Queue.", request);
     }
 
+    /** SPEC-TW-033: never reveals the actor's authorized Support Queue scope or the evaluated decisionCode. */
+    @ExceptionHandler(SupportQueueAuthorizationDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleSupportQueueAuthorizationDenied(SupportQueueAuthorizationDeniedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "AUTHORIZATION_DENIED", "The actor is not authorized within the requested Support Queue scope.", request);
+    }
+
+    /** SPEC-TW-033 api-contract §"Errors": {@code 409} for a request whose current state/context the policy cannot evaluate. */
+    @ExceptionHandler(SupportQueueAuthorizationConflictException.class)
+    public ResponseEntity<ErrorResponse> handleSupportQueueAuthorizationConflict(SupportQueueAuthorizationConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "AUTHORIZATION_CONTEXT_CONFLICT", "The current Ticket state or context does not support this authorization request.", request);
+    }
+
+    /** SPEC-TW-034: never reveals the actor's eligible read views or the evaluated decisionCode. */
+    @ExceptionHandler(SensitiveReadAuditPolicyDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleSensitiveReadAuditPolicyDenied(SensitiveReadAuditPolicyDeniedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "AUTHORIZATION_DENIED", "The actor is not eligible for a sensitive Ticket read.", request);
+    }
+
+    /** SPEC-TW-034 api-contract §"Errors": {@code 409} for an operation this policy does not govern. */
+    @ExceptionHandler(SensitiveReadAuditPolicyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleSensitiveReadAuditPolicyConflict(SensitiveReadAuditPolicyConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "AUTHORIZATION_CONTEXT_CONFLICT", "The current Ticket state or context does not support this audit policy request.", request);
+    }
+
+    /** SPEC-TW-035: never reveals the matched pattern, the evaluated decisionCode, or any offending text to the client. */
+    @ExceptionHandler(SecretDetectionPolicyDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleSecretDetectionPolicyDenied(SecretDetectionPolicyDeniedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "SECRET_DETECTED", "The content must not contain secrets or credentials.", request);
+    }
+
+    /** SPEC-TW-035 api-contract §"Errors": {@code 409} for an operation this policy does not govern. */
+    @ExceptionHandler(SecretDetectionPolicyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleSecretDetectionPolicyConflict(SecretDetectionPolicyConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "AUTHORIZATION_CONTEXT_CONFLICT", "The current Ticket state or context does not support this secret detection request.", request);
+    }
+
+    /** SPEC-TW-036: never reveals the evaluated decisionCode or any proof detail to the client. */
+    @ExceptionHandler(StepUpAuthenticationRequiredException.class)
+    public ResponseEntity<ErrorResponse> handleStepUpAuthenticationRequired(StepUpAuthenticationRequiredException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "STEP_UP_REQUIRED", "A valid step-up authentication proof is required for this operation.", request);
+    }
+
+    /** SPEC-TW-036 api-contract §"Errors": {@code 409} for an operation this policy does not govern. */
+    @ExceptionHandler(StepUpAuthenticationPolicyConflictException.class)
+    public ResponseEntity<ErrorResponse> handleStepUpAuthenticationPolicyConflict(StepUpAuthenticationPolicyConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "AUTHORIZATION_CONTEXT_CONFLICT", "The current Ticket state or context does not support this step-up request.", request);
+    }
+
     @ExceptionHandler(TriageCategoryInvalidException.class)
     public ResponseEntity<ErrorResponse> handleTriageCategoryInvalid(TriageCategoryInvalidException ex, HttpServletRequest request) {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, "TRIAGE_CATEGORY_INVALID", "The category does not exist or is not active.", request);
@@ -237,6 +300,17 @@ public class GlobalRestExceptionHandler {
         return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The new assignee must differ from the current assignee.", request);
     }
 
+    /** SPEC-TW-030: mirrors {@link ReassignmentRequiresDifferentAssigneeException}'s handler, generalized to team/queue/assignee. */
+    @ExceptionHandler(AssignmentRequiresAChangeException.class)
+    public ResponseEntity<ErrorResponse> handleAssignmentRequiresAChange(AssignmentRequiresAChangeException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The requested team, support queue, and assignee are identical to the ticket's current ones.", request);
+    }
+
+    @ExceptionHandler(AssigneeRequiredForCurrentStatusException.class)
+    public ResponseEntity<ErrorResponse> handleAssigneeRequiredForCurrentStatus(AssigneeRequiredForCurrentStatusException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The ticket's current status requires an assignee and cannot be routed to an unassigned state.", request);
+    }
+
     @ExceptionHandler(ResolutionCycleNotFoundException.class)
     public ResponseEntity<ErrorResponse> handleResolutionCycleNotFound(ResolutionCycleNotFoundException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "RESOLUTION_CYCLE_NOT_FOUND", "The ticket has no current resolution cycle.", request);
@@ -273,6 +347,18 @@ public class GlobalRestExceptionHandler {
         return build(HttpStatus.CONFLICT, "VERIFICATION_REQUIRED", "No trusted, current, successful verification evidence was found for this ticket.", request);
     }
 
+    /** SPEC-TW-027 domain-rules: "the scheduler signal is advisory; the service recomputes eligibility under lock." */
+    @ExceptionHandler(AutoCloseNotYetDueException.class)
+    public ResponseEntity<ErrorResponse> handleAutoCloseNotYetDue(AutoCloseNotYetDueException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "AUTO_CLOSE_NOT_YET_DUE", "The ticket's auto-close due date has not yet passed.", request);
+    }
+
+    /** SPEC-TW-037 api-contract §"Errors": {@code 409} for a case already open for this ticket and source reference. */
+    @ExceptionHandler(ReconciliationCaseConflictException.class)
+    public ResponseEntity<ErrorResponse> handleReconciliationCaseConflict(ReconciliationCaseConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "RECONCILIATION_CASE_CONFLICT", "A reconciliation case is already open for this ticket and source reference.", request);
+    }
+
     @ExceptionHandler(IdempotencyKeyReusedException.class)
     public ResponseEntity<ErrorResponse> handleKeyReused(IdempotencyKeyReusedException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", "The idempotency key was already used with a different request.", request);
@@ -288,7 +374,10 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler({
         DisplayIdGenerationExhaustedException.class,
         EventSchemaValidationException.class,
-        SensitiveReadAuditFailureException.class
+        SensitiveReadAuditFailureException.class,
+        SupportQueueAuthorizationFailClosedException.class,
+        SecretDetectionFailClosedException.class,
+        StepUpAuthenticationFailClosedException.class
     })
     public ResponseEntity<ErrorResponse> handleInternalFailure(RuntimeException ex, HttpServletRequest request) {
         return build(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "An unexpected error occurred.", request);

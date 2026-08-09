@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-036 Step-up Authentication
+  version: 1.0.0
+paths:
+  /internal/v1/security/step-up/evaluate:
+    post:
+      summary: Require step-up proof for high-risk Ticket commands so a normal session cannot directly execute risky operations.
+      operationId: evaluateStepUpAuthentication
+      responses:
+        '200':
+          description: Policy evaluated
+        '400':
+          description: Invalid policy input
+        '403':
+          description: Policy denied
+        '409':
+          description: State or context conflict
+        '500':
+          description: Required guard failed closed

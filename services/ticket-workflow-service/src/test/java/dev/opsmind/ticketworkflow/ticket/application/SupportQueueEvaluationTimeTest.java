@@ -6,6 +6,7 @@ import dev.opsmind.ticketworkflow.support.SupportQueueFixtures;
 import dev.opsmind.ticketworkflow.ticket.application.cursor.SupportQueueCursorCodec;
 import dev.opsmind.ticketworkflow.ticket.application.cursor.SupportQueueCursorSigner;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueQueryPort;
@@ -55,7 +56,7 @@ class SupportQueueEvaluationTimeTest {
         );
         SupportQueueCursorCodec codec = new SupportQueueCursorCodec(new ObjectMapper().findAndRegisterModules(), new SupportQueueCursorSigner(properties));
         scope = SupportQueueFixtures.scope(SupportQueueFixtures.DEFAULT_APPLICATION_CODE);
-        return new QuerySupportQueueApplicationService(queryPort, codec, new TicketViewPolicy(), mock(TicketTelemetry.class), clock, properties);
+        return new QuerySupportQueueApplicationService(queryPort, codec, new TicketViewPolicy(), mock(TicketTelemetry.class), clock, properties, mock(SupportQueueAuthorizationAuditRecorder.class));
     }
 
     @Test

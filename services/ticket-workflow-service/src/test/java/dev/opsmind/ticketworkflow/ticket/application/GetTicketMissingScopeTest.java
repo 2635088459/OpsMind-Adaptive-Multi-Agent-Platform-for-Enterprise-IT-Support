@@ -3,6 +3,7 @@ package dev.opsmind.ticketworkflow.ticket.application;
 import dev.opsmind.ticketworkflow.support.GetTicketFixtures;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketResourceAccessPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
@@ -37,7 +38,7 @@ class GetTicketMissingScopeTest {
             new TicketResourceAccessPolicy(),
             mock(TicketTelemetry.class),
             mock(ClockPort.class)
-        );
+        , mock(SensitiveReadAuditDecisionRecorder.class));
 
         GetTicketQuery query = GetTicketFixtures.employeeQuery(
             GetTicketFixtures.DEFAULT_TICKET_ID, GetTicketFixtures.employeeActorWithoutReadScope("employee-123")
@@ -57,7 +58,7 @@ class GetTicketMissingScopeTest {
             new TicketResourceAccessPolicy(),
             mock(TicketTelemetry.class),
             mock(ClockPort.class)
-        );
+        , mock(SensitiveReadAuditDecisionRecorder.class));
 
         ActorContext supportWithoutScope = new ActorContext("IT_SUPPORT", "support-100", "support-console", Set.of());
         GetTicketQuery query = GetTicketFixtures.supportQuery(

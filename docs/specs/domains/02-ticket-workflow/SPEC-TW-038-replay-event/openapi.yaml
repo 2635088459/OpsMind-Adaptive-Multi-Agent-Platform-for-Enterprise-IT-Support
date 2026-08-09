@@ -1,0 +1,20 @@
+openapi: 3.0.3
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-038 Replay Event
+  version: 1.0.0
+paths:
+  /internal/v1/tickets/events/replay:
+    post:
+      summary: Safely replay outbox, consumer inbox, or DLQ messages while preserving idempotency and ordering guards.
+      operationId: replayEvent
+      responses:
+        '200':
+          description: Recovery action accepted or applied
+        '400':
+          description: Invalid recovery command
+        '403':
+          description: Forbidden
+        '404':
+          description: Target not found
+        '409':
+          description: Recovery conflict

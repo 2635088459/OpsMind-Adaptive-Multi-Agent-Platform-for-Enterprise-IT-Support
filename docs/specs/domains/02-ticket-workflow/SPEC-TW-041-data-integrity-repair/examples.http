@@ -1,0 +1,13 @@
+### SPEC-TW-041 Data Integrity Repair
+POST http://localhost:8080/internal/v1/tickets/integrity-repairs
+Content-Type: application/json
+Idempotency-Key: idem-phase10-041
+
+{
+  "idempotencyKey": "idem-phase10-041",
+  "actorId": "ops-operator",
+  "reasonCode": "RECOVERY_REQUIRED",
+  "reason": "Controlled recovery action for a verified inconsistency",
+  "correlationId": "corr-041",
+  "sourceReference": "event-or-case-id"
+}

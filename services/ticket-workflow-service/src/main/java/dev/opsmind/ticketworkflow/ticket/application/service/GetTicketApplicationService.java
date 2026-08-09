@@ -5,6 +5,7 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizati
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.model.SensitiveReadAuditEntry;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketResourceAccessPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.in.GetTicketUseCase;
@@ -41,6 +42,7 @@ public class GetTicketApplicationService implements GetTicketUseCase {
     private final TicketResourceAccessPolicy accessPolicy;
     private final TicketTelemetry telemetry;
     private final ClockPort clock;
+    private final SensitiveReadAuditDecisionRecorder auditDecisionRecorder;
 
     public GetTicketApplicationService(
         TicketQueryPort ticketQueryPort,
@@ -48,7 +50,8 @@ public class GetTicketApplicationService implements GetTicketUseCase {
         TicketViewPolicy viewPolicy,
         TicketResourceAccessPolicy accessPolicy,
         TicketTelemetry telemetry,
-        ClockPort clock
+        ClockPort clock,
+        SensitiveReadAuditDecisionRecorder auditDecisionRecorder
     ) {
         this.ticketQueryPort = ticketQueryPort;
         this.sensitiveReadAuditPort = sensitiveReadAuditPort;
@@ -56,6 +59,7 @@ public class GetTicketApplicationService implements GetTicketUseCase {
         this.accessPolicy = accessPolicy;
         this.telemetry = telemetry;
         this.clock = clock;
+        this.auditDecisionRecorder = auditDecisionRecorder;
     }
 
     @Override
@@ -95,21 +99,32 @@ public class GetTicketApplicationService implements GetTicketUseCase {
         }
     }
 
+    /**
+     * SPEC-TW-034 hardening: also records the shared policy-decision
+     * ledger/metrics around the pre-existing (SPEC-TW-002 §16) required,
+     * fail-closed business audit write, without changing when a read
+     * succeeds or fails — a failure in either write fails the read closed.
+     */
     private void auditSensitiveRead(GetTicketQuery query, TicketViewType viewType) {
+        String ticketId = query.ticketId().toString();
+        String actorId = query.actor().subject();
+        String actorType = query.actor().actorType();
         try {
             sensitiveReadAuditPort.recordSensitiveRead(new SensitiveReadAuditEntry(
-                query.actor().actorType(),
-                query.actor().subject(),
+                actorType,
+                actorId,
                 query.actor().clientId(),
-                query.ticketId().toString(),
+                ticketId,
                 viewType.name(),
                 FIELDS_POLICY_VERSION,
                 currentTraceId(),
                 "SUCCESS",
                 clock.now()
             ));
+            auditDecisionRecorder.recordAllowed(ticketId, actorId, actorType, "ticket.read", null, currentTraceId());
         } catch (RuntimeException e) {
             telemetry.recordSensitiveReadAuditFailure();
+            auditDecisionRecorder.recordFailClosed(ticketId, actorId, actorType, "ticket.read", null, currentTraceId());
             throw new SensitiveReadAuditFailureException(e);
         }
     }

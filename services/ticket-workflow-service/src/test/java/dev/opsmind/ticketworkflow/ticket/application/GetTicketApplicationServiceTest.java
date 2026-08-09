@@ -6,6 +6,7 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizati
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.model.SensitiveReadAuditEntry;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketResourceAccessPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
@@ -65,7 +66,7 @@ class GetTicketApplicationServiceTest {
             new TicketResourceAccessPolicy(),
             telemetry,
             clock
-        );
+        , mock(SensitiveReadAuditDecisionRecorder.class));
     }
 
     @Test

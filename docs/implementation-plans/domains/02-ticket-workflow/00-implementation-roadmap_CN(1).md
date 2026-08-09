@@ -868,10 +868,10 @@ Phase 09 是集中补齐和强化，不是第一次加入安全。
 ## Feature Specs
 
 ```text
-SPEC-TW-031-support-queue-authorization
-SPEC-TW-032-sensitive-read-audit
-SPEC-TW-033-secret-detection
-SPEC-TW-034-step-up-authentication
+SPEC-TW-033-support-queue-authorization
+SPEC-TW-034-sensitive-read-audit
+SPEC-TW-035-secret-detection
+SPEC-TW-036-step-up-authentication
 ```
 
 ---
@@ -904,11 +904,11 @@ Unknown Result 和基本 Reconciliation Hook 必须从 Phase 06 开始预留。
 ## Feature Specs
 
 ```text
-SPEC-TW-035-open-reconciliation-case
-SPEC-TW-036-replay-event
-SPEC-TW-037-correction-event
-SPEC-TW-038-compensation
-SPEC-TW-039-data-integrity-repair
+SPEC-TW-037-open-reconciliation-case
+SPEC-TW-038-replay-event
+SPEC-TW-039-correction-event
+SPEC-TW-040-compensation
+SPEC-TW-041-data-integrity-repair
 ```
 
 ---

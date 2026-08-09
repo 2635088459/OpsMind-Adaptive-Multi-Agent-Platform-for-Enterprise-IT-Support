@@ -7,6 +7,7 @@ import dev.opsmind.ticketworkflow.ticket.application.cursor.TicketTimelineCursor
 import dev.opsmind.ticketworkflow.ticket.application.cursor.TicketTimelineCursorSigner;
 import dev.opsmind.ticketworkflow.ticket.application.exception.TicketAuthorizationException;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SensitiveReadAuditDecisionRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.policy.TicketTimelineViewPolicy;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.SensitiveReadAuditPort;
@@ -54,7 +55,7 @@ class AuditorTimelinePolicyTest {
         TicketTimelineCursorCodec codec = new TicketTimelineCursorCodec(new ObjectMapper().findAndRegisterModules(), new TicketTimelineCursorSigner(properties));
         GetTicketTimelineApplicationService service = new GetTicketTimelineApplicationService(
             queryPort, codec, new TicketTimelineViewPolicy(), mock(SensitiveReadAuditPort.class), mock(TicketTelemetry.class), clock
-        );
+        , mock(SensitiveReadAuditDecisionRecorder.class));
 
         TicketTimelineQuery query = new TicketTimelineQuery(
             TicketId.of(TICKET_ID), TicketTimelineFixtures.auditorActor("auditor-1"), Set.of(), 50, null

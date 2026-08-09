@@ -13,6 +13,9 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SecretDetectionAuditRecorder;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SecretDetectionPolicy;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -36,6 +39,15 @@ class AddTicketMessageValidationTest {
 
     @MockitoBean
     private AddTicketMessageUseCase addTicketMessageUseCase;
+
+    @MockitoBean
+    private SecretDetectionPolicy secretDetectionPolicy;
+
+    @MockitoBean
+    private SecretDetectionAuditRecorder secretDetectionAuditRecorder;
+
+    @MockitoBean
+    private TicketTelemetry ticketTelemetry;
 
     @Test
     void shouldRejectBlankContent() throws Exception {
@@ -119,6 +131,12 @@ class AddTicketMessageValidationTest {
             .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
     }
 
+    /**
+     * SPEC-TW-035 hardening: secret-like content is now distinguished from
+     * an ordinary shape violation and rejected with {@code 403
+     * SECRET_DETECTED} (previously an undifferentiated {@code 400
+     * VALIDATION_ERROR}), still never echoing the matched text.
+     */
     @Test
     void shouldRejectPrivateKeyContentWithoutEchoingIt() throws Exception {
         String bodyWithKey = """
@@ -131,8 +149,8 @@ class AddTicketMessageValidationTest {
                 .header("Idempotency-Key", "key-6")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(bodyWithKey))
-            .andExpect(status().isBadRequest())
-            .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("SECRET_DETECTED"))
             .andExpect(jsonPath("$.error.message").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("BEGIN RSA PRIVATE KEY"))));
     }
 }

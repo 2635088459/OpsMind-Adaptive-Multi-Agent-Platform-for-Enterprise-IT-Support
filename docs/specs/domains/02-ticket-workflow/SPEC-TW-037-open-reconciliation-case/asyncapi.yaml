@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-037 Recovery Events
+  version: 1.0.0
+channels:
+  ticket.reconciliation-case-opened.v1:
+    publish:
+      summary: Open an auditable reconciliation case for unknown results, cross-service conflicts, stale results, or data inconsistency.

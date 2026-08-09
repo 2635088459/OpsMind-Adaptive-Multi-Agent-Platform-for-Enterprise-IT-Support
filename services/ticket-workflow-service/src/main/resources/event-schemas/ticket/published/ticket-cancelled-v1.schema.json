@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-cancelled-v1.schema.json",
+  "title": "ticket.cancelled.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "supportQueueId",
+    "assigneeId",
+    "resolutionCycleId",
+    "previousStatus",
+    "newStatus",
+    "cancelReasonCode",
+    "cancelReason",
+    "cancelledBy",
+    "cancelledAt"
+  ],
+  "properties": {
+    "supportQueueId": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "assigneeId": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "resolutionCycleId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "previousStatus": {
+      "type": "string",
+      "enum": ["NEW", "IN_PROGRESS", "WAITING_FOR_USER", "WAITING_FOR_APPROVAL", "VERIFYING", "RESOLVED"]
+    },
+    "newStatus": {
+      "type": "string",
+      "const": "CANCELLED"
+    },
+    "cancelReasonCode": {
+      "type": "string",
+      "enum": ["REQUESTER_CANCELLED", "DUPLICATE_REQUEST", "CREATED_IN_ERROR", "NO_LONGER_NEEDED", "SUPPORT_CANCELLED"]
+    },
+    "cancelReason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500
+    },
+    "cancelledBy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "cancelledAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

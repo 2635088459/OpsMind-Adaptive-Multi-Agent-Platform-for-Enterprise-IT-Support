@@ -1,0 +1,8 @@
+asyncapi: 2.6.0
+info:
+  title: OpsMind Ticket Workflow - SPEC-TW-038 Recovery Events
+  version: 1.0.0
+channels:
+  ticket.event-replay-recorded.v1:
+    publish:
+      summary: Safely replay outbox, consumer inbox, or DLQ messages while preserving idempotency and ordering guards.

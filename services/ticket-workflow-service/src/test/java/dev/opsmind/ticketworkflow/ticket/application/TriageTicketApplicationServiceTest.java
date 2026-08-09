@@ -13,6 +13,7 @@ import dev.opsmind.ticketworkflow.ticket.application.model.AuditRecordEntry;
 import dev.opsmind.ticketworkflow.ticket.application.model.OutboxEventEntry;
 import dev.opsmind.ticketworkflow.ticket.application.model.TicketStatusHistoryEntry;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.AuditRecordPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.ClockPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.IdempotencyRepository;
@@ -96,7 +97,8 @@ class TriageTicketApplicationServiceTest {
         service = new TriageTicketApplicationService(
             guardPort, categoryCatalogPort, subcategoryCatalogPort, supportQueueCatalogPort, triageRepository,
             historyWriter, auditRecordPort, outboxEventRepository, idempotencyRepository, clock,
-            new RequestHashCalculator(objectMapper), new TicketTriagedEventMapper(), telemetry, objectMapper
+            new RequestHashCalculator(objectMapper), new TicketTriagedEventMapper(), telemetry, objectMapper,
+            mock(SupportQueueAuthorizationAuditRecorder.class)
         );
     }
 

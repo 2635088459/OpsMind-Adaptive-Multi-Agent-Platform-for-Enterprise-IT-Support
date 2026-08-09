@@ -22,6 +22,8 @@ import dev.opsmind.ticketworkflow.ticket.application.idempotency.RequestHashCalc
 import dev.opsmind.ticketworkflow.ticket.application.model.AuditRecordEntry;
 import dev.opsmind.ticketworkflow.ticket.application.model.TicketStatusHistoryEntry;
 import dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationAuditRecorder;
+import dev.opsmind.ticketworkflow.ticket.application.policy.SupportQueueAuthorizationDecisionCode;
 import dev.opsmind.ticketworkflow.ticket.application.port.in.TriageTicketUseCase;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.AuditRecordPort;
 import dev.opsmind.ticketworkflow.ticket.application.port.out.CatalogCategory;
@@ -99,6 +101,7 @@ public class TriageTicketApplicationService implements TriageTicketUseCase {
     private final TicketTriagedEventMapper eventMapper;
     private final TicketTelemetry telemetry;
     private final ObjectMapper objectMapper;
+    private final SupportQueueAuthorizationAuditRecorder authorizationAuditRecorder;
 
     public TriageTicketApplicationService(
         TicketTriageGuardPort guardPort,
@@ -114,7 +117,8 @@ public class TriageTicketApplicationService implements TriageTicketUseCase {
         RequestHashCalculator requestHashCalculator,
         TicketTriagedEventMapper eventMapper,
         TicketTelemetry telemetry,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        SupportQueueAuthorizationAuditRecorder authorizationAuditRecorder
     ) {
         this.guardPort = guardPort;
         this.categoryCatalogPort = categoryCatalogPort;
@@ -130,6 +134,7 @@ public class TriageTicketApplicationService implements TriageTicketUseCase {
         this.eventMapper = eventMapper;
         this.telemetry = telemetry;
         this.objectMapper = objectMapper;
+        this.authorizationAuditRecorder = authorizationAuditRecorder;
     }
 
     @Transactional
@@ -189,6 +194,10 @@ public class TriageTicketApplicationService implements TriageTicketUseCase {
 
             if (!command.allowedTeamIds().contains(queue.teamId())) {
                 telemetry.recordTriageAuthorizationDenied("queue_scope");
+                authorizationAuditRecorder.recordDenied(
+                    command.ticketId().toString(), command.actor().subject(), command.actor().actorType(), "ticket.command",
+                    SupportQueueAuthorizationDecisionCode.DENIED_SCOPE, command.correlationId(), currentTraceId()
+                );
                 throw new QueueAccessDeniedException();
             }
 
