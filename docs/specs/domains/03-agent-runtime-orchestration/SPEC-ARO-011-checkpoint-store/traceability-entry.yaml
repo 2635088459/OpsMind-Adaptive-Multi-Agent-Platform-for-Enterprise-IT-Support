@@ -1,0 +1,12 @@
+SPEC-ARO-011:
+  domain: 03-agent-runtime-orchestration
+  name: Checkpoint Store
+  cn_name: Checkpoint 存储
+  status: planned
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

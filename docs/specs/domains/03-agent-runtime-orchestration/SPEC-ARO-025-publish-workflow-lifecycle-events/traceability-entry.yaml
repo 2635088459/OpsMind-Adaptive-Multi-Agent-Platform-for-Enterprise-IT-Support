@@ -1,0 +1,12 @@
+SPEC-ARO-025:
+  domain: 03-agent-runtime-orchestration
+  name: Publish Workflow Lifecycle Events
+  cn_name: 发布 Workflow Lifecycle Events
+  status: planned
+  lld_mapping:
+    - 06-event-contracts
+    - 08-transaction-and-outbox
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

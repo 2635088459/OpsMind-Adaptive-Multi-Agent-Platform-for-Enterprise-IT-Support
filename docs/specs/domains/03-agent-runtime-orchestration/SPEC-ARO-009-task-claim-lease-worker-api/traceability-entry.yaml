@@ -1,0 +1,67 @@
+SPEC-ARO-009:
+  domain: 03-agent-runtime-orchestration
+  name: Task Claim Lease Worker API
+  cn_name: Task Claim Lease Worker API
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Closes the gap between the exact-task-key claim SPEC-ARO-001 built (a caller must
+    already know workflow_instance_id + task_key) and 05-api-contracts' actual "Claim
+    Task" contract: "Worker provides agentRole, workerId, and maxTasks. Service returns
+    tasks with leases" — a role-based batch poll a generic Agent Worker pool can use
+    without knowing in advance what work exists. Added
+    ClaimAgentTaskService.claim_ready() (new ClaimReadyAgentTasksCommand,
+    AgentTaskRepository.find_claimable_ready_tasks(), POST /agent-tasks/claim-ready) as a
+    second capability alongside the existing exact-key claim() — not a replacement, since
+    a caller that already knows precisely which task it wants is still a legitimate,
+    already-tested use case. find_claimable_ready_tasks() applies 09-concurrency-and-
+    idempotency's literal instruction ("Use FOR UPDATE SKIP LOCKED or an equivalent
+    mechanism") via SQLAlchemy's with_for_update(skip_locked=True), reusing the
+    (agent_role, state, claim_expires_at) index SPEC-ARO-002 already created — no new
+    migration needed. The unconditional correctness guarantee stays the existing
+    optimistic task_version CAS on save() ("or an equivalent mechanism"): claim_ready()
+    treats a version conflict on any one candidate as "lost the race", not an error, and
+    moves on. A 10-thread concurrent-claim integration test against real Postgres found a
+    real gap during development: requesting exactly max_tasks candidates left no fallback
+    when some lost their race, so a single poll could return far fewer than max_tasks even
+    with plenty of untouched work still in the pool; fixed by over-fetching
+    (_CANDIDATE_OVER_FETCH_FACTOR = 3x) so one poll usually succeeds outright, while the
+    test itself was corrected to model a realistic worker retry loop rather than assuming
+    zero contention loss in a single poll (matching claim_ready()'s own documented
+    contract that a partial batch is an expected, not exceptional, outcome). Required the
+    role-based filter to actually have something to filter on, so also threaded an
+    optional agent_role (01-domain-model field, 07-data-model column already existed
+    nullable/unpopulated since SPEC-ARO-002) end to end: TaskNodeInput -> domain.TaskNode
+    -> domain.agent_task.create() -> AgentTaskRecord -> Postgres agent_tasks.agent_role
+    (fixed two real bugs found along the way: the Postgres INSERT path silently dropped
+    agent_role, and the read-mapper never read it back) -> task_graph_codec's STARTED-
+    checkpoint JSON (so a task materialized later via SPEC-ARO-008's
+    unlock_downstream_tasks() doesn't silently lose its role) -> AgentTaskView/
+    AgentTaskResponse. Optional, not required, mirroring SPEC-ARO-007's
+    attempt/maxAttempts/inputPayload deferral reasoning: no Planner capability assigns it
+    automatically yet. Also closes 05-api-contracts' Complete Task field list / 09-
+    concurrency-and-idempotency's own "Task worker receives workflowVersion when reading a
+    task and must validate it on result submission" — added CompleteAgentTaskCommand.
+    workflow_version (kw_only, so a pre-SPEC-ARO-009 positional call fails loudly instead
+    of silently binding the wrong slot) and a new StaleWorkflowVersionException, layered
+    alongside (not replacing) the existing pause/resume-specific
+    StalePauseGenerationException — workflow_version catches workflow-wide staleness a
+    pause_generation-only check misses (e.g. an admin force-complete/fail/cancel while a
+    task was still claimed), matching the LLD's own "also" wording that frames these as
+    two deliberately-layered checks. No new agent_tasks column needed for this: unlike
+    pause_generation, nothing is persisted specifically for it — AgentTaskView.
+    workflow_version is simply the caller-observed value from the owning Workflow
+    Instance, round-tripped by the worker itself. Verified with 211 tests (185 unit/
+    architecture + 26 integration against ephemeral testcontainers Postgres, including the
+    corrected 10-thread claim_ready concurrency test — stable across repeated runs),
+    lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a curl walkthrough
+    against the real docker-compose Postgres covering role-mismatch (empty), role-match
+    claim, pool exhaustion (empty on re-poll), stale-workflow-version rejection (409), and
+    successful completion.
+  lld_mapping:
+    - 05-api-contracts
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

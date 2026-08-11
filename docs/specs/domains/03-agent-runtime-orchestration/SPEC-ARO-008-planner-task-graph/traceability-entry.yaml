@@ -1,0 +1,52 @@
+SPEC-ARO-008:
+  domain: 03-agent-runtime-orchestration
+  name: Planner Task Graph
+  cn_name: Planner Task Graph
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Closes the single biggest functional gap found while implementing 04-use-cases UC-02
+    "Multi-Agent Orchestration": CompleteAgentTaskService never re-invoked the Coordinator
+    after a task finished, so any task graph with a real dependency (anything beyond a
+    single root task) was permanently stuck after its first wave — the downstream task
+    was materialized by nothing, ever, through the real command flow. 13-package-and-
+    class-design's own "Coordinator decides which task graph nodes are runnable" was true
+    only for the initial StartWorkflowService call. Fixed by adding
+    CoordinateAgentTasksService.unlock_downstream_tasks(), called from
+    CompleteAgentTaskService after every completion or failure (UC-02 steps 5-6). The
+    graph shape needed to compute "what's now runnable" has no Workflow Definition
+    catalog table to read from (StartWorkflowCommand's own docstring) — the only durable
+    record is the STARTED checkpoint StartWorkflowService already writes (SPEC-ARO-005),
+    so unlock_downstream_tasks re-derives the TaskGraph from it. Extracted the JSON shape
+    both the writer (StartWorkflowService) and this new reader share into a dedicated
+    application/services/task_graph_codec.py (encode/decode) so the two can never drift
+    apart — previously StartWorkflowService had a private _to_checkpoint_payload with no
+    corresponding decoder anywhere. New CheckpointType.AFTER_TASK (UC-02 step 5: "After
+    task completion, write AFTER_TASK checkpoint"), written for both success and failure
+    outcomes (a failed attempt is still "task completion" in UC-02's broad sense, and the
+    follow-up unlock call is a safe no-op when nothing newly satisfies its dependencies —
+    domain.coordinator.runnable_task_keys only counts COMPLETED). New
+    CheckpointRepository.find_latest_by_workflow_instance_id_and_type, backed by a new
+    (workflow_instance_id, checkpoint_type) index (migration d2acf6d67e2e, hand-written
+    to strip the same two pre-existing autogenerate false diffs noted in 0746d71d59e8) —
+    a hot-path lookup since it now runs on every task completion.
+    unlock_downstream_tasks() is a no-op (not an error) when the workflow has reached a
+    terminal state, so a task completing concurrently with an admin force-complete/fail/
+    cancel doesn't fail the completion that triggered it. 13-package-and-class-design's
+    Planner class boundary ("creates task graph but does not call tools") and its
+    Application/Ports/Adapters inventory were already fully realized by SPEC-ARO-001..007
+    — nothing else in that LLD section required new code. Verified with 196 tests (173
+    unit/architecture + 23 integration against ephemeral testcontainers Postgres — the
+    real command flow, not direct CoordinateAgentTasksService calls, is what proves the
+    fix), lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a curl
+    walkthrough against the real docker-compose Postgres using a 4-task diamond graph
+    (collect -> {verify_a, verify_b} -> remediate) proving remediate stays un-claimable
+    until BOTH verify_a and verify_b complete, not just one — the join-gating logic, not
+    just simple linear unlocking.
+  lld_mapping:
+    - 04-use-cases
+    - 13-package-and-class-design
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

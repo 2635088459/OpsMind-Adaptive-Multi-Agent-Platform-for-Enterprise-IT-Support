@@ -1193,4 +1193,112 @@ public class TicketTelemetry {
             .register(meterRegistry)
             .increment();
     }
+
+    public Timer.Sample startReplayEventTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopReplayEventTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_replay_event_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordReplayEventCommand(String outcome) {
+        Counter.builder("opsmind_replay_event_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordReplayEventAuthorizationDenied() {
+        Counter.builder("opsmind_replay_event_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordReplayEventConflict() {
+        Counter.builder("opsmind_replay_event_conflicts_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startPublishCorrectionEventTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopPublishCorrectionEventTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_publish_correction_event_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordPublishCorrectionEventCommand(String outcome) {
+        Counter.builder("opsmind_publish_correction_event_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordPublishCorrectionEventAuthorizationDenied() {
+        Counter.builder("opsmind_publish_correction_event_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordPublishCorrectionEventConflict() {
+        Counter.builder("opsmind_publish_correction_event_conflicts_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startExecuteCompensationTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopExecuteCompensationTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_execute_compensation_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordExecuteCompensationCommand(String outcome) {
+        Counter.builder("opsmind_execute_compensation_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordExecuteCompensationAuthorizationDenied() {
+        Counter.builder("opsmind_execute_compensation_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordExecuteCompensationConflict() {
+        Counter.builder("opsmind_execute_compensation_conflicts_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public Timer.Sample startApplyDataIntegrityRepairTimer() {
+        return Timer.start(meterRegistry);
+    }
+
+    public void stopApplyDataIntegrityRepairTimer(Timer.Sample sample) {
+        sample.stop(Timer.builder("opsmind_apply_data_integrity_repair_duration_seconds").register(meterRegistry));
+    }
+
+    public void recordApplyDataIntegrityRepairCommand(String outcome) {
+        Counter.builder("opsmind_apply_data_integrity_repair_commands_total")
+            .tag("outcome", outcome)
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApplyDataIntegrityRepairAuthorizationDenied() {
+        Counter.builder("opsmind_apply_data_integrity_repair_authorization_denied_total")
+            .register(meterRegistry)
+            .increment();
+    }
+
+    public void recordApplyDataIntegrityRepairConflict() {
+        Counter.builder("opsmind_apply_data_integrity_repair_conflicts_total")
+            .register(meterRegistry)
+            .increment();
+    }
 }

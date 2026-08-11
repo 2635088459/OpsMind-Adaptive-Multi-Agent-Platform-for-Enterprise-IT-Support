@@ -1,0 +1,56 @@
+SPEC-ARO-005:
+  domain: 03-agent-runtime-orchestration
+  name: Start Workflow From ticket.created
+  cn_name: 从 ticket.created 启动 Workflow
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Implements 04-use-cases UC-01 "Consume ticket.created" end to end. New
+    ConsumeTicketCreatedService (application/services/consume_ticket_created.py) is a
+    dedicated service, not a branch inside the existing ConsumeRuntimeEventService: that
+    service's RuntimeEventEnvelope requires an already-existing workflow_instance_id to
+    look up, which ticket.created structurally cannot supply (no instance exists yet —
+    creating one is the point). Flow: dedup by processed_events(eventId) (step 2) ->
+    "confirm automation can start" against TicketSnapshotPort (step 3) -> resolve a
+    WorkflowDefinitionInput via a new WorkflowDefinitionCatalogPort (step 6's
+    prerequisite) -> delegate instance creation/STARTED-checkpoint/task-materialization/
+    workflow.started-publication (steps 4-8) to the existing StartWorkflowService, shared
+    unchanged with the direct REST /workflows command. Idempotency key for the delegated
+    Start command is the ticketId+ticketCycleId+workflowType composite per
+    06-event-contracts (not eventId), so a retried ticket.created under a *different*
+    eventId for the same logical ticket cycle still collapses onto the same Start command
+    instead of only being caught by literal-redelivery eventId dedup. New dedicated
+    endpoint POST /internal/agent-runtime/v1/events/ticket-created (separate from the
+    existing generic POST /events, whose schema requires workflow_instance_id). Two real
+    gaps found and closed while implementing UC-01's own steps (not scope creep — both
+    are steps of this exact use case that pre-existed as no-ops): (1) StartWorkflowService
+    never wrote a checkpoint at all; added the UC-01-mandated STARTED checkpoint
+    (CheckpointType.STARTED, new enum member) before Planner materializes the task graph,
+    shared by both the ticket.created path and the direct REST path since checkpoint-
+    writing is a Start-use-case concern, not a trigger-source concern. (2)
+    TicketSnapshotPort existed since SPEC-ARO-001 but was wired to NoOpTicketSnapshotPort
+    and called by nothing; ConsumeTicketCreatedService is the first real caller —
+    "automation can start" is defined as: if a snapshot is available and its
+    ticket_status is one of the Java sibling's terminal TicketStatus values
+    (RESOLVED/CLOSED/ESCALATED/FAILED/CANCELLED), reject with the new
+    AutomationNotAllowedException (409); a None snapshot (the real-run default today,
+    since no Ticket Workflow query adapter is wired yet) does not block starting.
+    WorkflowDefinitionCatalogPort/StaticWorkflowDefinitionCatalogAdapter is a deliberate
+    bootstrap placeholder (always resolves the same triage-v1/TICKET_TRIAGE/
+    collect_diagnostics definition already used as the fixture everywhere else in this
+    codebase) — no 07-data-model table backs a real authored-definition catalog yet, same
+    "capabilities reserved for later phases" deferral domain.planner.plan() already
+    documents for phase-02 agent-task-orchestration. Verified with 136 tests (120 unit/
+    architecture + 16 integration against ephemeral testcontainers Postgres), lint-imports
+    (3/3 contracts kept), and a curl walkthrough against the real docker-compose Postgres
+    covering: ticket.created starts a workflow, exact-eventId replay is deduplicated, a
+    different-eventId retry for the same ticket cycle is evaluated but creates no second
+    instance, and a direct REST start against the same ticket cycle correctly still hits
+    409 DUPLICATE_ACTIVE_WORKFLOW_INSTANCE.
+  lld_mapping:
+    - 04-use-cases
+    - 06-event-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

@@ -1,0 +1,12 @@
+SPEC-ARO-019:
+  domain: 03-agent-runtime-orchestration
+  name: Dispatch Tool Request Through Gateway
+  cn_name: 通过 Tool Gateway 派发 Tool Request
+  status: planned
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

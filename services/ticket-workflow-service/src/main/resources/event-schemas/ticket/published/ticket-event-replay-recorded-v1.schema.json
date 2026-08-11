@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-event-replay-recorded-v1.schema.json",
+  "title": "ticket.event-replay-recorded.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recoveryId",
+    "sourceReference",
+    "decision",
+    "reasonCode"
+  ],
+  "properties": {
+    "recoveryId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceReference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "decision": {
+      "type": "string",
+      "const": "APPLIED"
+    },
+    "reasonCode": {
+      "type": "string",
+      "enum": ["UNKNOWN_RESULT", "CROSS_SERVICE_CONFLICT", "STALE_RESULT", "DATA_INCONSISTENCY", "RECOVERY_REQUIRED"]
+    }
+  }
+}

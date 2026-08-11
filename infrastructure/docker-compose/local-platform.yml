@@ -11,7 +11,12 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      - opsmind-postgres-data:/var/lib/postgresql/data
+      # postgres:18+ images store data under a major-version-specific
+      # subdirectory of /var/lib/postgresql itself; mounting the volume at
+      # the old /var/lib/postgresql/data path makes the image refuse to
+      # start ("PostgreSQL data in /var/lib/postgresql/data (unused
+      # mount/volume)"). See https://github.com/docker-library/postgres/pull/1259.
+      - opsmind-postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-ticket_workflow} -d ${DB_NAME:-ticket_workflow}"]
       interval: 10s

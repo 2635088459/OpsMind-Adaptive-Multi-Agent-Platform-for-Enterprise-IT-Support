@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-compensation-executed-v1.schema.json",
+  "title": "ticket.compensation-executed.v1 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recoveryId",
+    "sourceReference",
+    "decision",
+    "reasonCode",
+    "compensationAction"
+  ],
+  "properties": {
+    "recoveryId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceReference": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "decision": {
+      "type": "string",
+      "const": "APPLIED"
+    },
+    "reasonCode": {
+      "type": "string",
+      "enum": ["UNKNOWN_RESULT", "CROSS_SERVICE_CONFLICT", "STALE_RESULT", "DATA_INCONSISTENCY", "RECOVERY_REQUIRED"]
+    },
+    "compensationAction": {
+      "type": "string",
+      "enum": ["RETRY_SIDE_EFFECT", "REVERSE_SIDE_EFFECT", "ACKNOWLEDGE_SIDE_EFFECT", "MARK_MANUALLY_RECONCILED"]
+    }
+  }
+}

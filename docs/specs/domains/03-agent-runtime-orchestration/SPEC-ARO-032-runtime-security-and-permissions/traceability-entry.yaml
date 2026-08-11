@@ -1,0 +1,11 @@
+SPEC-ARO-032:
+  domain: 03-agent-runtime-orchestration
+  name: Runtime Security and Permissions
+  cn_name: Runtime 安全与权限
+  status: planned
+  lld_mapping:
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

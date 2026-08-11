@@ -1,0 +1,12 @@
+SPEC-ARO-016:
+  domain: 03-agent-runtime-orchestration
+  name: Stale Generation Worker Result
+  cn_name: 旧 Generation Worker Result 防护
+  status: planned
+  lld_mapping:
+    - 02-business-invariants
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

@@ -1,0 +1,12 @@
+SPEC-ARO-036:
+  domain: 03-agent-runtime-orchestration
+  name: Final Coverage Audit and Release Readiness
+  cn_name: 最终覆盖审计与发布就绪
+  status: planned
+  lld_mapping:
+    - 14-testing-strategy
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

@@ -1,0 +1,12 @@
+SPEC-ARO-029:
+  domain: 03-agent-runtime-orchestration
+  name: Expired Lease Task Recovery
+  cn_name: 过期 Lease Task Recovery
+  status: planned
+  lld_mapping:
+    - 09-concurrency-and-idempotency
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

@@ -1,0 +1,12 @@
+SPEC-ARO-035:
+  domain: 03-agent-runtime-orchestration
+  name: Event and API Contract Test Harness
+  cn_name: Event 与 API 契约测试框架
+  status: planned
+  lld_mapping:
+    - 14-testing-strategy
+    - 06-event-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

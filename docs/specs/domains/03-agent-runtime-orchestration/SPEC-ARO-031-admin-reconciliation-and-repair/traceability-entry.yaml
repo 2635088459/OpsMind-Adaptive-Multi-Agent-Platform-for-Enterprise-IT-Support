@@ -1,0 +1,12 @@
+SPEC-ARO-031:
+  domain: 03-agent-runtime-orchestration
+  name: Admin Reconciliation and Repair
+  cn_name: Admin 对账与修复
+  status: planned
+  lld_mapping:
+    - 10-failure-handling
+    - 05-api-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

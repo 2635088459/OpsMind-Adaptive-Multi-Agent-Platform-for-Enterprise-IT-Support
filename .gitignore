@@ -21,3 +21,12 @@ target/
 node_modules/
 dist/
 build/
+
+# Python (agent-runtime-service and other Python services)
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/

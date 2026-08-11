@@ -1,0 +1,34 @@
+SPEC-ARO-002:
+  domain: 03-agent-runtime-orchestration
+  name: Agent Runtime Schema Baseline
+  cn_name: Agent Runtime Schema 基线
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Dedicated `agent_runtime` PostgreSQL schema (workflow_instances,
+    agent_tasks, checkpoints, tool_requests, processed_events, outbox_events,
+    command_idempotency) added via SQLAlchemy 2.x models
+    (infrastructure/persistence/postgres/models.py) and a hand-written
+    Alembic migration (migrations/versions/b94bbf56912f_*). Postgres-backed
+    repository adapters implement every SPEC-ARO-001 ports_out Protocol plus
+    a new CommandIdempotencyRepository (schema/adapter only — no service
+    wired to it yet, reserved for SPEC-ARO-003). container.py selects
+    memory vs postgres persistence via Settings.agent_runtime_persistence
+    (env AGENT_RUNTIME_PERSISTENCE; default postgres). Columns 07-data-model
+    lists that no SPEC-ARO-001 service populates yet (current_checkpoint_id,
+    completed_at, agent_role, attempt/max_attempts, capability,
+    gateway_correlation_id, policy_snapshot_json, tool_requests.idempotency_key)
+    are created nullable/defaulted, ready for the specs that own that
+    behavior (SPEC-ARO-003, phase-02, phase-05, phase-08) — no application-
+    layer record shape changed to accommodate them. Verified against both a
+    real docker-compose Postgres (infrastructure/docker-compose/
+    local-platform.yml — its postgres volume mount was also fixed here,
+    from /var/lib/postgresql/data to /var/lib/postgresql, to match the
+    postgres:18+ image's new data-directory layout) and an ephemeral
+    testcontainers Postgres (tests/integration).
+  lld_mapping:
+    - 07-data-model
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

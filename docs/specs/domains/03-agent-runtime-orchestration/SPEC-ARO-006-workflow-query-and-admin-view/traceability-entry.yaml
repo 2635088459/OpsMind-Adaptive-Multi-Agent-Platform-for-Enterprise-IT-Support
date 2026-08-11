@@ -1,0 +1,55 @@
+SPEC-ARO-006:
+  domain: 03-agent-runtime-orchestration
+  name: Workflow Query and Admin View
+  cn_name: Workflow 查询与运维视图
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Implements 05-api-contracts §"Query API" in full: GET /workflows/{workflowInstanceId},
+    GET /workflows/by-ticket/{ticketId}, GET /agent-tasks/{agentTaskId} (LLD calls it
+    /tasks/{agentTaskId}; kept under this codebase's existing /agent-tasks prefix for
+    consistency with every other agent-task route rather than introducing a second
+    prefix), and GET /workflows/{workflowInstanceId}/checkpoints/latest. New
+    WorkflowQueryService/WorkflowQueryPort (workflow-by-id, by-ticket, latest-checkpoint)
+    and AgentTaskQueryService/AgentTaskQueryPort (task-by-id) — plain reads, no domain
+    call, no idempotency guard, mirroring the existing WorkflowCommandPort/
+    AgentTaskCommandPort split but for the read side. New repository methods:
+    WorkflowInstanceRepository.find_by_ticket_id (every instance for a ticket, across
+    cycles and terminal states — distinct from the existing
+    find_active_by_ticket_cycle_and_type, which is scoped to one cycle+type and
+    non-terminal only) and CheckpointRepository.find_latest_by_workflow_instance_id
+    (ORDER BY created_at DESC LIMIT 1 in Postgres, using the
+    ix_checkpoints_workflow_instance_created_desc index SPEC-ARO-002 already created).
+    New migration 0746d71d59e8 adds ix_workflow_instances_ticket_id (hand-written, not
+    raw autogenerate output — autogenerate also proposed two unrelated false diffs:
+    dropping the hand-authored uq_workflow_instances_active partial unique index and
+    re-ordering the checkpoints index from DESC to ASC, neither a real change, both
+    stripped from the migration body). New CheckpointView (application/views.py, no
+    to_dict/from_dict — unlike every other view, nothing round-trips it through
+    CommandIdempotencyGuard) and CheckpointNotFoundException (404), distinct from
+    WorkflowInstanceNotFoundException: raised only when the instance exists but has no
+    checkpoint yet, which should not happen for any instance started through
+    StartWorkflowService (SPEC-ARO-005 always writes STARTED) but is handled explicitly
+    rather than assumed. 12-observability's full scope (OpenTelemetry metrics, tracing
+    propagation, alerting) is 100% deferred to SPEC-ARO-034 (phase-09,
+    "Runtime Observability") — that is a dedicated future spec, not something this one
+    should partially pre-build; SPEC-ARO-006's own contribution to "admin view" IS the
+    Query API itself (the human/ops-facing read surface into Runtime state), consistent
+    with phase-01's spec table pairing 05-api-contracts with 12-observability under this
+    one spec. Similarly, 05-api-contracts §"Admin API"'s "retry failed task" and "mark
+    poison event quarantined" items are explicitly NOT built here — "force recover
+    workflow" and "replay outbox" (the other two items in that list) already exist from
+    SPEC-ARO-003/004; the two repair actions belong to SPEC-ARO-031
+    (admin-reconciliation-and-repair), which owns that capability by name. Verified with
+    157 tests (137 unit/architecture + 20 integration against ephemeral testcontainers
+    Postgres, including new repository-level tests for both new finder methods),
+    lint-imports (3/3 contracts kept), and a curl walkthrough against the real
+    docker-compose Postgres (post-migration) covering all four query endpoints' 200 and
+    404 paths, plus a route-collision check against the live OpenAPI schema.
+  lld_mapping:
+    - 05-api-contracts
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

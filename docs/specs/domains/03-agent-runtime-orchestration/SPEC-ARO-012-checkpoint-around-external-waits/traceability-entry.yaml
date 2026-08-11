@@ -1,0 +1,12 @@
+SPEC-ARO-012:
+  domain: 03-agent-runtime-orchestration
+  name: Checkpoint Around External Waits
+  cn_name: 外部等待前后的 Checkpoint
+  status: planned
+  lld_mapping:
+    - 03-state-machine
+    - 08-transaction-and-outbox
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

@@ -57,7 +57,11 @@ public class JsonSchemaEventValidator implements EventSchemaValidator {
         Map.entry("ticket.assignment-updated:1", "event-schemas/ticket/published/ticket-assignment-updated-v1.schema.json"),
         Map.entry("ticket.escalated:1", "event-schemas/ticket/published/ticket-escalated-v1.schema.json"),
         Map.entry("ticket.escalation-resumed:1", "event-schemas/ticket/published/ticket-escalation-resumed-v1.schema.json"),
-        Map.entry("ticket.reconciliation-case-opened:1", "event-schemas/ticket/published/ticket-reconciliation-case-opened-v1.schema.json")
+        Map.entry("ticket.reconciliation-case-opened:1", "event-schemas/ticket/published/ticket-reconciliation-case-opened-v1.schema.json"),
+        Map.entry("ticket.event-replay-recorded:1", "event-schemas/ticket/published/ticket-event-replay-recorded-v1.schema.json"),
+        Map.entry("ticket.correction-event-published:1", "event-schemas/ticket/published/ticket-correction-event-published-v1.schema.json"),
+        Map.entry("ticket.compensation-executed:1", "event-schemas/ticket/published/ticket-compensation-executed-v1.schema.json"),
+        Map.entry("ticket.integrity-repair-applied:1", "event-schemas/ticket/published/ticket-integrity-repair-applied-v1.schema.json")
     );
 
     private final JsonSchemaFactory schemaFactory;

@@ -1,0 +1,12 @@
+SPEC-ARO-026:
+  domain: 03-agent-runtime-orchestration
+  name: Publish Agent Task Events
+  cn_name: 发布 Agent Task Events
+  status: planned
+  lld_mapping:
+    - 06-event-contracts
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

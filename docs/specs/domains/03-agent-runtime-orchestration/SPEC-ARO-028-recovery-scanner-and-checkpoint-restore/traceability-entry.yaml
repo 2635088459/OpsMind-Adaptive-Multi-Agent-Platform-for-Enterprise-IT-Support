@@ -1,0 +1,12 @@
+SPEC-ARO-028:
+  domain: 03-agent-runtime-orchestration
+  name: Recovery Scanner and Checkpoint Restore
+  cn_name: Recovery Scanner 与 Checkpoint Restore
+  status: planned
+  lld_mapping:
+    - 10-failure-handling
+    - 01-domain-model
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

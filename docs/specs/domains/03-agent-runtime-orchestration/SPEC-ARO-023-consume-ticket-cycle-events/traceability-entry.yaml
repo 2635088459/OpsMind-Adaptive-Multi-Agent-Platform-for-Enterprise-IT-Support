@@ -1,0 +1,12 @@
+SPEC-ARO-023:
+  domain: 03-agent-runtime-orchestration
+  name: Consume Ticket Cycle Events
+  cn_name: 消费 Ticket Cycle Events
+  status: planned
+  lld_mapping:
+    - 06-event-contracts
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

@@ -1,0 +1,8 @@
+# SPEC-ARO-020 — API Contract
+
+Goal: support `Consume tool.completed and tool.failed`.
+
+- APIs primarily serve internal services, workers, and admins.
+- Commands must carry idempotency key or workflow version.
+- Queries return Runtime state only, not authoritative Ticket state.
+- Admin APIs must record audit.

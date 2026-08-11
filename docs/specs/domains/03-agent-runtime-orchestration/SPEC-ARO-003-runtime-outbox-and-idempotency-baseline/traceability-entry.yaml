@@ -1,0 +1,61 @@
+SPEC-ARO-003:
+  domain: 03-agent-runtime-orchestration
+  name: Runtime Outbox and Idempotency Baseline
+  cn_name: Runtime Outbox 与幂等基线
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Outbox Publisher (08-transaction-and-outbox §"Outbox Publisher"): new
+    EventPublisherPort (application/ports_out.py, boundary-enforced by
+    architecture test — only DispatchOutboxEventsService may import it, mirrors
+    the existing ToolGatewayPort rule) plus a placeholder
+    LoggingEventPublisherAdapter (infrastructure/event_publisher.py; real
+    RabbitMQ wiring deferred to phase-07). DispatchOutboxEventsService scans
+    outbox_events for status=PENDING rows with available_at <= now, publishes
+    each, and on failure applies exponential backoff
+    (backoff_base_seconds * 2^(attempts-1)) up to max_attempts before moving the
+    row to DEAD_LETTER. Exposed via new admin endpoint POST
+    /internal/agent-runtime/v1/admin/outbox/dispatch. Command Idempotency
+    (09-concurrency-and-idempotency §"Command Idempotency"): all five commands
+    that spec requires (Start, Pause, Resume, Complete Task, Request Tool) now
+    take a required idempotency_key and are routed through a single
+    CommandIdempotencyGuard (application/services/idempotency.py) backed by the
+    command_idempotency table the SPEC-ARO-002 schema already reserved for
+    this — same key + same request hash replays the cached response, same key +
+    different hash raises IdempotencyKeyReusedException (409). Pause keeps a
+    documented leniency (a new key against an already-PAUSED instance returns
+    current state instead of erroring); Resume deliberately does not, and falls
+    through to the domain guard instead. Task Claim/Complete concurrency safety
+    (09-concurrency-and-idempotency §"Task Claim" / §"Workflow Version"):
+    ClaimAgentTaskService now requires the owning Workflow Instance to be
+    RUNNING (WorkflowNotRunningException otherwise) and stamps the claimed
+    AgentTaskRecord with the workflow's current pause_generation;
+    CompleteAgentTaskService requires the caller's claim_token to match the
+    task's current lease_token (ClaimTokenMismatchException, 409) and its
+    stored pause_generation to still match the workflow's current one
+    (StalePauseGenerationException, 409) — together these invalidate any claim
+    that straddled a pause/resume cycle. Found and fixed a real bug in the
+    process: the SPEC-ARO-002 Postgres repositories used ORM
+    session.get()-then-mutate-then-commit for optimistic-concurrency updates,
+    which does not actually enforce the version predicate at the SQL level and
+    permits lost updates under concurrent writers; rewritten to SQLAlchemy Core
+    update().where(id=..., version=expected_previous_version) with a rowcount
+    check, verified with a new 10-thread concurrent-claim integration test
+    against real Postgres (exactly 1 winner, 9 version conflicts). New Alembic
+    migration f958dd5078b1 drops the two now-unused
+    workflow_instances.last_{pause,resume}_idempotency_key columns (superseded
+    by the generic command_idempotency table) and adds
+    outbox_events.attempts. Verified with 90 tests (76 unit/architecture + 14
+    integration against ephemeral testcontainers Postgres), lint-imports (3/3
+    contracts kept), and a full curl-driven lifecycle walkthrough against the
+    real docker-compose Postgres exercising every new behavior: duplicate
+    active-workflow rejection, pause idempotency leniency, wrong claim_token
+    rejection, idempotency-key-reused conflict on a replayed key with changed
+    payload, and outbox dispatch (events published once, never rescanned).
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

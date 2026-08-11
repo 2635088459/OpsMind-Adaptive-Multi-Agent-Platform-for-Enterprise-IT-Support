@@ -1,0 +1,28 @@
+SPEC-ARO-001:
+  domain: 03-agent-runtime-orchestration
+  name: Runtime Module and Package Boundaries
+  cn_name: Runtime 模块与包边界
+  status: implemented
+  service: agent-runtime-service
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline; Agent Runtime is a Python service, not Java)"
+  implementation_notes: >
+    Domain/application/infrastructure/interfaces package skeleton delivered
+    under services/agent-runtime-service (Python package agentruntime),
+    matching the frozen Python Agent Runtime baseline (FastAPI, Pydantic,
+    uv, pytest; SQLAlchemy/Alembic/LangGraph/LangSmith/RabbitMQ deferred to
+    the specs that first need them). Layer boundaries enforced via
+    import-linter contracts (pyproject.toml [tool.importlinter]) plus two
+    AST-based pytest checks under tests/architecture, mirroring the Java
+    sibling services' ArchUnit LayerDependencyTest. Persistence, outbox
+    dispatch, and broker wiring intentionally use SPEC-ARO-001-scoped
+    in-memory adapters pending SPEC-ARO-002 (schema baseline) and
+    SPEC-ARO-003 (outbox and idempotency baseline). An earlier Java/Spring
+    Boot implementation of this spec was discarded after discovering the
+    technology-baseline mismatch; do not resurrect it.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 02-business-invariants
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

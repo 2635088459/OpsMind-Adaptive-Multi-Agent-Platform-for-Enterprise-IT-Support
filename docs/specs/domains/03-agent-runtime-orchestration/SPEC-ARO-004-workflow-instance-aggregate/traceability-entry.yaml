@@ -1,0 +1,55 @@
+SPEC-ARO-004:
+  domain: 03-agent-runtime-orchestration
+  name: Workflow Instance Aggregate
+  cn_name: Workflow Instance 聚合
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Domain model completeness (01-domain-model / 03-state-machine): WorkflowState
+    extended from SPEC-ARO-001's 7-member subset to the full 13-member canonical set
+    (CREATED, STARTING, RUNNING, WAITING_FOR_APPROVAL, WAITING_FOR_TOOL,
+    WAITING_FOR_VERIFICATION, WAITING_FOR_INPUT, PAUSING, PAUSED, RESUMING, COMPLETED,
+    FAILED, CANCELLED) plus a new is_waiting() predicate; the placeholder
+    WAITING_ON_CHECKPOINT (never actually produced by any transition) was replaced by
+    the four specific WAITING_FOR_* states. The transient STARTING/PAUSING/RESUMING
+    steps stay compressed into their surrounding atomic transition — same "atomic
+    step, not a literal two-phase write" choice SPEC-ARO-003 already made for
+    pause/resume — since nothing yet needs to observe that window; the members exist
+    so later specs (020/021/022 wake-ups) never need to touch the enum shape again.
+    domain.workflow_instance's pausable-state set was extended so pause() can freeze a
+    workflow currently blocked on any WAITING_FOR_* wake-up, not only one actively
+    RUNNING. No migration needed — workflow_instances.state is a plain unconstrained
+    String(40) column. Terminal-transition wiring: domain.workflow_instance.complete()/
+    fail()/cancel() and their WorkflowCompleted/Failed/Cancelled events existed since
+    SPEC-ARO-001 but were fully unreachable dead code (no application service, command,
+    or endpoint ever called them). Added CompleteWorkflowService/FailWorkflowService/
+    CancelWorkflowService (application/services/) mirroring PauseWorkflowService's
+    shape exactly — CommandIdempotencyGuard-wrapped, version-checked, outbox-event-
+    publishing (agent_runtime.workflow.completed/failed/cancelled) — composed behind a
+    new WorkflowLifecyclePort/WorkflowLifecycleService facade and exposed as three new
+    admin endpoints (POST /admin/workflows/{id}/complete|fail|cancel, audit-logged like
+    the existing /recover and /outbox/dispatch) rather than added to
+    WorkflowCommandPort, since nothing yet triggers them automatically: *deciding* a
+    completion is due is SPEC-ARO-010's job (task-graph join-policy evaluation) and
+    *triggering* a cancel from an upstream ticket-cycle event is SPEC-ARO-023's job —
+    this spec only supplies the aggregate operation those future specs will call into,
+    reachable today through admin/ops override, exactly as /recover predates its
+    eventual automatic scheduler. Unlike Pause, a genuinely new idempotency key against
+    an already-terminal instance is a real 409 (INVALID_STATE_TRANSITION) via the
+    existing domain guard, not a repeatable no-op — mirrors Resume's (not Pause's)
+    idempotency shape. No new exception classes were needed;
+    InvalidWorkflowStateException (existing, already mapped to 409) covers "workflow
+    already terminal". Verified with 127 tests (107 unit/architecture + 20
+    integration, including a new Postgres-backed fail/cancel persistence round-trip
+    test and a fresh-Container-process read-back), lint-imports (3/3 contracts kept),
+    and a full curl walkthrough against the real docker-compose Postgres covering
+    complete/replay/conflict-when-terminal, fail-with-reason, fail-with-blank-reason
+    (400), cancel-with-reason, 404-for-unknown-workflow, and a recover call proving the
+    terminal state persisted.
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

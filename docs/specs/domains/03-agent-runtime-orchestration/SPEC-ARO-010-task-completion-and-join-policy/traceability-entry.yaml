@@ -1,0 +1,74 @@
+SPEC-ARO-010:
+  domain: 03-agent-runtime-orchestration
+  name: Task Completion and Join Policy
+  cn_name: Task Completion 与 Join Policy
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Closes the last gap in the task-completion path: 02-business-invariants §"Multi-Agent
+    Orchestration Invariants" requires "Join policy must be explicit: all-success,
+    first-success, quorum, or manual-review", but domain.coordinator.runnable_task_keys()
+    stored join_policy on every TaskNode and never once consulted it — every node behaved
+    as if it were hardcoded ALL_SUCCESS regardless of its actual policy. Replaced the
+    hardcoded "every dependency must be COMPLETED" rule with a real per-node
+    evaluate_join(node.join_policy, dependency_states) call, so FIRST_SUCCESS nodes can now
+    proceed as soon as one sibling completes and QUORUM nodes once a majority do, without
+    waiting for every dependency to resolve. Also closes 08-transaction-and-outbox §"Task
+    Complete Transaction" step 6, "If workflow reaches terminal state, update workflow and
+    insert workflow.completed.v1": before this spec a workflow whose last task completed
+    stayed stuck RUNNING forever, since nothing ever re-evaluated the Workflow Instance
+    itself after a task finished. Added two new stateless domain functions,
+    is_workflow_settled() ("nothing currently runnable AND every materialized task has
+    reached a terminal AgentTaskState" — a node whose join permanently failed and was
+    therefore never materialized stays invisible to this check by design, exactly like it
+    stays invisible to runnable_task_keys()) and workflow_outcome_is_success() (every node
+    in the graph, not just leaves, must have reached COMPLETED), plus
+    CoordinateAgentTasksService.determine_settlement() which re-derives the graph from the
+    same STARTED checkpoint unlock_downstream_tasks() already reads and returns
+    WorkflowState.COMPLETED/FAILED/None. CompleteAgentTaskService._after_task() now calls
+    _settle_workflow_if_done() as its last step for both the success and failure outcome
+    (a failed attempt is still "task completion" in the broad sense the transaction
+    describes), which drives the transition through the existing SPEC-ARO-004
+    CompleteWorkflowService/FailWorkflowService rather than duplicating their own
+    idempotency/versioning/outbox logic — required only a constructor-wiring change in
+    container.py, not new persistence logic. Uses a deterministic, not caller-supplied,
+    idempotency key (f"auto-settle:{workflow_instance_id}") since this transition is
+    system-triggered by the task graph settling, not an external request; two sibling
+    tasks completing near-simultaneously and both observing "settled" is handled by
+    catching WorkflowInstanceVersionConflictException/InvalidWorkflowStateException from
+    the losing attempt and swallowing it silently — the task that triggered the losing
+    call already completed successfully and must not be reported as failed just because a
+    best-effort follow-up lost an optimistic-version race (proven with a dedicated unit
+    test using a stub CompleteWorkflowService that always raises the conflict).
+    Deliberately out of scope, despite this spec's own earlier (SPEC-ARO-007-era) docstring
+    flagging it as "SPEC-ARO-010's job": FAILED_RETRYABLE retry/attempt/maxAttempts
+    mechanics. Neither of this spec's two mapped LLD sections actually names retry
+    mechanics — domain.agent_task.fail() has always produced FAILED_FINAL unconditionally
+    (SPEC-ARO-007) and nothing here changes that; corrected the stale docstring rather than
+    building unrequested scope. Also deliberately out of scope: cascading a permanently-
+    blocked-but-never-materialized node into an explicit CANCELLED record — proven
+    unnecessary by manual trace-through of single-node, linear-chain, and diamond-graph
+    failure scenarios, since is_workflow_settled() already treats a node that never got
+    materialized as correctly invisible, exactly the same way runnable_task_keys() does.
+    Verified with 227 tests (199 unit/architecture, up from 185 — added join-policy-aware
+    runnability tests for FIRST_SUCCESS/QUORUM, is_workflow_settled()/
+    workflow_outcome_is_success() domain tests across single-node/linear-chain/diamond
+    graph shapes, determine_settlement() application-level tests, the concurrent-
+    settlement race-tolerance test, and two new real-command-flow tests proving a
+    multi-task workflow only auto-completes once every task succeeds and auto-fails when a
+    task permanently fails; plus 28 integration tests against ephemeral testcontainers
+    Postgres, with the same two multi-task auto-complete/auto-fail scenarios added there
+    too), lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a curl
+    walkthrough against the real docker-compose Postgres covering: a single-task workflow
+    auto-completing, a multi-task workflow auto-completing only once every task succeeds
+    (staying RUNNING after just the first), a workflow auto-failing when its only task
+    permanently fails, and the deterministic auto-settle idempotency key correctly
+    replaying a cached response on a repeated trigger rather than double-transitioning the
+    workflow.
+  lld_mapping:
+    - 02-business-invariants
+    - 08-transaction-and-outbox
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

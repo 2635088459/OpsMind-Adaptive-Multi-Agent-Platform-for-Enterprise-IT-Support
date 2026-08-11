@@ -7,13 +7,19 @@ import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotFoundE
 import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotInQueueException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotSupportAgentException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ApprovalRequestAlreadyOpenException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.CompensationConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.CorrectionEventConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.DataIntegrityRepairConflictException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.DisplayIdGenerationExhaustedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.EventSchemaValidationException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.FilterOutsideAuthorizedScopeException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.IntegrityRepairSourceNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.QueueAccessDeniedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ReconciliationCaseConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.ReplayEventConflictException;
+import dev.opsmind.ticketworkflow.ticket.application.exception.ReplaySourceEventNotFoundException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.RequestInProgressException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ResolutionCycleAlreadyCompletedException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ResolutionCycleNotFoundException;
@@ -357,6 +363,42 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(ReconciliationCaseConflictException.class)
     public ResponseEntity<ErrorResponse> handleReconciliationCaseConflict(ReconciliationCaseConflictException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "RECONCILIATION_CASE_CONFLICT", "A reconciliation case is already open for this ticket and source reference.", request);
+    }
+
+    /** SPEC-TW-038 api-contract §"Errors": {@code 404} — {@code sourceReference} does not match any known original event. */
+    @ExceptionHandler(ReplaySourceEventNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleReplaySourceEventNotFound(ReplaySourceEventNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "REPLAY_SOURCE_EVENT_NOT_FOUND", "The original event referenced by sourceReference was not found.", request);
+    }
+
+    /** SPEC-TW-038 api-contract §"Errors": {@code 409} for a replay already open for this source reference. */
+    @ExceptionHandler(ReplayEventConflictException.class)
+    public ResponseEntity<ErrorResponse> handleReplayEventConflict(ReplayEventConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "REPLAY_EVENT_CONFLICT", "A replay attempt is already open for this source reference.", request);
+    }
+
+    /** SPEC-TW-039 api-contract §"Errors": {@code 409} for a correction already open for this source reference. */
+    @ExceptionHandler(CorrectionEventConflictException.class)
+    public ResponseEntity<ErrorResponse> handleCorrectionEventConflict(CorrectionEventConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "CORRECTION_EVENT_CONFLICT", "A correction event is already open for this ticket and source reference.", request);
+    }
+
+    /** SPEC-TW-040 api-contract §"Errors": {@code 409} for a compensation already open for this source reference. */
+    @ExceptionHandler(CompensationConflictException.class)
+    public ResponseEntity<ErrorResponse> handleCompensationConflict(CompensationConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "COMPENSATION_CONFLICT", "A compensation is already open for this ticket and source reference.", request);
+    }
+
+    /** SPEC-TW-041 api-contract §"Errors": {@code 404} — {@code sourceReference} does not match any known reconciliation case. */
+    @ExceptionHandler(IntegrityRepairSourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleIntegrityRepairSourceNotFound(IntegrityRepairSourceNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "INTEGRITY_REPAIR_SOURCE_NOT_FOUND", "The reconciliation case referenced by sourceReference was not found.", request);
+    }
+
+    /** SPEC-TW-041 api-contract §"Errors": {@code 409} for a repair already open for this source reference. */
+    @ExceptionHandler(DataIntegrityRepairConflictException.class)
+    public ResponseEntity<ErrorResponse> handleDataIntegrityRepairConflict(DataIntegrityRepairConflictException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "DATA_INTEGRITY_REPAIR_CONFLICT", "A data integrity repair is already open for this source reference.", request);
     }
 
     @ExceptionHandler(IdempotencyKeyReusedException.class)

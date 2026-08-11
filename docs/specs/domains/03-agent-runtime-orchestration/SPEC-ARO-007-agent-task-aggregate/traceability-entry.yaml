@@ -1,0 +1,61 @@
+SPEC-ARO-007:
+  domain: 03-agent-runtime-orchestration
+  name: Agent Task Aggregate
+  cn_name: Agent Task 聚合
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    03-state-machine §"Agent Task State" completeness: AgentTaskState extended from
+    SPEC-ARO-001's 6-member subset (PENDING, CLAIMED, RUNNING, COMPLETED, FAILED,
+    CANCELLED) to the full 11-member canonical set (adds READY, WAITING_TOOL,
+    WAITING_EXTERNAL, FAILED_RETRYABLE, FAILED_FINAL, STALE; drops the generic FAILED,
+    which was never a real 03-state-machine member). WAITING_TOOL/WAITING_EXTERNAL/STALE
+    stay unreachable for now — their producing mechanics belong to SPEC-ARO-019 (Dispatch
+    Tool Request Through Gateway), the tool.completed/approval/verification consumers, and
+    SPEC-ARO-016 (Stale Generation Worker Result) respectively — mirroring exactly how
+    SPEC-ARO-004 added WorkflowState's WAITING_FOR_* members without building their
+    wake-ups. Two real, in-scope domain-model bugs found and fixed while completing the
+    state machine (not scope creep — both are 01-domain-model correctness, the spec's own
+    other mapped section): (1) domain.agent_task.create() unconditionally produced
+    PENDING regardless of whether dependencies were already satisfied, even though
+    CoordinateAgentTasksService only ever calls it for graph nodes
+    domain.coordinator.runnable_task_keys already confirmed runnable — every task it
+    materializes should start READY (immediately claimable), not PENDING ("waiting for
+    dependencies", which by construction is never true at that call site). create() now
+    takes an explicit is_ready bool from the caller (a pure function cannot query sibling
+    task state itself). AgentTaskState.is_claimable() correspondingly no longer includes
+    PENDING — a task must be promoted to READY before it can be claimed, even if a
+    caller's independent dependency check happens to also pass. (2) AgentTaskCreated.
+    depends_on was typed frozenset[AgentTaskId] and always constructed empty — dead,
+    always-empty, and type-mismatched with the rest of the codebase, which tracks
+    dependencies by task_key (frozenset[str], matching TaskNode.depends_on and
+    AgentTaskRecord.depends_on_task_keys) since sibling AgentTaskIds don't exist yet at
+    graph-definition time. Renamed to depends_on_task_keys: frozenset[str] and now
+    actually threaded from TaskNode.depends_on through CoordinateAgentTasksService.
+    domain.agent_task.fail() now always produces FAILED_FINAL (never FAILED_RETRYABLE) —
+    deciding retryability from attempt vs maxAttempts and the path back to READY is
+    SPEC-ARO-010's job (Task Completion and Join Policy); domain.coordinator.
+    evaluate_join() correspondingly treats FAILED_FINAL as a settled failure but
+    FAILED_RETRYABLE as still-pending (a retryable child might yet resolve to COMPLETED).
+    01-domain-model's other Agent Task fields (agentRole, attempt, maxAttempts,
+    inputPayload) were deliberately NOT surfaced on AgentTaskRecord/the domain layer in
+    this spec, even though their 07-data-model columns already exist (SPEC-ARO-002,
+    nullable/defaulted) — unlike the state enum, nothing in the current codebase would
+    consume non-default values for them yet (TaskNode has no agentRole/inputPayload field,
+    and no retry policy exists to set attempt/maxAttempts meaningfully), so wiring them now
+    would be inert scaffolding with zero real consumers; SPEC-ARO-008 (Planner Task Graph)
+    and SPEC-ARO-010 are where they get real producers and are the more natural place to
+    add the plumbing together with the logic that uses it. Verified with 184 tests (163
+    unit/architecture + 20 integration against ephemeral testcontainers Postgres, no
+    migration needed since agent_tasks.state is an unconstrained String(40) column),
+    lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a curl walkthrough
+    against the real docker-compose Postgres proving a freshly-materialized task is
+    immediately claimable (READY), a failed completion lands on FAILED_FINAL, and a
+    FAILED_FINAL task correctly rejects a re-claim attempt (409).
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

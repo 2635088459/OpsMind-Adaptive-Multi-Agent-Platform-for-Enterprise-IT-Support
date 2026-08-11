@@ -1,0 +1,11 @@
+SPEC-ARO-034:
+  domain: 03-agent-runtime-orchestration
+  name: Runtime Observability
+  cn_name: Runtime 可观测性
+  status: planned
+  lld_mapping:
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction
