@@ -2,7 +2,81 @@ SPEC-ARO-024:
   domain: 03-agent-runtime-orchestration
   name: Duplicate Stale Invalid Event Classification
   cn_name: Duplicate Stale Invalid Event 分类
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    09-concurrency-and-idempotency §"外部回调幂等" and 10-failure-handling both map here.
+    Of the three classifications this spec's own title names, two were already
+    well-implemented before this spec: Duplicate (processed_event_repository.
+    is_processed, SPEC-ARO-013) and Stale (StaleRuntimeEventException,
+    expected_workflow_version mismatch, SPEC-ARO-001). "Invalid" had no dedicated
+    handling at all — a malformed payload just fell through to ConsumeRuntimeEventService's
+    generic `finally: mark_processed` alongside every well-classified business rejection,
+    then bubbled to whatever generic exception handler happened to catch its exception
+    type (ValueError → 400 VALIDATION_ERROR; KeyError/TypeError → unclassified 500
+    INTERNAL_ERROR with a full stack trace logged) — no persistence, no alert, no
+    guaranteed replay path. 10-failure-handling's own "Poison Event" section is explicit
+    about what "invalid" requires: "1. 写入 poison event 表或 dead letter. 2. 不推进
+    Workflow. 3. 发布 observability alert. 4. 等待人工修复后 replay." None of that existed.
+
+    Confirmed the design with the user (AskUserQuestion) before implementing, because it
+    revises behavior every prior consumer spec in this session (SPEC-ARO-020/021/022/023)
+    established: those all mark_processed unconditionally in `finally`, reasoned (by me,
+    in each of those specs' own docstrings) as "a malformed event must not be retried
+    forever." That reasoning is right for a *well-classified* rejection but wrong for a
+    genuinely poisoned one — mark_processed-ing a poisoned delivery would permanently
+    block 10-failure-handling's own step 4 (replay under the same eventId once fixed),
+    since the dedup gate would treat any redelivery as an already-processed duplicate
+    forever. Resolved by splitting ConsumeRuntimeEventService's dispatch into three
+    outcomes: success (mark_processed), a well-classified business exception — anything
+    NOT in a small fixed tuple (json.JSONDecodeError, KeyError, ValueError, TypeError) —
+    which still mark_processed then re-raises exactly as before, and a poison exception —
+    one of that tuple — which records to the new poison_events table and raises a new
+    PoisonRuntimeEventException WITHOUT mark_processed. The classification is by
+    exception type rather than a new validation layer: every type-specific consumer's own
+    apply() parses its opaque payload string with json.loads/dict-indexing/uuid.UUID(...),
+    and none of them ever constructs a domain command from untrusted payload content deep
+    enough to raise the same exception types for a legitimate business reason — a
+    documented, accepted simplification, not a formal payload schema validator.
+
+    New agent_runtime.poison_events table (own migration, not reusing processed_events or
+    outbox_events — a poisoned delivery is neither "already applied" nor "waiting to
+    publish"): id, event_id, consumer_name, event_type, payload, error_message,
+    occurred_at, recorded_at. No uniqueness constraint on event_id — a replayed-and-still-
+    broken delivery is recorded again, not deduplicated (only processed_events dedupes).
+    New PoisonRuntimeEventException maps to HTTP 422 POISON_EVENT (distinct from
+    STALE_RUNTIME_EVENT's 409 — "syntactically received but could not be understood" is a
+    different class of outcome), logged at error level as the stand-in for "发布
+    observability alert" (a real alerting integration is out of scope, the same "not our
+    job yet" deferral already used elsewhere in this domain). A new admin
+    GET /admin/poison-events (PoisonEventQueryPort/PoisonEventQueryService, mirroring
+    WorkflowQueryPort's read-only shape) satisfies step 4's own precondition: a human
+    needs visibility into what needs fixing before they can replay it.
+
+    Scoped to ConsumeRuntimeEventService only, not ConsumeTicketCreatedService/
+    ConsumeTicketCycleEventService: those two take fully pydantic-typed commands with no
+    opaque `payload: str` field for a type-specific consumer to parse — there is no
+    payload-shape failure surface in either of them to classify.
+
+    Verified with 336 tests total (up from 330): 295 unit/architecture — four new tests
+    in tests/application/test_consume_runtime_event_service.py (malformed JSON classified
+    as poison and not marked processed; a missing required field likewise; a poisoned
+    event replayed under the same event_id reaches the type-specific consumer rather than
+    being dropped as a duplicate; a well-classified business rejection —
+    ToolRequestNotFoundException — is confirmed unchanged: still marked processed, never
+    recorded as poison), plus a new tests/test_app.py HTTP-level test proving the full
+    round trip (malformed tool.completed.v1 payload → 422 POISON_EVENT → visible via
+    GET /admin/poison-events → target task/workflow untouched); 41 integration tests
+    against ephemeral testcontainers Postgres, mirroring the same round trip against the
+    real migrated schema (including the new poison_events table). lint-imports (3/3
+    contracts kept), ruff --select F,E9 clean, and a curl walkthrough against the real
+    docker-compose Postgres covering the complete lifecycle: a truncated tool.completed.v1
+    payload returns 422 POISON_EVENT, leaves the claimed task untouched (still
+    WAITING_TOOL), is visible via GET /admin/poison-events, is absent from
+    processed_events (direct SQL) — then a corrected redelivery under the exact same
+    event_id reaches ConsumeToolResultService for real (404 TOOL_REQUEST_NOT_FOUND, not a
+    silently-dropped duplicate), and only then does that event_id appear in
+    processed_events, proving the poison/replay distinction holds end-to-end.
   lld_mapping:
     - 09-concurrency-and-idempotency
     - 10-failure-handling

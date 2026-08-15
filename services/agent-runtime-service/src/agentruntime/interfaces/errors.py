@@ -17,14 +17,19 @@ from agentruntime.application.exceptions import (
     AgentTaskNotFoundException,
     AgentTaskVersionConflictException,
     AutomationNotAllowedException,
+    CapabilityNotAuthorizedException,
     CheckpointNotFoundException,
     ClaimTokenMismatchException,
     DefinitionVersionMismatchException,
     DuplicateActiveWorkflowInstanceException,
     IdempotencyKeyReusedException,
+    PauseCheckpointNotFoundException,
+    PoisonEventNotFoundException,
+    PoisonRuntimeEventException,
     StalePauseGenerationException,
     StaleRuntimeEventException,
     StaleWorkflowVersionException,
+    ToolRequestNotFoundException,
     WorkflowInstanceNotFoundException,
     WorkflowInstanceVersionConflictException,
     WorkflowNotRunningException,
@@ -72,6 +77,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AgentTaskNotFoundException)
     async def handle_agent_task_not_found(request: Request, exc: AgentTaskNotFoundException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=_body("AGENT_TASK_NOT_FOUND", "The agent task was not found.", request).model_dump())
+
+    @app.exception_handler(PoisonEventNotFoundException)
+    async def handle_poison_event_not_found(request: Request, exc: PoisonEventNotFoundException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=_body("POISON_EVENT_NOT_FOUND", "The poison event was not found.", request).model_dump())
+
+    @app.exception_handler(ToolRequestNotFoundException)
+    async def handle_tool_request_not_found(request: Request, exc: ToolRequestNotFoundException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=_body("TOOL_REQUEST_NOT_FOUND", "The tool request was not found.", request).model_dump())
 
     @app.exception_handler(CheckpointNotFoundException)
     async def handle_checkpoint_not_found(request: Request, exc: CheckpointNotFoundException) -> JSONResponse:
@@ -122,6 +135,17 @@ def register_exception_handlers(app: FastAPI) -> None:
             "CLAIM_TOKEN_MISMATCH", "The submitted claim token does not match the agent task's current lease.", request
         ).model_dump())
 
+    @app.exception_handler(CapabilityNotAuthorizedException)
+    async def handle_capability_not_authorized(request: Request, exc: CapabilityNotAuthorizedException) -> JSONResponse:
+        """SPEC-ARO-032 11-security §"Authorization": 403, not 409 like this module's other
+        policy rejections (e.g. AutomationNotAllowedException) — those are state-conflict
+        flavored ("the ticket isn't in a startable status right now"), while this one is
+        a true authenticated-but-not-authorized denial, the standard case for 403.
+        """
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content=_body(
+            "CAPABILITY_NOT_AUTHORIZED", "The claiming agent role is not authorized for the requested capability.", request
+        ).model_dump())
+
     @app.exception_handler(StalePauseGenerationException)
     async def handle_stale_pause_generation(request: Request, exc: StalePauseGenerationException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body(
@@ -150,10 +174,24 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_stale_event(request: Request, exc: StaleRuntimeEventException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body("STALE_RUNTIME_EVENT", "The event is stale and was not applied.", request).model_dump())
 
+    @app.exception_handler(PoisonRuntimeEventException)
+    async def handle_poison_event(request: Request, exc: PoisonRuntimeEventException) -> JSONResponse:
+        logger.error("poison runtime event %s: %s", exc.event_id, exc.reason)
+        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=_body(
+            "POISON_EVENT", "The event payload could not be processed and was recorded for manual review.", request
+        ).model_dump())
+
     @app.exception_handler(DefinitionVersionMismatchException)
     async def handle_definition_version_mismatch(request: Request, exc: DefinitionVersionMismatchException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body(
             "DEFINITION_VERSION_MISMATCH", "The workflow instance is bound to a different definition version.", request
+        ).model_dump())
+
+    @app.exception_handler(PauseCheckpointNotFoundException)
+    async def handle_pause_checkpoint_not_found(request: Request, exc: PauseCheckpointNotFoundException) -> JSONResponse:
+        logger.error("resume blocked: no PAUSE_POINT checkpoint for %s", exc.workflow_instance_id)
+        return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=_body(
+            "PAUSE_CHECKPOINT_NOT_FOUND", "The workflow instance is paused but has no recorded pause checkpoint.", request
         ).model_dump())
 
     @app.exception_handler(Exception)

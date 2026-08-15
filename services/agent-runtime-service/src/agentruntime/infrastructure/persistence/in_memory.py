@@ -17,13 +17,15 @@ from datetime import datetime
 from agentruntime.application.exceptions import AgentTaskVersionConflictException, WorkflowInstanceVersionConflictException
 from agentruntime.application.records import (
     AgentTaskRecord,
+    AuditRecordEntry,
     CheckpointRecord,
     CommandIdempotencyRecord,
     OutboxRecord,
+    PoisonEventRecord,
     ToolRequestRecord,
     WorkflowInstanceRecord,
 )
-from agentruntime.domain.enums import AgentTaskState, CheckpointType, OutboxStatus
+from agentruntime.domain.enums import AgentTaskState, CheckpointType, OutboxStatus, ToolRequestStatus
 from agentruntime.domain.ids import (
     AgentTaskId,
     CheckpointId,
@@ -59,6 +61,11 @@ class InMemoryWorkflowInstanceRepository:
 
     def find_by_ticket_id(self, ticket_id: TicketId) -> list[WorkflowInstanceRecord]:
         return [record for record in self._store.values() if record.ticket_id == ticket_id]
+
+    def find_non_terminal(self, limit: int) -> list[WorkflowInstanceRecord]:
+        matching = [record for record in self._store.values() if not record.state.is_terminal()]
+        matching.sort(key=lambda record: record.updated_at)
+        return matching[:limit]
 
     def save(self, record: WorkflowInstanceRecord) -> WorkflowInstanceRecord:
         with self._lock:
@@ -112,6 +119,15 @@ class InMemoryAgentTaskRepository:
             self._store[record.id] = record
             return record
 
+    def find_expired_leases(self, now: datetime, limit: int) -> list[AgentTaskRecord]:
+        matching = [
+            record for record in self._store.values()
+            if record.state in (AgentTaskState.CLAIMED, AgentTaskState.RUNNING)
+            and record.lease_expires_at is not None and record.lease_expires_at < now
+        ]
+        matching.sort(key=lambda record: record.lease_expires_at)
+        return matching[:limit]
+
 
 class InMemoryCheckpointRepository:
     def __init__(self) -> None:
@@ -153,30 +169,87 @@ class InMemoryToolRequestRepository:
     def find_by_id(self, tool_request_id: ToolRequestId) -> ToolRequestRecord | None:
         return self._store.get(tool_request_id)
 
+    def find_pending(self, limit: int) -> list[ToolRequestRecord]:
+        pending = sorted(
+            (record for record in self._store.values() if record.status == ToolRequestStatus.PENDING),
+            key=lambda record: record.created_at,
+        )
+        return pending[:limit]
+
 
 class InMemoryProcessedEventRepository:
     """Fast, hermetic test double for the "consumed event dedup" contract
     (02-business-invariants §"Event Handling Invariants"). infrastructure.persistence.
     postgres.repositories.PostgresProcessedEventRepository is the durable adapter real
-    runs use.
+    runs use. Keyed by (event_id, consumer_name) — mirrors the Postgres composite primary
+    key (07-data-model) so two distinct consumers processing the same event_id never
+    collide (SPEC-ARO-013).
     """
 
     def __init__(self) -> None:
-        self._store: dict[str, datetime] = {}
+        self._store: dict[tuple[str, str], datetime] = {}
         self._lock = threading.Lock()
 
-    def is_processed(self, event_id: str) -> bool:
-        return event_id in self._store
+    def is_processed(self, event_id: str, consumer_name: str) -> bool:
+        return (event_id, consumer_name) in self._store
 
     def mark_processed(
         self,
         event_id: str,
+        consumer_name: str,
         processed_at: datetime,
         event_type: str | None = None,
         workflow_instance_id: WorkflowInstanceId | None = None,
     ) -> None:
         with self._lock:
-            self._store.setdefault(event_id, processed_at)
+            self._store.setdefault((event_id, consumer_name), processed_at)
+
+
+class InMemoryPoisonEventRepository:
+    """SPEC-ARO-024 10-failure-handling §"Poison Event". Deliberately NOT keyed the same
+    way as processed_events (event_id, consumer_name) — a poisoned delivery may be
+    recorded more than once if it is replayed and fails again before being fixed, so
+    each record() call appends rather than deduplicating.
+    """
+
+    def __init__(self) -> None:
+        self._store: list[PoisonEventRecord] = []
+        self._lock = threading.Lock()
+
+    def record(self, record: PoisonEventRecord) -> PoisonEventRecord:
+        with self._lock:
+            self._store.append(record)
+        return record
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        return sorted(self._store, key=lambda record: record.recorded_at, reverse=True)[:limit]
+
+    def find_by_id(self, id: uuid.UUID) -> PoisonEventRecord | None:
+        return next((record for record in self._store if record.id == id), None)
+
+    def mark_quarantined(self, id: uuid.UUID, quarantined_at: datetime) -> None:
+        with self._lock:
+            for index, record in enumerate(self._store):
+                if record.id == id:
+                    self._store[index] = dataclasses.replace(record, quarantined_at=quarantined_at)
+                    return
+
+
+class InMemoryAuditRecordRepository:
+    """SPEC-ARO-034 12-observability §"Audit Events". Append-only, like
+    InMemoryPoisonEventRepository — never mutated after being written.
+    """
+
+    def __init__(self) -> None:
+        self._store: list[AuditRecordEntry] = []
+        self._lock = threading.Lock()
+
+    def append(self, entry: AuditRecordEntry) -> None:
+        with self._lock:
+            self._store.append(entry)
+
+    def find_all(self, limit: int) -> list[AuditRecordEntry]:
+        return sorted(self._store, key=lambda entry: entry.occurred_at, reverse=True)[:limit]
 
 
 class InMemoryOutboxRepository:
@@ -216,6 +289,18 @@ class InMemoryOutboxRepository:
         with self._lock:
             record = self._records[outbox_id]
             self._records[outbox_id] = dataclasses.replace(record, status=OutboxStatus.DEAD_LETTER)
+
+    def find_dead_letter(self, limit: int) -> list[OutboxRecord]:
+        dead_lettered = [record for record in self._records.values() if record.status is OutboxStatus.DEAD_LETTER]
+        dead_lettered.sort(key=lambda record: record.occurred_at)
+        return dead_lettered[:limit]
+
+    def requeue(self, outbox_id: uuid.UUID, available_at: datetime) -> None:
+        with self._lock:
+            record = self._records[outbox_id]
+            self._records[outbox_id] = dataclasses.replace(
+                record, status=OutboxStatus.PENDING, attempts=0, available_at=available_at, published_at=None,
+            )
 
     def recorded(self) -> list[OutboxRecord]:
         """Test/inspection seam only — DispatchOutboxEventsService reads through find_dispatchable(), not this method."""

@@ -2,7 +2,51 @@ SPEC-ARO-027:
   domain: 03-agent-runtime-orchestration
   name: Publish Workflow Terminal Events
   cn_name: 发布 Workflow Terminal Events
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    The last of the three phase-07 event-naming fixes SPEC-ARO-025 first identified and
+    began (RabbitMqEventPublisherAdapter itself, and workflow.started/paused/resumed.v1,
+    already landed there; agent.task.completed/failed.v1 landed in SPEC-ARO-026). The
+    outbox-write mechanics for all three terminal transitions were already correct
+    (CompleteWorkflowService/FailWorkflowService since SPEC-ARO-004, CancelWorkflowService
+    since SPEC-ARO-023) — every terminal transition already writes its outbox row in the
+    same method as the domain state change. The gap was, again, event_type naming:
+    "agent_runtime.workflow.completed"/"agent_runtime.workflow.failed"/
+    "agent_runtime.workflow.cancelled" (internal prefix), not the external contract names
+    06-event-contracts documents ("workflow.completed.v1"/"workflow.failed.v1").
+
+    06-event-contracts' own "发布事件" list names only workflow.completed.v1 and
+    workflow.failed.v1 explicitly — no "workflow.cancelled.v1". This spec's *second*
+    mapped section, 03-state-machine, resolved that gap: CANCELLED is listed as a
+    terminal WorkflowState on exactly the same footing as COMPLETED/FAILED ("任意非终态
+    -> CANCELLED"), and its own "Workflow 迁移" section states plainly "所有迁移必须记录
+    state transition audit，并发布必要 outbox 事件" — every transition, terminal or not,
+    not just the two 06-event-contracts happened to name by example. Renamed
+    CancelWorkflowService's own event_type to "workflow.cancelled.v1" alongside the other
+    two, the same "undocumented-by-name sibling follows its family's own established
+    namespace" reasoning SPEC-ARO-026 already applied to agent.task.failed.v1 — small,
+    mechanical, and precedented enough not to warrant re-confirming with the user.
+
+    No new domain logic, no new infrastructure: reuses SPEC-ARO-025's own
+    RabbitMqEventPublisherAdapter/exchange unchanged, and 12-observability's own logging
+    requirements were SPEC-ARO-026's job specifically (it owns that LLD section, this
+    spec does not), so no logging was added here.
+
+    Verified with 341 tests total (unchanged from SPEC-ARO-026 — a pure rename, no new
+    behavior to cover): six existing assertions across
+    tests/application/test_complete_workflow_service.py,
+    test_fail_workflow_service.py, test_cancel_workflow_service.py,
+    test_consume_verification_service.py (two, its own settlement tests reuse
+    CompleteWorkflowService/FailWorkflowService), and test_consume_approval_service.py
+    (its own reject path reuses FailWorkflowService) updated for the renamed event_type
+    strings; 297 unit/architecture + 44 integration, all passing unchanged otherwise.
+    lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a real E2E against
+    both docker-compose services driving all three terminal outcomes in one run —
+    COMPLETED via a real task-graph auto-settle, FAILED and CANCELLED via the admin
+    endpoints — dispatched through the real RabbitMqEventPublisherAdapter and each
+    consumed back off its own queue bound to workflow.completed.v1/workflow.failed.v1/
+    workflow.cancelled.v1 with the correct envelope, aggregateId, and message_id.
   lld_mapping:
     - 06-event-contracts
     - 03-state-machine

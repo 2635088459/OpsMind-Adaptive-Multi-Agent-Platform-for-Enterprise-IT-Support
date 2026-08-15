@@ -15,6 +15,7 @@ from agentruntime.domain.exceptions import AgentTaskAlreadyClaimedException, Age
 from agentruntime.domain.ids import AgentTaskId, DefinitionVersion, TicketCycleId, TicketId, WorkflowDefinitionId, WorkflowInstanceId, WorkflowType
 from agentruntime.infrastructure.persistence.in_memory import InMemoryAgentTaskRepository, InMemoryWorkflowInstanceRepository
 from tests.support.clock import FakeClock
+from tests.support.telemetry import build_telemetry_collaborators
 
 pytestmark = pytest.mark.unit
 
@@ -24,11 +25,12 @@ def wiring():
     agent_task_repository = InMemoryAgentTaskRepository()
     workflow_instance_repository = InMemoryWorkflowInstanceRepository()
     clock = FakeClock()
-    service = ClaimAgentTaskService(agent_task_repository, workflow_instance_repository, clock)
+    telemetry, audit_recorder = build_telemetry_collaborators(clock)
+    service = ClaimAgentTaskService(agent_task_repository, workflow_instance_repository, clock, telemetry, audit_recorder)
     workflow_instance_id = WorkflowInstanceId.new_id()
 
     now = clock.now()
-    workflow_instance_repository.save(WorkflowInstanceRecord(
+    workflow_instance_repository.save(WorkflowInstanceRecord(current_checkpoint_id=None, completed_at=None, 
         id=workflow_instance_id, ticket_id=TicketId(uuid.uuid4()), ticket_cycle_id=TicketCycleId(uuid.uuid4()),
         workflow_type=WorkflowType("TICKET_TRIAGE"), definition_id=WorkflowDefinitionId("triage-v1"),
         definition_version=DefinitionVersion(1), state=WorkflowState.RUNNING, workflow_version=1, pause_generation=0,
@@ -115,12 +117,13 @@ def ready_pool():
     agent_task_repository = InMemoryAgentTaskRepository()
     workflow_instance_repository = InMemoryWorkflowInstanceRepository()
     clock = FakeClock()
-    service = ClaimAgentTaskService(agent_task_repository, workflow_instance_repository, clock)
+    telemetry, audit_recorder = build_telemetry_collaborators(clock)
+    service = ClaimAgentTaskService(agent_task_repository, workflow_instance_repository, clock, telemetry, audit_recorder)
     now = clock.now()
 
     def add_workflow_instance(state: WorkflowState = WorkflowState.RUNNING) -> WorkflowInstanceId:
         workflow_instance_id = WorkflowInstanceId.new_id()
-        workflow_instance_repository.save(WorkflowInstanceRecord(
+        workflow_instance_repository.save(WorkflowInstanceRecord(current_checkpoint_id=None, completed_at=None, 
             id=workflow_instance_id, ticket_id=TicketId(uuid.uuid4()), ticket_cycle_id=TicketCycleId(uuid.uuid4()),
             workflow_type=WorkflowType("TICKET_TRIAGE"), definition_id=WorkflowDefinitionId("triage-v1"),
             definition_version=DefinitionVersion(1), state=state, workflow_version=1, pause_generation=0,

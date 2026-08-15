@@ -43,4 +43,5 @@ def to_checkpoint_response(view: CheckpointView) -> CheckpointResponse:
     return CheckpointResponse(
         checkpoint_id=view.checkpoint_id.value, workflow_instance_id=view.workflow_instance_id.value,
         type=view.type.name, schema_version=view.schema_version, payload=view.payload, recorded_at=view.recorded_at,
+        workflow_version=view.workflow_version, checksum=view.checksum, cursor=view.cursor,
     )

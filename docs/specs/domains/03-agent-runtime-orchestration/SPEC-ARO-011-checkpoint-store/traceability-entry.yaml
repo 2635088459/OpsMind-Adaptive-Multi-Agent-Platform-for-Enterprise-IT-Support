@@ -2,7 +2,62 @@ SPEC-ARO-011:
   domain: 03-agent-runtime-orchestration
   name: Checkpoint Store
   cn_name: Checkpoint 存储
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    01-domain-model's Checkpoint minimal-field list names workflowVersion/cursor/checksum
+    alongside payloadJson/payloadSchemaVersion, and 07-data-model lists the same three as
+    key `checkpoints` columns with a dedicated (workflow_instance_id, workflow_version)
+    index — all three columns already existed (SPEC-ARO-002), but no writer ever populated
+    workflow_version, and the checksum SPEC-ARO-002's Postgres adapter computed on every
+    save() was silently discarded rather than round-tripped back through CheckpointRecord.
+    Closed both: domain.checkpoint.record() gained a required workflow_version parameter
+    and now computes checksum itself (sha256 of payload) rather than leaving it to the
+    infrastructure layer — moving it into the domain keeps the in-memory and Postgres
+    adapters behaviorally identical, the same way every other CheckpointRecord field is
+    already domain-computed-then-persisted-verbatim; PostgresCheckpointRepository.save()
+    was simplified to a plain persister accordingly (no more server-side hashlib call).
+    Threaded workflow_version through all three checkpoint-writing call sites:
+    StartWorkflowService (uses the STARTED transition's own event.workflow_version, always
+    1), CompleteAgentTaskService (the workflow record it already had in scope for its
+    other checks), and RequestToolService, which previously had no dependency on
+    WorkflowInstanceRepository at all — added one, used strictly as a read (never a save,
+    so it never contends with the optimistic workflow_version CAS every write to that
+    repository enforces). CheckpointView/CheckpointResponse (SPEC-ARO-006's existing query
+    API) now also expose workflow_version/checksum/cursor, completing the round trip from
+    write to query. Deliberately left untouched, with documented rationale in both
+    checkpoint.py and models.py: (1) `cursor` stays at its existing None default — the
+    parameter exists and round-trips end to end, but 07-data-model's own inline comment
+    already earmarks it for phase-06 (external-event-consumption)'s resumable-stream
+    cursor, which no consumer produces yet; nothing in this spec's two mapped LLD sections
+    asks for a value here. (2) `WorkflowInstanceRow.current_checkpoint_id` — a related
+    01-domain-model field ("most recent stable checkpoint") on the *other* aggregate —
+    stays unpopulated: every write to workflow_instances is a strict optimistic-version
+    CAS (workflow_version must be exactly existing+1), so updating this pointer from a
+    task-level checkpoint write (PRE_TOOL_CALL/AFTER_TASK) would force an extra save
+    purely to record it — a real, unrequested side effect that would spuriously invalidate
+    any concurrent command still holding the pre-bump workflow_version
+    (StaleWorkflowVersionException). It genuinely is free to wire at STARTED (a brand-new
+    record's first save), but a pointer that only ever gets set once and never again would
+    misrepresent "most recent" rather than honestly stay unpopulated, so it was left alone
+    entirely; SPEC-ARO-012 (checkpoints around pause/resume/external waits) is the natural
+    owner, since those checkpoints coincide with a state transition that is already
+    bumping workflow_version for its own reason, making the pointer update free there.
+    Verified with 233 tests (205 unit/architecture, up from 199 — added domain-level
+    checksum-determinism and workflow_version-validation tests, a RequestToolService test
+    proving the checkpoint carries the owning Workflow Instance's live version plus a new
+    WorkflowInstanceNotFoundException guard test, a Postgres-repository round-trip test
+    replacing the old "computes a checksum" test whose assumption no longer held once
+    checksum became domain-owned, and new assertions on the existing StartWorkflowService/
+    CompleteAgentTaskService/query-API/E2E tests confirming workflow_version and checksum
+    are actually populated; plus 28 integration tests against ephemeral testcontainers
+    Postgres, with the same round-trip assertions added to the real-schema checkpoint
+    tests), lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a curl
+    walkthrough against the real docker-compose Postgres (no new migration needed — the
+    columns already existed) confirming the STARTED, PRE_TOOL_CALL, and AFTER_TASK
+    checkpoints for one workflow instance each carry the correct live workflow_version, a
+    real 64-character sha256 checksum, and a null cursor, cross-checked directly against
+    the `agent_runtime.checkpoints` table via SQL.
   lld_mapping:
     - 01-domain-model
     - 07-data-model

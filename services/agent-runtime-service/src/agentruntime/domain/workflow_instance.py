@@ -20,6 +20,10 @@ from agentruntime.domain.events import (
     WorkflowPaused,
     WorkflowResumed,
     WorkflowStarted,
+    WorkflowWaitingForTool,
+    WorkflowWokenFromApprovalWait,
+    WorkflowWokenFromToolWait,
+    WorkflowWokenFromVerificationWait,
 )
 from agentruntime.domain.exceptions import InvalidWorkflowStateException, InvalidWorkflowTransitionException
 from agentruntime.domain.ids import (
@@ -124,6 +128,104 @@ def resume(
         occurred_at=occurred_at,
         pause_generation=current_pause_generation,
         idempotency_key=idempotency_key,
+    )
+
+
+def wait_for_tool(
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: WorkflowState,
+    current_version: int,
+    occurred_at: datetime,
+) -> WorkflowWaitingForTool:
+    """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction" step 5: "Set
+    workflow to WAITING_FOR_TOOL." Only a RUNNING workflow may enter this wait — a
+    request-tool call is only reachable from an actively-claimed task in the first
+    place (RequestToolService's own claimToken check), and a task can only be claimed
+    while its workflow is RUNNING, so any other current_state here means something else
+    already moved the workflow (e.g. an admin pause/cancel racing the same request) and
+    this transition must not silently paper over that.
+    """
+    if current_state is not WorkflowState.RUNNING:
+        raise InvalidWorkflowTransitionException(current_state, WorkflowState.WAITING_FOR_TOOL)
+
+    return WorkflowWaitingForTool(
+        workflow_instance_id=workflow_instance_id,
+        from_state=current_state,
+        to_state=WorkflowState.WAITING_FOR_TOOL,
+        workflow_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def wake_from_tool_wait(
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: WorkflowState,
+    current_version: int,
+    occurred_at: datetime,
+) -> WorkflowWokenFromToolWait:
+    """SPEC-ARO-020 04-use-cases UC-04 "消费 tool.completed": a tool.completed.v1 delivery
+    wakes a WAITING_FOR_TOOL workflow back to RUNNING — the counterpart to
+    wait_for_tool(). Only WAITING_FOR_TOOL may wake this way; a workflow that moved on
+    some other way in the meantime (e.g. an admin pause/cancel racing the same event)
+    must not be silently forced back to RUNNING.
+    """
+    if current_state is not WorkflowState.WAITING_FOR_TOOL:
+        raise InvalidWorkflowTransitionException(current_state, WorkflowState.RUNNING)
+
+    return WorkflowWokenFromToolWait(
+        workflow_instance_id=workflow_instance_id,
+        from_state=current_state,
+        to_state=WorkflowState.RUNNING,
+        workflow_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def wake_from_approval_wait(
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: WorkflowState,
+    current_version: int,
+    occurred_at: datetime,
+) -> WorkflowWokenFromApprovalWait:
+    """SPEC-ARO-021 04-use-cases UC-03 "消费 approval.granted": an approval.granted.v1
+    delivery whose decision is APPROVED wakes a WAITING_FOR_APPROVAL workflow back to
+    RUNNING. Only WAITING_FOR_APPROVAL may wake this way — mirrors
+    wake_from_tool_wait()'s own reasoning: a workflow that moved on some other way in the
+    meantime (e.g. an admin pause/cancel, or a prior delivery of this same event) must
+    not be silently forced back to RUNNING.
+    """
+    if current_state is not WorkflowState.WAITING_FOR_APPROVAL:
+        raise InvalidWorkflowTransitionException(current_state, WorkflowState.RUNNING)
+
+    return WorkflowWokenFromApprovalWait(
+        workflow_instance_id=workflow_instance_id,
+        from_state=current_state,
+        to_state=WorkflowState.RUNNING,
+        workflow_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def wake_from_verification_wait(
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: WorkflowState,
+    current_version: int,
+    occurred_at: datetime,
+) -> WorkflowWokenFromVerificationWait:
+    """SPEC-ARO-022 04-use-cases UC-05 "消费 verification.completed": a
+    verification.completed.v1 delivery with passed == True wakes a
+    WAITING_FOR_VERIFICATION workflow back to RUNNING — mirrors wake_from_approval_wait()/
+    wake_from_tool_wait() exactly. Only WAITING_FOR_VERIFICATION may wake this way.
+    """
+    if current_state is not WorkflowState.WAITING_FOR_VERIFICATION:
+        raise InvalidWorkflowTransitionException(current_state, WorkflowState.RUNNING)
+
+    return WorkflowWokenFromVerificationWait(
+        workflow_instance_id=workflow_instance_id,
+        from_state=current_state,
+        to_state=WorkflowState.RUNNING,
+        workflow_version=current_version + 1,
+        occurred_at=occurred_at,
     )
 
 

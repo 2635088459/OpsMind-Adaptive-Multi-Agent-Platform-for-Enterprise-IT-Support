@@ -14,16 +14,26 @@ deferral this fulfils).
 
 from __future__ import annotations
 
+from opentelemetry import trace
+
 from agentruntime.application.commands import ConsumeTicketCreatedCommand, StartWorkflowCommand
 from agentruntime.application.exceptions import AutomationNotAllowedException
 from agentruntime.application.ports_out import ClockPort, ProcessedEventRepository, TicketSnapshotPort, WorkflowDefinitionCatalogPort
 from agentruntime.application.services.start_workflow import StartWorkflowService
+from agentruntime.application.telemetry import RuntimeTelemetry
 from agentruntime.domain.ids import IdempotencyKey, TicketId, WorkflowInstanceId
+
+tracer = trace.get_tracer(__name__)
 
 # Java sibling's TicketStatus terminal values (dev.opsmind.ticketworkflow.ticket.domain
 # .value.TicketStatus) that must block a late/redundant ticket.created from starting
 # automation on a ticket that has already left automatable territory.
 _TERMINAL_TICKET_STATUSES = frozenset({"RESOLVED", "CLOSED", "ESCALATED", "FAILED", "CANCELLED"})
+
+# SPEC-ARO-013 09-concurrency-and-idempotency §"消费事件幂等": this service's own identity
+# in the (event_id, consumer_name) dedup key — distinct from ConsumeRuntimeEventService's,
+# so the two never collide over a coincidentally-shared event_id.
+CONSUMER_NAME = "consume_ticket_created"
 
 
 class ConsumeTicketCreatedService:
@@ -34,15 +44,22 @@ class ConsumeTicketCreatedService:
         workflow_definition_catalog_port: WorkflowDefinitionCatalogPort,
         start_workflow_service: StartWorkflowService,
         clock: ClockPort,
+        telemetry: RuntimeTelemetry,
     ) -> None:
         self._processed_event_repository = processed_event_repository
         self._ticket_snapshot_port = ticket_snapshot_port
         self._workflow_definition_catalog_port = workflow_definition_catalog_port
         self._start_workflow_service = start_workflow_service
         self._clock = clock
+        self._telemetry = telemetry
 
     def consume(self, command: ConsumeTicketCreatedCommand) -> bool:
-        if self._processed_event_repository.is_processed(command.event_id):
+        with tracer.start_as_current_span("event.consumed"):
+            return self._consume_traced(command)
+
+    def _consume_traced(self, command: ConsumeTicketCreatedCommand) -> bool:
+        if self._processed_event_repository.is_processed(command.event_id, CONSUMER_NAME):
+            self._telemetry.record_event_duplicate(command.event_type)
             return False
 
         workflow_instance_id: WorkflowInstanceId | None = None
@@ -56,9 +73,10 @@ class ConsumeTicketCreatedService:
             workflow_instance_id = view.workflow_instance_id
         finally:
             self._processed_event_repository.mark_processed(
-                command.event_id, self._clock.now(), command.event_type, workflow_instance_id
+                command.event_id, CONSUMER_NAME, self._clock.now(), command.event_type, workflow_instance_id
             )
 
+        self._telemetry.record_event_consumed(command.event_type)
         return True
 
     def _ensure_automation_allowed(self, ticket_id: TicketId) -> None:

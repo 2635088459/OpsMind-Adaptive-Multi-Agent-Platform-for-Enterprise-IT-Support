@@ -2,7 +2,88 @@ SPEC-ARO-022:
   domain: 03-agent-runtime-orchestration
   name: Consume Verification Events
   cn_name: 消费 Verification Events
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    04-use-cases UC-05 "消费 verification.completed" lists five steps: "1. Consumer 收到
+    verification.completed" (the generic gate); "2. 根据 verificationRequestId 找到等待中的
+    Workflow"; "3. 如果 verification pass，Runtime 可进入完成路径"; "4. 如果 verification
+    fail，根据策略创建 remediation task 或失败"; "5. Runtime 发布 workflow.completed 或
+    workflow.failed." None of these were implemented before this spec.
+
+    Step 2 mirrors SPEC-ARO-021's own approval lookup exactly: 07-data-model has no
+    verification_requests table, and 06-event-contracts' own key-fields list for
+    verification.completed.v1 has no agentTaskId either (unlike tool.completed.v1) — this
+    event never touches any individual Agent Task, only the Workflow Instance as a whole.
+    verificationRequestId is carried through for audit only; workflowInstanceId is the
+    real lookup key, and "等待中" (still waiting) doubles as the idempotency guard the
+    same way SPEC-ARO-021 uses it — no local aggregate exists whose own terminal state
+    could otherwise flag "already resolved."
+
+    Step 3's "Runtime 可进入完成路径" ("Runtime *may* enter the completion path") was
+    resolved by cross-checking 03-state-machine's own external-wake-up rule, which is
+    explicit that "verification.completed 唤醒 WAITING_FOR_VERIFICATION" — the identical
+    "唤醒" (wake) verb 03-state-machine uses for tool.completed and approval.granted
+    waking their own states, not a force-complete. So a passing verification wakes the
+    workflow via the new domain.workflow_instance.wake_from_verification_wait() (mirrors
+    wake_from_approval_wait()/wake_from_tool_wait() exactly), then — since verification
+    touches no Agent Task, whether the task graph actually finished is a separate
+    question — reuses CoordinateAgentTasksService.determine_settlement() the same way
+    ConsumeToolResultService's own _settle_workflow_if_done() does (duplicated verbatim
+    here rather than extracted into a shared helper, matching this codebase's existing
+    precedent: CompleteAgentTaskService and ConsumeToolResultService already carry their
+    own identical copies rather than a shared utility). This single design closes both
+    readings of "可进入完成路径" at once: mid-flow, a passing verification just wakes the
+    workflow and normal task execution continues; used as a final gate (the task graph
+    already fully done), the same wake immediately auto-settles to COMPLETED.
+
+    Step 4's "根据策略创建 remediation task" has no policy mechanism in this codebase
+    (mirrors SPEC-ARO-020's own "no follow-up task creation" and SPEC-ARO-021's own "no
+    WAITING_EXTERNAL entry path" scope exclusions), so every failing verification takes
+    the "或失败" branch unconditionally: fails the workflow directly via the existing
+    FailWorkflowService, without waking to RUNNING first — mirrors ConsumeApprovalService's
+    own reject path. This is not merely reused for consistency: it is required, because a
+    verification failure can never be reflected by the generic task-graph settlement
+    check on its own — the graph could show every Agent Task COMPLETED and
+    determine_settlement() would report success regardless of what verification itself
+    decided, so the fail path cannot route through settlement logic the way the pass path
+    does.
+
+    Step 5 is satisfied for free by both branches reusing CompleteWorkflowService/
+    FailWorkflowService — the codebase's own sole authorized, already-idempotent,
+    already-outbox-publishing paths to those terminal states.
+
+    No checkpoint is written by this consumer: UC-05 names no checkpoint step (unlike
+    SPEC-ARO-021's own step 4), and neither CompleteWorkflowService nor FailWorkflowService
+    writes one on its own — nothing here needed to change that.
+
+    This spec surfaces the same open gap SPEC-ARO-021 already noted: nothing in this
+    domain's roadmap builds an entry path into WAITING_FOR_VERIFICATION either. Every test
+    that needs one seeds it directly through the repository (or, for Postgres, via SQL),
+    exactly like SPEC-ARO-021's own tests.
+
+    Verified with 318 tests total (up from 306): 280 unit/architecture — two new domain
+    tests for wake_from_verification_wait()'s guard, a new
+    tests/application/test_consume_verification_service.py covering the passing wake, a
+    passing verification settling a fully-completed task graph to COMPLETED (including
+    the outbox publish), the failing path's auditable reason, the already-resolved no-op,
+    and an unknown-workflow-instance rejection, plus a new
+    tests/application/test_consume_runtime_event_service.py test proving the dispatch
+    fires under the literal "verification.completed.v1" event_type, and two new
+    tests/test_app.py HTTP-level tests (passed=true wakes to RUNNING with a duplicate
+    delivery no-op — "collect" is still outstanding so it does not auto-complete at the
+    HTTP level, which is instead covered by the dedicated application-service test;
+    passed=false fails the workflow); 38 integration tests against ephemeral
+    testcontainers Postgres, mirroring both round-trip tests. lint-imports (3/3 contracts
+    kept — ConsumeVerificationService is a normal application service), ruff --select
+    F,E9 clean, and a curl walkthrough against the real docker-compose Postgres covering
+    all three outcomes end-to-end (workflows seeded WAITING_FOR_VERIFICATION via direct
+    SQL): passed=true on a workflow with an outstanding task wakes it to RUNNING (with a
+    no-op duplicate delivery); passed=true on a workflow whose only task was already
+    COMPLETED auto-settles straight to COMPLETED; passed=false fails a third workflow
+    outright — cross-checked directly against `agent_runtime.workflow_instances`, plus
+    confirming both `agent_runtime.workflow.completed` and `agent_runtime.workflow.failed`
+    reach POST /admin/outbox/dispatch.
   lld_mapping:
     - 04-use-cases
     - 06-event-contracts

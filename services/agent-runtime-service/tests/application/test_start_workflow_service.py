@@ -18,6 +18,7 @@ from agentruntime.infrastructure.persistence.in_memory import (
     InMemoryWorkflowInstanceRepository,
 )
 from tests.support.clock import FakeClock
+from tests.support.telemetry import build_telemetry_collaborators
 
 pytestmark = pytest.mark.unit
 
@@ -31,9 +32,10 @@ def wiring():
     command_idempotency_repository = InMemoryCommandIdempotencyRepository()
     clock = FakeClock()
     coordinate_agent_tasks_service = CoordinateAgentTasksService(agent_task_repository, checkpoint_repository)
+    telemetry, audit_recorder = build_telemetry_collaborators(clock)
     service = StartWorkflowService(
         workflow_instance_repository, checkpoint_repository, outbox_repository, command_idempotency_repository, clock,
-        coordinate_agent_tasks_service,
+        coordinate_agent_tasks_service, telemetry, audit_recorder,
     )
     return service, workflow_instance_repository, agent_task_repository, outbox_repository, checkpoint_repository
 
@@ -54,13 +56,19 @@ def test_starts_a_workflow_instance_at_version_one_and_materializes_the_first_ru
     assert view.state is WorkflowState.RUNNING
     assert view.workflow_version == 1
     assert len(outbox_repository.recorded()) == 1
-    assert outbox_repository.recorded()[0].event_type == "agent_runtime.workflow.started"
+    assert outbox_repository.recorded()[0].event_type == "workflow.started.v1"
 
     tasks = agent_task_repository.find_by_workflow_instance_id(view.workflow_instance_id)
     assert [task.task_key for task in tasks] == ["collect"]
 
     checkpoints = checkpoint_repository.find_by_workflow_instance_id(view.workflow_instance_id)
     assert [c.type.name for c in checkpoints] == ["STARTED"]
+    # SPEC-ARO-011 01-domain-model: workflow_version/checksum are Checkpoint's own
+    # minimal fields — the STARTED checkpoint corresponds to the instance's brand-new
+    # version 1.
+    assert checkpoints[0].workflow_version == 1
+    assert checkpoints[0].checksum
+    assert checkpoints[0].cursor is None
 
 
 def test_rejects_a_second_active_instance_for_the_same_ticket_cycle_and_workflow_type(wiring) -> None:

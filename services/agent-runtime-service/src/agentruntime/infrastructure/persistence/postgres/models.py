@@ -49,10 +49,16 @@ class WorkflowInstanceRow(Base):
     state: Mapped[str] = mapped_column(String(40), nullable=False)
     workflow_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
     pause_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # 07-data-model column; populated once a service writes checkpoints back
-    # onto the owning Workflow Instance (not yet — SPEC-ARO-001's
-    # RequestToolService only knows the workflow_instance_id, not the
-    # repository needed to update this row).
+    # 07-data-model column; deliberately still unpopulated after SPEC-ARO-011 (which
+    # wired up Checkpoint's own workflow_version/checksum fields): every write to this
+    # table is a strict optimistic-version CAS (workflow_version must be exactly
+    # existing+1), so updating this pointer from a task-level checkpoint write
+    # (PRE_TOOL_CALL/AFTER_TASK) would force a save purely to record it — a real,
+    # unrequested side effect that would spuriously invalidate any concurrent command
+    # still holding the pre-bump workflow_version (StaleWorkflowVersionException).
+    # SPEC-ARO-012 (checkpoints around pause/resume/external waits) is the natural owner:
+    # those checkpoints coincide with a state transition that is already bumping
+    # workflow_version for its own reason, so setting this pointer there is free.
     current_checkpoint_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -113,17 +119,24 @@ class CheckpointRow(Base):
     workflow_instance_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.workflow_instances.id"), nullable=False
     )
-    # 07-data-model column; not yet populated — see WorkflowInstanceRow.current_checkpoint_id.
+    # SPEC-ARO-011 01-domain-model: one of Checkpoint's own minimal fields — the owning
+    # Workflow Instance's workflow_version at the moment this checkpoint was recorded.
+    # Still declared nullable (unlike CheckpointRecord.workflow_version, which is
+    # required) only because the column predates this spec and a hard NOT NULL
+    # migration on a possibly-populated production table is a separate, deliberate
+    # step, not implied by wiring the write path.
     workflow_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     checkpoint_type: Mapped[str] = mapped_column(String(40), nullable=False)
     # 07-data-model column; recoverable-stream cursor, not yet produced by any
-    # consumer (phase-06 external-event-consumption).
+    # consumer (phase-06 external-event-consumption) — domain.checkpoint.record()
+    # already accepts and round-trips it, so phase-06 only needs to start passing a
+    # real value, not touch this column's plumbing.
     cursor: Mapped[str | None] = mapped_column(Text, nullable=True)
     payload_schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
-    # Computed by the repository adapter (sha256 of payload_json) — cheap,
-    # requires no application-layer change, and gives 07-data-model's
-    # `checksum` column real content immediately.
+    # SPEC-ARO-011: computed once, in domain.checkpoint.record() (not here), and
+    # persisted verbatim — see PostgresCheckpointRepository.save()'s own docstring for
+    # why that split keeps this adapter symmetric with the in-memory one.
     checksum: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -147,13 +160,21 @@ class ToolRequestRow(Base):
         UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.checkpoints.id"), nullable=False
     )
     tool_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    # 07-data-model columns; Tool Gateway integration is phase-05.
+    # SPEC-ARO-017 01-domain-model/07-data-model: Tool Request's own minimal fields,
+    # wired end to end by that spec. capability/idempotency_key are populated by
+    # RequestToolService today (idempotency_key straight from the command's own
+    # idempotencyKey — the same value CommandIdempotencyGuard already keys the whole
+    # command's replay cache on). gateway_correlation_id/policy_snapshot_json stay
+    # nullable/unpopulated until SPEC-ARO-019 (dispatching through the Tool Gateway is
+    # exactly where a real correlation id gets assigned and a policy snapshot taken).
     capability: Mapped[str | None] = mapped_column(String(200), nullable=True)
     gateway_correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     policy_snapshot_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
     state: Mapped[str] = mapped_column(String(40), nullable=False)
     input_payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # SPEC-ARO-017: round-trip wired; still unpopulated until SPEC-ARO-020 consumes a
+    # real tool.completed/tool.failed event.
     result_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -173,6 +194,57 @@ class ProcessedEventRow(Base):
     # 07-data-model column; reconciliation replay-safety hash (phase-08
     # failure-recovery-reconciliation).
     result_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class PoisonEventRow(Base):
+    """SPEC-ARO-024 10-failure-handling §"Poison Event". Not (event_id, consumer_name)
+    keyed like processed_events — a poisoned delivery may be recorded more than once
+    across replays, so `id` is its own surrogate primary key.
+    """
+
+    __tablename__ = "poison_events"
+    __table_args__ = (Index("ix_poison_events_recorded_at", "recorded_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    consumer_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # SPEC-ARO-031 05-api-contracts §"Admin API": "mark poison event quarantined" — NULL
+    # until an operator flags this row as already triaged; a one-way flag, not a status
+    # machine (see this column's own migration docstring).
+    quarantined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AuditEventRow(Base):
+    """SPEC-ARO-034 12-observability §"Audit Events": "审计事件必须可长期保存." Append-only,
+    like PoisonEventRow — `id` is its own surrogate primary key (no natural composite
+    key: many audit rows can legitimately share the same workflow_instance_id/action).
+    """
+
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("ix_audit_events_workflow_instance_occurred", "workflow_instance_id", "occurred_at"),
+        Index("ix_audit_events_occurred_at", "occurred_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    audit_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    workflow_instance_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    ticket_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    actor_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    actor_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False)
+    correlation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    causation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class OutboxEventRow(Base):

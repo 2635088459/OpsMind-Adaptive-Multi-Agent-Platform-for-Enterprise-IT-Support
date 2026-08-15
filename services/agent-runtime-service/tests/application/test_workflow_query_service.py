@@ -26,7 +26,7 @@ NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _workflow_instance(ticket_id: TicketId, ticket_cycle_id: TicketCycleId | None = None, state: WorkflowState = WorkflowState.RUNNING) -> WorkflowInstanceRecord:
-    return WorkflowInstanceRecord(
+    return WorkflowInstanceRecord(current_checkpoint_id=None, completed_at=None, 
         id=WorkflowInstanceId.new_id(), ticket_id=ticket_id, ticket_cycle_id=ticket_cycle_id or TicketCycleId(uuid.uuid4()),
         workflow_type=WorkflowType("TICKET_TRIAGE"), definition_id=WorkflowDefinitionId("triage-v1"),
         definition_version=DefinitionVersion(1), state=state, workflow_version=1, pause_generation=0,
@@ -87,8 +87,11 @@ def test_finds_the_latest_checkpoint_by_recorded_at(wiring) -> None:
     service, workflow_instance_repository, checkpoint_repository = wiring
     record = _workflow_instance(TicketId(uuid.uuid4()))
     workflow_instance_repository.save(record)
-    older = CheckpointRecord(CheckpointId.new_id(), record.id, CheckpointType.STARTED, 1, "{}", NOW)
-    newer = CheckpointRecord(CheckpointId.new_id(), record.id, CheckpointType.PRE_TOOL_CALL, 1, "{}", NOW + timedelta(minutes=5))
+    older = CheckpointRecord(CheckpointId.new_id(), record.id, CheckpointType.STARTED, 1, "{}", NOW, workflow_version=1, checksum="c1")
+    newer = CheckpointRecord(
+        CheckpointId.new_id(), record.id, CheckpointType.PRE_TOOL_CALL, 1, "{}", NOW + timedelta(minutes=5),
+        workflow_version=1, checksum="c2",
+    )
     checkpoint_repository.save(older)
     checkpoint_repository.save(newer)
 

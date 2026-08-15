@@ -2,7 +2,60 @@ SPEC-ARO-017:
   domain: 03-agent-runtime-orchestration
   name: Tool Request Aggregate
   cn_name: Tool Request 聚合
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    01-domain-model's Tool Request field list is toolRequestId, workflowInstanceId,
+    agentTaskId, toolName, capability, inputPayload, policySnapshot,
+    gatewayCorrelationId, state — 07-data-model lists the matching `tool_requests`
+    columns, including two unique constraints (gateway_correlation_id;
+    agent_task_id+idempotency_key) that already existed since SPEC-ARO-002. Every one of
+    capability/gateway_correlation_id/policy_snapshot_json/idempotency_key was dead: the
+    ORM model's own comment said so outright ("Tool Gateway integration is phase-05"),
+    and neither ToolRequestRecord (application layer) nor RequestToolService ever
+    referenced any of them — the exact "schema exists, nothing reads or writes it"
+    pattern this session has now closed for join_policy (SPEC-ARO-010), agent_role
+    (SPEC-ARO-009), and Checkpoint's workflow_version/checksum (SPEC-ARO-011). Closed the
+    aggregate's own shape: ToolRequestRecord gained capability/gateway_correlation_id/
+    policy_snapshot/result_payload/idempotency_key (all kw_only, defaulting to None —
+    unlike SPEC-ARO-011's workflow_version/checksum, None is the *correct*, not merely
+    tolerated, value for every writer today on four of these five, so forcing every call
+    site to pass them explicitly would be noise, not a correctness signal).
+    PostgresToolRequestRepository.save()/find_by_id() now round-trip all five verbatim,
+    the same plain-persister posture PostgresCheckpointRepository already established.
+    idempotency_key is the one field genuinely populated today: RequestToolService now
+    writes command.idempotency_key's own string form into it — not a second, independent
+    idempotency mechanism, just no longer discarding the one value the command already
+    carries (the same value CommandIdempotencyGuard separately keys the whole command's
+    replay cache on, in the unrelated command_idempotency table). capability is now also
+    a genuine optional input: RequestToolCommand/RequestToolRequest/domain.tool_request.
+    create() all accept it, and ToolRequestView echoes it back — a caller can declare a
+    capability and have it stored and returned today, even though nothing yet enforces
+    it against anything. Deliberately left at None for every writer: gateway_correlation_id
+    and policy_snapshot, since assigning a real gateway correlation id and capturing a
+    policy snapshot are dispatch-time concerns squarely inside SPEC-ARO-019's own mapped
+    LLD section (08-transaction-and-outbox + 11-security, "通过 Tool Gateway 派发 Tool
+    Request") — populating them here would be building that spec's logic under this
+    one's name. Same reasoning for result_payload, which only a real tool.completed/
+    tool.failed consumption (SPEC-ARO-020, 04-use-cases + 06-event-contracts) can
+    meaningfully fill in. ToolRequestView deliberately exposes only the one new field
+    that is genuinely meaningful at the moment this view is produced (capability, a real
+    caller-supplied echo) and not the other three, which would just be perpetual None at
+    this call site until SPEC-ARO-019/020 land — extend it then, the same way
+    SPEC-ARO-006/011 extended CheckpointView once its own new fields had real values to
+    show. Verified with 254 tests (224 unit/architecture, up from 217 — added domain
+    tests for capability threading through tool_request.create() and its None default,
+    application tests proving idempotency_key/capability reach the dispatched
+    ToolRequestRecord, the returned view, and survive the command-idempotency cached-
+    replay round trip; plus 30 integration tests against ephemeral testcontainers
+    Postgres, with a new dedicated round-trip test covering all five new fields including
+    the two still-deferred ones staying NULL), lint-imports (3/3 contracts kept), ruff
+    --select F,E9 clean, and a curl walkthrough against the real docker-compose Postgres
+    (no new migration needed — every column already existed) confirming a request-tool
+    call with a supplied capability both echoes it in the response and persists it
+    alongside the command's own idempotency_key, while gateway_correlation_id/
+    policy_snapshot_json/result_payload_json all correctly remain NULL — cross-checked
+    directly against `agent_runtime.tool_requests`.
   lld_mapping:
     - 01-domain-model
     - 07-data-model

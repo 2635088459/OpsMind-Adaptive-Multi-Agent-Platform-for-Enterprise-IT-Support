@@ -1,12 +1,16 @@
 """02-business-invariants §"Tool Gateway Boundary": "Agents cannot call Tools
 directly ... Runtime must centralize authorization, audit, rate limiting, and
-retry." Only agentruntime.application.services.request_tool (the one application
-service allowed to reach ToolGatewayPort) and agentruntime.application.ports_out
-(where it is defined) may reference the name ToolGatewayPort. Mirrors the Java
-sibling services' ArchUnit rule
+retry." Only agentruntime.application.services.dispatch_tool_requests (the one
+application service allowed to reach ToolGatewayPort) and
+agentruntime.application.ports_out (where it is defined) may reference the name
+ToolGatewayPort. Mirrors the Java sibling services' ArchUnit rule
 `onlyRequestToolServiceAndItsAdapterMayDependOnToolGatewayPort`, expressed here as a
 plain AST import scan since import-linter's contract types cannot single out one
-specific name within a package.
+specific name within a package. SPEC-ARO-019 08-transaction-and-outbox §"Tool Request
+Transaction" step 6 ("Tool Gateway 调用不能在事务内直接同步执行") moved this boundary from
+RequestToolService (SPEC-ARO-018's own holder) to the new DispatchToolRequestsService —
+RequestToolService now only ever persists a PENDING Tool Request and no longer imports
+this name at all.
 
 08-transaction-and-outbox §"Outbox Publisher" gives EventPublisherPort the exact same
 shape of boundary: only DispatchOutboxEventsService may depend on it.
@@ -35,8 +39,8 @@ def _offenders(name: str, allowed_files: set[Path]) -> list[Path]:
 
 
 @pytest.mark.unit
-def test_only_request_tool_service_and_ports_out_reference_tool_gateway_port() -> None:
-    allowed = {_SRC_ROOT / "application" / "ports_out.py", _SRC_ROOT / "application" / "services" / "request_tool.py"}
+def test_only_dispatch_tool_requests_service_and_ports_out_reference_tool_gateway_port() -> None:
+    allowed = {_SRC_ROOT / "application" / "ports_out.py", _SRC_ROOT / "application" / "services" / "dispatch_tool_requests.py"}
 
     offenders = _offenders("ToolGatewayPort", allowed)
 

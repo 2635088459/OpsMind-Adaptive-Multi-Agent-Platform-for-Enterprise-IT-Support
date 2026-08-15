@@ -2,7 +2,78 @@ SPEC-ARO-019:
   domain: 03-agent-runtime-orchestration
   name: Dispatch Tool Request Through Gateway
   cn_name: 通过 Tool Gateway 派发 Tool Request
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    08-transaction-and-outbox §"Tool Request Transaction" lists six steps; steps 1-3
+    (validate claim, write BEFORE_TOOL_REQUEST/PRE_TOOL_CALL checkpoint, insert
+    tool_requests) were already implemented (SPEC-ARO-005/018), but steps 4-6 were not:
+    "4. 将 task 设置为 WAITING_TOOL. 5. 将 workflow 设置为 WAITING_FOR_TOOL. 6. 插入需要 Tool
+    Gateway adapter 发送的 outbox command" — and the section's own explicit constraint,
+    "Tool Gateway 调用不能在事务内直接同步执行," was actively violated: RequestToolService
+    called ToolGatewayPort.dispatch() synchronously, inline, in the same method that wrote
+    the checkpoint and Tool Request. AgentTaskState.WAITING_TOOL's own docstring (written
+    back in SPEC-ARO-007) already named this spec directly: "written once a spec actually
+    transitions the task when a Tool Request is dispatched (SPEC-ARO-019)."
+
+    Closed step 4 with a new domain.agent_task.wait_for_tool() (reuses
+    _require_active_claim()'s CLAIMED/RUNNING guard — the same task whose claimToken was
+    just validated) and step 5 with a new domain.workflow_instance.wait_for_tool()
+    (RUNNING only, increments workflowVersion per 02-business-invariants). Both are called
+    by RequestToolService immediately after persisting the PENDING Tool Request.
+
+    Step 6 required deciding how to represent "an outbox command the Tool Gateway adapter
+    needs to send" without a literal dedicated outbox table — 07-data-model's own
+    `tool_requests` schema has no available_at/published_at columns distinct from `state`,
+    confirming the persisted PENDING record itself is meant to be the durable, decoupled
+    unit of work, not a second table. Reusing the *existing* outbox_events table (built for
+    broker-bound domain events like workflow.started.v1) was considered and rejected: that
+    table's sole consumer, DispatchOutboxEventsService, is architecturally scoped to
+    EventPublisherPort only (its own boundary test), so a tool-dispatch row routed through
+    the same table would need that service to special-case it — conflating two genuinely
+    different concerns (external domain-event publication vs. an internal dispatch
+    handoff) into one table and one consumer. Instead: RequestToolService now only ever
+    leaves the Tool Request PENDING and never touches ToolGatewayPort at all — a new
+    DispatchToolRequestsService (ToolRequestRepository.find_pending(), a new port-level
+    method mirroring OutboxRepository.find_dispatchable()'s "scan, oldest first" shape) is
+    the sole caller of ToolGatewayPort.dispatch() now, moving PENDING requests to
+    DISPATCHED entirely outside of and after RequestToolService's own transaction. This
+    moved tests/architecture/test_tool_gateway_boundary.py's "only one application service
+    may import ToolGatewayPort" boundary from RequestToolService (SPEC-ARO-018's own
+    holder) to DispatchToolRequestsService — a transfer of identity, not an expansion; the
+    "exactly one" invariant itself is unchanged. Mirrors DispatchOutboxEventsService's own
+    shape exactly (ToolDispatchPort, DispatchToolRequestsReport, a manual
+    POST /admin/tool-requests/dispatch trigger — "nothing schedules this periodically yet"
+    applies here the same way it already does for the outbox case, both deferred to
+    phase-07).
+
+    This surfaced one real, necessary ripple: once WAITING_TOOL, a task can no longer be
+    completed directly by the claiming worker — domain.agent_task._require_active_claim()
+    only accepts CLAIMED/RUNNING — which is correct, not a regression: 02-business-
+    invariants requires "Tool result 必须通过 tool.completed 或 tool.failed 回到 Runtime,"
+    not a worker self-reporting completion after handing a task to a tool. Waking
+    WAITING_TOOL/WAITING_FOR_TOOL back up is explicitly out of scope — WorkflowState's own
+    docstring names the WAITING_FOR_* wake-ups as SPEC-ARO-020/021/022's job (consuming
+    tool.completed/tool.failed) — so today this is a one-way trip until that spec lands;
+    tests/test_app.py's full-lifecycle test was restructured to keep its own
+    claim->complete->recover->dispatch path independent of request-tool for exactly this
+    reason, with a new, separate test covering the WAITING_TOOL/WAITING_FOR_TOOL entry and
+    admin-dispatch path on its own. Verified with 272 tests (240 unit/architecture, up
+    from 235 — added domain tests for both new wait_for_tool() transitions, a full new
+    application-level test file for DispatchToolRequestsService (dispatch-and-mark,
+    only-PENDING-is-scanned, batch_size respected, empty-scan no-op), and rewrote
+    test_request_tool_service.py's fixture and assertions around the new PENDING-only,
+    no-ToolGatewayPort reality; plus 32 integration tests against ephemeral testcontainers
+    Postgres, including a new find_pending() ordering test and the same restructured
+    lifecycle/dedicated-waiting-state tests against the real schema), lint-imports (3/3
+    contracts kept, confirming the ToolGatewayPort boundary transfer holds), ruff --select
+    F,E9 clean, and a curl walkthrough against the real docker-compose Postgres covering
+    the full journey: request-tool returns PENDING (not DISPATCHED) and leaves the task
+    WAITING_TOOL and the workflow WAITING_FOR_TOOL; a direct completion attempt is
+    rejected 409; POST /admin/tool-requests/dispatch is the only thing that actually
+    reaches the Tool Gateway, moving the request to DISPATCHED — cross-checked directly
+    against `agent_runtime.tool_requests`, `agent_runtime.agent_tasks`, and
+    `agent_runtime.workflow_instances`.
   lld_mapping:
     - 08-transaction-and-outbox
     - 11-security

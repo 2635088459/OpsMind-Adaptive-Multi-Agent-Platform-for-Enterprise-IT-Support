@@ -35,6 +35,7 @@ def _save_started_checkpoint(checkpoint_repository, workflow_instance_id: Workfl
     checkpoint_repository.save(CheckpointRecord(
         id=CheckpointId.new_id(), workflow_instance_id=workflow_instance_id, type=CheckpointType.STARTED,
         schema_version=1, payload=task_graph_codec.encode(definition), recorded_at=now,
+        workflow_version=1, checksum="test-checksum",
     ))
 
 

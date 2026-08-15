@@ -13,7 +13,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from agentruntime.application.records import AgentTaskRecord, CheckpointRecord, ToolRequestRecord, WorkflowInstanceRecord
+from agentruntime.application.records import AgentTaskRecord, CheckpointRecord, PoisonEventRecord, ToolRequestRecord, WorkflowInstanceRecord
+from agentruntime.application.redaction import redact_payload
 from agentruntime.domain.enums import AgentTaskState, CheckpointType, ToolRequestStatus, WorkflowState
 from agentruntime.domain.ids import AgentTaskId, CheckpointId, DefinitionVersion, LeaseToken, ToolRequestId, WorkflowInstanceId
 
@@ -98,6 +99,11 @@ class CheckpointView:
     latest". Read-only — unlike WorkflowInstanceView/AgentTaskView/ToolRequestView, never
     round-tripped through CommandIdempotencyGuard (no command produces this view), so no
     to_dict()/from_dict() pair.
+
+    SPEC-ARO-033 11-security §"Data Protection": payload is redact_payload()'d in
+    from_record() — see that function's own docstring for the full rule and for why
+    checksum, computed over the real CheckpointRecord.payload, deliberately no longer
+    verifies against this view's own (possibly redacted) payload.
     """
 
     checkpoint_id: CheckpointId
@@ -106,28 +112,50 @@ class CheckpointView:
     schema_version: int
     payload: str
     recorded_at: datetime
+    workflow_version: int
+    checksum: str
+    cursor: str | None
 
     @staticmethod
     def from_record(record: CheckpointRecord) -> "CheckpointView":
-        return CheckpointView(record.id, record.workflow_instance_id, record.type, record.schema_version, record.payload, record.recorded_at)
+        return CheckpointView(
+            record.id, record.workflow_instance_id, record.type, record.schema_version, redact_payload(record.payload),
+            record.recorded_at, record.workflow_version, record.checksum, record.cursor,
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class ToolRequestView:
+    """capability is echoed back from SPEC-ARO-017's own new command input — the other
+    four Tool Request fields that spec also wired up (gateway_correlation_id/
+    policy_snapshot/result_payload/idempotency_key) are structurally None at the moment
+    this view is produced (right after dispatch, before SPEC-ARO-019/020's own logic can
+    give them a real value), so exposing them here would just be perpetual noise; extend
+    this view once those specs land, the same way SPEC-ARO-006/011 extended
+    CheckpointView.
+    """
+
     tool_request_id: ToolRequestId
     status: ToolRequestStatus
     updated_at: datetime
+    capability: str | None = None
 
     @staticmethod
     def from_record(record: ToolRequestRecord) -> "ToolRequestView":
-        return ToolRequestView(record.id, record.status, record.updated_at)
+        return ToolRequestView(record.id, record.status, record.updated_at, record.capability)
 
     def to_dict(self) -> dict:
-        return {"toolRequestId": str(self.tool_request_id), "status": self.status.name, "updatedAt": self.updated_at.isoformat()}
+        return {
+            "toolRequestId": str(self.tool_request_id), "status": self.status.name, "updatedAt": self.updated_at.isoformat(),
+            "capability": self.capability,
+        }
 
     @staticmethod
     def from_dict(data: dict) -> "ToolRequestView":
-        return ToolRequestView(ToolRequestId(uuid.UUID(data["toolRequestId"])), ToolRequestStatus[data["status"]], datetime.fromisoformat(data["updatedAt"]))
+        return ToolRequestView(
+            ToolRequestId(uuid.UUID(data["toolRequestId"])), ToolRequestStatus[data["status"]],
+            datetime.fromisoformat(data["updatedAt"]), data.get("capability"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +176,35 @@ class RecoveryReport:
 
 
 @dataclass(frozen=True, slots=True)
+class RecoveryScanReport:
+    """SPEC-ARO-028 10-failure-handling §"Runtime 崩溃后怎么恢复" steps 1-2: the batch
+    counterpart to RecoveryReport, produced by RecoverWorkflowService.scan_and_recover() —
+    one pass over every non-terminal Workflow Instance rather than a single one named by
+    id. Mirrors DispatchReport/DispatchToolRequestsReport's own "scanned + outcome count +
+    timestamp" shape.
+    """
+
+    scanned: int
+    checkpoint_inconsistent: int
+    scanned_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class LeaseRecoveryReport:
+    """SPEC-ARO-029 10-failure-handling §"Runtime 崩溃后怎么恢复" step 5: "对 CLAIMED/RUNNING
+    且 lease 过期的 task 做 retry 或 stale 标记" — produced by
+    RecoverExpiredLeaseTasksService.scan_and_recover(), the Agent Task-scoped counterpart
+    to RecoveryScanReport (Workflow Instance-scoped). Mirrors the same "scanned + outcome
+    counts + timestamp" shape every other batch scanner report in this module uses.
+    """
+
+    scanned: int
+    retried: int
+    staled: int
+    scanned_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class DispatchReport:
     """08-transaction-and-outbox §"Outbox Publisher": produced by DispatchOutboxEventsService."""
 
@@ -156,3 +213,45 @@ class DispatchReport:
     failed: int
     dead_lettered: int
     dispatched_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DispatchToolRequestsReport:
+    """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction" step 6: produced
+    by DispatchToolRequestsService — the Tool Gateway analogue of DispatchReport.
+    """
+
+    scanned: int
+    dispatched: int
+    dispatched_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PoisonEventView:
+    """SPEC-ARO-024 10-failure-handling §"Poison Event" step 4's own visibility surface.
+    SPEC-ARO-031 05-api-contracts §"Admin API": "mark poison event quarantined" —
+    PoisonEventQueryService.mark_quarantined() is now the one command that produces
+    this view; list_poison_events() still just reads.
+
+    SPEC-ARO-033 11-security §"Data Protection": payload is redact_payload()'d in
+    from_record() — the more likely real target of that redaction than
+    CheckpointView's own, since a poisoned delivery is by definition unparsed/
+    unvalidated content that could carry anything.
+    """
+
+    id: uuid.UUID
+    event_id: str
+    consumer_name: str
+    event_type: str
+    payload: str
+    error_message: str
+    occurred_at: datetime
+    recorded_at: datetime
+    quarantined_at: datetime | None = None
+
+    @staticmethod
+    def from_record(record: PoisonEventRecord) -> "PoisonEventView":
+        return PoisonEventView(
+            record.id, record.event_id, record.consumer_name, record.event_type, redact_payload(record.payload),
+            record.error_message, record.occurred_at, record.recorded_at, record.quarantined_at,
+        )

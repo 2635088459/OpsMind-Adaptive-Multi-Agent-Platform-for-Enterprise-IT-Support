@@ -2,7 +2,130 @@ SPEC-ARO-035:
   domain: 03-agent-runtime-orchestration
   name: Event and API Contract Test Harness
   cn_name: Event 与 API 契约测试框架
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    First scoping step: audited 14-testing-strategy's own six sections (单元测试/应用服务
+    测试/数据库集成测试/契约测试/崩溃恢复测试/安全测试) plus its own 验收标准 checklist
+    against the cumulative test suite every prior spec (SPEC-ARO-001 through -034) already
+    built, rather than assuming the whole document was undelivered. Five of the six
+    sections turned out to already be satisfied, scattered across specs that were never
+    themselves "testing-strategy" specs but happened to build the coverage 14-testing-
+    strategy asks for as a side effect of their own domain work — this is the same
+    already-built-but-unwired pattern this session has applied to prior specs, just
+    inverted (already-built-and-already-wired, simply undocumented as satisfying this
+    particular LLD section):
+
+      - 崩溃恢复测试 (its five named scenarios): pre-transaction-commit crash ->
+        every *_service's own test_duplicate_*_with_the_same_key_* command-idempotency
+        tests; pre-outbox-publish crash -> test_dispatch_outbox_events_service.py's own
+        test_dispatch_due_events_is_safe_to_resume_after_a_simulated_crash; post-task-
+        claim worker crash -> test_recover_expired_lease_tasks_service.py's own
+        scan_and_recover tests; post-Tool-Request-creation Runtime crash ->
+        test_recover_workflow_service.py's own checkpoint-inconsistency scan_and_recover/
+        force_recover tests; pause-period worker returning a stale generation result ->
+        StalePauseGenerationException tests in test_complete_agent_task_service.py/
+        test_agent_task.py; duplicate external callback -> processed_events dedup tests
+        across every consume_*_service test file plus test_ticket_created_is_deduplicated_
+        by_event_id.
+      - 安全测试 (four of its five named areas): Agent Worker has no Tool client / Tool
+        Request must go through Tool Gateway -> tests/architecture/
+        test_tool_gateway_boundary.py; checkpoint contains no secrets -> tests/
+        application/test_redaction.py + the two SPEC-ARO-033 redaction tests in
+        tests/test_app.py; log redaction -> tests/architecture/
+        test_log_payload_redaction.py. The fifth, "admin API requires admin permission",
+        is a genuine, real gap: interfaces/admin/router.py reads X-Actor-Id purely for
+        audit-log/AuditRecorder attribution (grepped every admin route — no
+        authentication/authorization dependency exists anywhere in interfaces/admin/).
+        No spec in this domain's own roadmap names itself as that feature's owner (grepped
+        both 14-testing-strategy and every other LLD section for "admin permission"/
+        "AdminAuth" — one hit, the testing-strategy line itself). Building real admin
+        authentication/authorization now would be production security-feature scope creep
+        bolted onto what is explicitly a *test harness* spec (its own name and its
+        lld_mapping — 14-testing-strategy + 06-event-contracts only, no 05-api-contracts,
+        no 11-security — both say so); stated here as an explicit, honest gap this spec
+        does not close, the same "downstream/out-of-scope, stated plainly" boundary
+        SPEC-ARO-034 already drew around Alerts.
+      - 单元测试/应用服务测试/数据库集成测试: each item on those three lists already has a
+        named owning spec and test file from earlier in this domain's own roadmap (workflow/
+        agent-task state transitions, checkpoint payload schema/version, pause/resume
+        idempotency, task-graph unlocking, the four consume_* application-service tests,
+        the transactional-outbox/dedup/claim-concurrency Postgres integration tests) — no
+        gap found.
+
+    The one section with a real, literal gap: 契约测试, which explicitly names ten event
+    types (four consumed: ticket.created.v1/approval.granted.v1/tool.completed.v1/
+    verification.completed.v1; six published: workflow.started.v1/paused.v1/resumed.v1/
+    agent.task.completed.v1/workflow.completed.v1/workflow.failed.v1) as needing contract
+    validation. Before this spec, no dedicated schema/contract artifact existed for any of
+    them beyond: (a) ticket.created.v1's own already-live TicketCreatedEventRequest Pydantic
+    model at its dedicated FastAPI route, and (b) the three generic-envelope consumed types'
+    own raw `payload["camelCaseKey"]` dict indexing inside each type-specific consumer,
+    whose only existing "contract enforcement" was ConsumeRuntimeEventService's blanket
+    _POISON_EXCEPTION_TYPES classification (SPEC-ARO-024) — real, working, but never
+    checked against 06-event-contracts' own documented per-type field list in one place.
+    Published events had no shape assertion beyond ad hoc spot-checks scattered across
+    unrelated specs' own tests (e.g. tests/integration/test_rabbitmq_event_publisher.py's
+    own _record() helper uses an arbitrary two-field stand-in payload, not any real
+    service's actual output).
+
+    New tests/contracts/ directory (mirrors tests/architecture/'s own precedent of a
+    top-level folder per cross-cutting test category):
+      - schemas.py: one Pydantic BaseModel per event type (EnvelopeContract for the shared
+        06-event-contracts §"Envelope" shape, plus one payload contract per consumed/
+        published type) — Pydantic chosen over adding a new `jsonschema` dependency
+        because Pydantic is already this codebase's own established "schema" idiom
+        (every interfaces/*/schemas.py file already uses it this same way); ticket.created
+        .v1 reuses the real TicketCreatedEventRequest directly rather than a second,
+        driftable copy. Consumed contracts transcribe 06-event-contracts' own documented
+        "关键字段" list per type; published contracts (which 06-event-contracts does not
+        give inner field lists for, only trigger-condition prose) transcribe what each
+        real publishing service's own _to_payload()/_to_outbox() already emits today, so
+        drift in either direction — a producer no longer sending a documented field, or
+        this service's own emitted shape changing — fails a real test. A field is
+        Optional only where the current, already-shipping consumer reads it via
+        `dict.get(...)` (tool.completed.v1's resultPayload, verification.completed.v1's
+        evidence); every other documented key field is required.
+      - test_consumed_event_contracts.py: for each of the four types, (1) the contract
+        model itself accepts a valid example and rejects each required field's absence
+        (proves the contract encodes 06-event-contracts correctly), and (2) the REAL
+        consuming code agrees — ticket.created.v1 driven through a real TestClient/real
+        container hitting the real endpoint (valid -> 200/applied=true; each required
+        field missing -> 400, per interfaces/errors.py's own RequestValidationError ->
+        400 convention, not FastAPI's default 422); approval.granted.v1/tool.completed
+        .v1/verification.completed.v1 driven by calling the real ConsumeApprovalService/
+        ConsumeToolResultService/ConsumeVerificationService.apply() directly with minimal
+        in-memory wiring, proving a valid example is parsed cleanly (fails past parsing
+        into an expected, unrelated NotFoundException) and that removing a required field
+        raises an exception literally inside consume_runtime_event.py's own real
+        _POISON_EXCEPTION_TYPES tuple (imported, not re-declared) — i.e. proving
+        ConsumeRuntimeEventService's existing poison net genuinely catches every violation
+        this contract calls required, not just the cases an earlier spec happened to test.
+      - test_published_event_contracts.py: drives the real app (TestClient + real
+        container, in-memory adapters) through start/pause/resume/claim+complete-task/
+        admin-fail, reads back the REAL OutboxRecord each service actually appended
+        (container.outbox_repository.recorded()), runs it through the real, unmodified
+        RabbitMqEventPublisherAdapter._to_envelope_json() (pure — no broker connection;
+        the exact seam every published event is genuinely serialized through before
+        reaching RabbitMQ) and validates the result against EnvelopeContract plus the
+        matching payload contract. Complements, rather than duplicates,
+        test_rabbitmq_event_publisher.py's own real-broker byte-for-byte round trip: that
+        test proves the envelope survives a real broker; this one proves a real service's
+        real output is the documented shape in the first place.
+
+    No production code was touched — this spec's own deliverable is exclusively test
+    infrastructure (its own name says "test harness"), so unlike every prior spec in this
+    domain's roadmap there is no new runtime behavior to boot against docker-compose
+    Postgres/RabbitMQ and no new port to E2E-walk; the full unit+integration suite already
+    exercises the real container/real envelope-adapter code paths directly. Deliberately
+    no new `jsonschema` (or similar) dependency added, for the reason schemas.py's own
+    module docstring states.
+
+    Verified: 441 unit tests total (up from 380 pre-spec — 56 new consumed-contract tests
+    + 5 new published-contract tests), 60 integration tests (unchanged — no new
+    integration-only behavior was added; contract tests run entirely against in-memory
+    adapters, which is sufficient since they assert shape/logic, not persistence).
+    lint-imports 3/3 contracts kept. ruff --select F,E9 clean.
   lld_mapping:
     - 14-testing-strategy
     - 06-event-contracts

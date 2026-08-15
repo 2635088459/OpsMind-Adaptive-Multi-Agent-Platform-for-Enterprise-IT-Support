@@ -2,7 +2,59 @@ SPEC-ARO-012:
   domain: 03-agent-runtime-orchestration
   name: Checkpoint Around External Waits
   cn_name: 外部等待前后的 Checkpoint
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    08-transaction-and-outbox §"Pause Transaction" lists nine steps for pausing a
+    Workflow Instance; step 6, sandwiched between incrementing pauseGeneration and the
+    PAUSED transition itself, is explicit: "Write PAUSED checkpoint." PauseWorkflowService
+    (SPEC-ARO-003) already implemented every other step — idempotency, the RUNNING->PAUSED
+    transition (this codebase compresses the transient PAUSING step into that one atomic
+    domain call, an established decision predating this spec), pauseGeneration increment,
+    command-idempotency result caching, and the workflow.paused.v1 outbox write — but never
+    wrote a checkpoint. PAUSED is exactly the "recoverable waiting state"
+    02-business-invariants §"Checkpoint Invariants" means by "every recoverable waiting
+    state must include a checkpoint": no new READY task can be claimed while paused, and
+    a resume has nothing else to reconstruct pause_generation/workflow_version from but
+    this checkpoint plus the Workflow Instance row. Closed by adding a checkpoint write to
+    PauseWorkflowService using CheckpointType.PAUSE_POINT — declared in the enum since
+    SPEC-ARO-008 but never written by any service until now — reusing SPEC-ARO-011's
+    domain.checkpoint.record()/workflow_version/checksum machinery exactly as
+    StartWorkflowService/RequestToolService/CompleteAgentTaskService already do, so no new
+    plumbing was needed there. The checkpoint payload holds the recoverable context a pause
+    point actually needs (workflowInstanceId, pauseGeneration, workflowVersion) per
+    01-domain-model §"Checkpoint 怎么存"'s guidance that payloadJson hold "recoverable
+    context", not a copy of the whole outbox event. Correctly skipped on both of
+    _pause()'s no-op paths (a cache-hit idempotent replay never reaches _pause() at all;
+    the already-PAUSED-with-a-new-key lenient case returns early before any of the write
+    steps) — verified by a dedicated test asserting the checkpoint count stays at 1 across
+    both. Deliberately out of scope, per the earlier scoping decision this spec started
+    from: the four WAITING_FOR_* states' own WAIT_STATE checkpoint (03-state-machine calls
+    it "WAITING_EXTERNAL") has no current write site at all — nothing transitions a
+    Workflow Instance into WAITING_FOR_APPROVAL/TOOL/VERIFICATION/INPUT yet (that
+    transition itself belongs to the external-event consumers of phase-06,
+    SPEC-ARO-020/021/022, per WorkflowState's own enum docstring), so there is nothing yet
+    to attach a checkpoint write to. Also out of scope: CheckpointType.RECOVERY_SNAPSHOT
+    (phase-08, failure-recovery-reconciliation, per RecoverWorkflowService's own docstring)
+    and the WAITING_TOOL/WAITING_FOR_TOOL transitions 08-transaction-and-outbox's "Tool
+    Request Transaction" steps 4-5 also ask for — those belong to SPEC-ARO-019 ("通过 Tool
+    Gateway 派发 Tool Request", phase-05), which is explicitly scheduled to complete the
+    rest of that same transaction's mechanics; RequestToolService's existing
+    BEFORE_TOOL_REQUEST-equivalent checkpoint write (step 2, done since SPEC-ARO-005) was
+    left untouched. Verified with 234 tests (206 unit/architecture, up from 205 — added a
+    dedicated PAUSE_POINT checkpoint-write test plus two idempotent-no-double-write tests
+    covering both of PauseWorkflowService's no-op paths, and updated the shared
+    ResumeWorkflowService test fixture and the full-lifecycle E2E tests' checkpoint-count
+    assertions for the new checkpoint; plus 28 integration tests against ephemeral
+    testcontainers Postgres with the same PAUSE_POINT assertion added to the real-schema
+    lifecycle test), lint-imports (3/3 contracts kept), ruff --select F,E9 clean, and a
+    curl walkthrough against the real docker-compose Postgres (no new migration needed)
+    covering: pausing writes a PAUSE_POINT checkpoint with the correct post-pause
+    workflow_version and a real checksum; a duplicate-key pause and a new-key pause against
+    an already-paused workflow both leave exactly one PAUSE_POINT checkpoint; and
+    resume-then-pause-again writes a second, genuinely distinct PAUSE_POINT checkpoint at
+    the new workflow_version — cross-checked directly against the
+    `agent_runtime.checkpoints` table via SQL.
   lld_mapping:
     - 03-state-machine
     - 08-transaction-and-outbox

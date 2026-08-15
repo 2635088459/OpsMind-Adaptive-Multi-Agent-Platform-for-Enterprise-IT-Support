@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x \"/private/tmp/claude-501/-Users-aaronshan2635088459-Desktop-OpsMind-Adaptive-Multi-Agent-Platform-for-Enterprise-IT-Support/d2b8f643-2fd5-4fd4-ad60-878945c01afe/scratchpad/spec_aro_011_e2e.sh\")",
+      "Bash(\"/private/tmp/claude-501/-Users-aaronshan2635088459-Desktop-OpsMind-Adaptive-Multi-Agent-Platform-for-Enterprise-IT-Support/d2b8f643-2fd5-4fd4-ad60-878945c01afe/scratchpad/spec_aro_011_e2e.sh\")",
+      "Bash(chmod +x \"/private/tmp/claude-501/-Users-aaronshan2635088459-Desktop-OpsMind-Adaptive-Multi-Agent-Platform-for-Enterprise-IT-Support/d2b8f643-2fd5-4fd4-ad60-878945c01afe/scratchpad/spec_aro_012_e2e.sh\")",
+      "Bash(\"/private/tmp/claude-501/-Users-aaronshan2635088459-Desktop-OpsMind-Adaptive-Multi-Agent-Platform-for-Enterprise-IT-Support/d2b8f643-2fd5-4fd4-ad60-878945c01afe/scratchpad/spec_aro_012_e2e.sh\")",
+      "Bash(chmod +x \"/private/tmp/claude-501/-Users-aaronshan2635088459-Desktop-OpsMind-Adaptive-Multi-Agent-Platform-for-Enterprise-IT-Support/d2b8f643-2fd5-4fd4-ad60-878945c01afe/scratchpad/spec_aro_013_e2e.sh\")",
+      "Bash(\"/private/tmp/claude-501/-Users-aaronshan2635088459-Desktop-OpsMind-Adaptive-Multi-Agent-Platform-for-Enterprise-IT-Support/d2b8f643-2fd5-4fd4-ad60-878945c01afe/scratchpad/spec_aro_013_e2e.sh\")"
+    ]
+  }
+}

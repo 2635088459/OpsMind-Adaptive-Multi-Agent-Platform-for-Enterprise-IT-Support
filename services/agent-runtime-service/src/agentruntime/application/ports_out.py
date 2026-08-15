@@ -12,9 +12,11 @@ from typing import Protocol
 from agentruntime.application.commands import WorkflowDefinitionInput
 from agentruntime.application.records import (
     AgentTaskRecord,
+    AuditRecordEntry,
     CheckpointRecord,
     CommandIdempotencyRecord,
     OutboxRecord,
+    PoisonEventRecord,
     TicketSnapshot,
     ToolDispatchAcknowledgement,
     ToolRequestRecord,
@@ -61,6 +63,14 @@ class WorkflowInstanceRepository(Protocol):
         """
         ...
 
+    def find_non_terminal(self, limit: int) -> list[WorkflowInstanceRecord]:
+        """SPEC-ARO-028 10-failure-handling §"Runtime 崩溃后怎么恢复": "Recovery worker 周期性
+        扫描非终态 Workflow Instance" — the query the scanner is built around. Oldest
+        updated_at first, so a batch run makes steady progress across repeated calls
+        rather than repeatedly re-scanning the same head of the result set.
+        """
+        ...
+
 
 class AgentTaskRepository(Protocol):
     def find_by_id(self, agent_task_id: AgentTaskId) -> AgentTaskRecord | None: ...
@@ -91,6 +101,15 @@ class AgentTaskRepository(Protocol):
         control: the stored record's task_version must equal record.task_version - 1.
 
         Raises AgentTaskVersionConflictException if the stored version has moved on.
+        """
+        ...
+
+    def find_expired_leases(self, now: datetime, limit: int) -> list[AgentTaskRecord]:
+        """SPEC-ARO-029 10-failure-handling §"Runtime 崩溃后怎么恢复" step 5: up to `limit`
+        AgentTaskState.CLAIMED/RUNNING rows whose lease_expires_at has already passed
+        `now`, oldest lease first — what RecoverExpiredLeaseTasksService.scan_and_recover()
+        is built on, mirroring WorkflowInstanceRepository.find_non_terminal()'s own
+        SPEC-ARO-028 shape.
         """
         ...
 
@@ -128,21 +147,73 @@ class ToolRequestRepository(Protocol):
 
     def find_by_id(self, tool_request_id: ToolRequestId) -> ToolRequestRecord | None: ...
 
+    def find_pending(self, limit: int) -> list[ToolRequestRecord]:
+        """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction" step 6: the
+        durable, decoupled unit of work DispatchToolRequestsService scans — a PENDING Tool
+        Request persisted by a committed RequestToolService transaction, not yet handed to
+        ToolGatewayPort.
+        """
+        ...
+
 
 class ProcessedEventRepository(Protocol):
     """02-business-invariants §"Event Handling Invariants": "Every consumed event must be
     checked against or written to processed_events in the same transaction."
+    09-concurrency-and-idempotency §"消费事件幂等": "每个 consumer 在处理事件前检查 eventId,
+    consumerName, eventType" — consumer_name is a required identity component of the dedup
+    key, not an optional detail (07-data-model's own unique key is `event_id,
+    consumer_name`): two distinct logical consumers (SPEC-ARO-005's
+    ConsumeTicketCreatedService, SPEC-ARO-001's ConsumeRuntimeEventService) processing an
+    event with the same event_id must not be treated as the same processed record.
     """
 
-    def is_processed(self, event_id: str) -> bool: ...
+    def is_processed(self, event_id: str, consumer_name: str) -> bool: ...
 
     def mark_processed(
         self,
         event_id: str,
+        consumer_name: str,
         processed_at: datetime,
         event_type: str | None = None,
         workflow_instance_id: WorkflowInstanceId | None = None,
     ) -> None: ...
+
+
+class PoisonEventRepository(Protocol):
+    """SPEC-ARO-024 10-failure-handling §"Poison Event": "写入 poison event 表或 dead
+    letter" — deliberately a separate table from processed_events/outbox_events, since a
+    poisoned delivery is neither "already applied" nor "waiting to be published"; it is
+    parked for manual investigation and possible replay.
+    """
+
+    def record(self, record: PoisonEventRecord) -> PoisonEventRecord: ...
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        """Newest first — the admin visibility surface a human uses to see what needs
+        fixing before replaying (10-failure-handling step 4).
+        """
+        ...
+
+    def find_by_id(self, id: uuid.UUID) -> PoisonEventRecord | None: ...
+
+    def mark_quarantined(self, id: uuid.UUID, quarantined_at: datetime) -> None:
+        """SPEC-ARO-031 05-api-contracts §"Admin API": "mark poison event quarantined"."""
+        ...
+
+
+class AuditRecordRepository(Protocol):
+    """SPEC-ARO-034 12-observability §"Audit Events": "审计事件必须可长期保存." Append-only —
+    no mark_*/update method, unlike PoisonEventRepository or OutboxRepository: an audit
+    row's own fields never change after being written.
+    """
+
+    def append(self, entry: AuditRecordEntry) -> None: ...
+
+    def find_all(self, limit: int) -> list[AuditRecordEntry]:
+        """Newest first — the admin visibility surface, mirroring
+        PoisonEventRepository.find_all()'s own shape.
+        """
+        ...
 
 
 class OutboxRepository(Protocol):
@@ -167,6 +238,22 @@ class OutboxRepository(Protocol):
 
     def mark_dead_letter(self, outbox_id: uuid.UUID) -> None: ...
 
+    def find_dead_letter(self, limit: int) -> list[OutboxRecord]:
+        """SPEC-ARO-030 08-transaction-and-outbox §"Outbox Publisher": what
+        OutboxStatus.DEAD_LETTER's own docstring ("requires manual/ops intervention")
+        is built on — the visibility half of that intervention.
+        """
+        ...
+
+    def requeue(self, outbox_id: uuid.UUID, available_at: datetime) -> None:
+        """SPEC-ARO-030: moves a DEAD_LETTER row back to PENDING with attempts reset to
+        0 and available_at reset to `available_at` — the manual/ops intervention
+        OutboxStatus.DEAD_LETTER's own docstring names, so DispatchOutboxEventsService's
+        existing publish/retry/backoff cycle can pick the row back up exactly as it would
+        a fresh one.
+        """
+        ...
+
 
 class ToolGatewayPort(Protocol):
     """13-package-and-class-design §"Class Boundaries": "ToolGatewayPort sends only
@@ -178,6 +265,17 @@ class ToolGatewayPort(Protocol):
     """
 
     def dispatch(self, request: ToolRequestRecord) -> ToolDispatchAcknowledgement: ...
+
+
+class CapabilityPolicyPort(Protocol):
+    """SPEC-ARO-032 11-security §"Tool Gateway 强制路径"/§"Authorization": the capability
+    taxonomy SPEC-ARO-017's own ToolRequested.capability field was carried-but-never-
+    validated against ("no capability taxonomy or authorization check exists for it
+    yet — that's SPEC-ARO-032's job"). Consulted by RequestToolService before a Tool
+    Request is ever persisted — an authorization gate, not a query about Runtime state.
+    """
+
+    def is_authorized(self, agent_role: str, capability: str) -> bool: ...
 
 
 class TicketSnapshotPort(Protocol):

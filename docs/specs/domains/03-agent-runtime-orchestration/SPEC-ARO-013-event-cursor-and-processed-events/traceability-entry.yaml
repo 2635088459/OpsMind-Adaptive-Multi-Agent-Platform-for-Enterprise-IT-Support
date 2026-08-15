@@ -2,7 +2,54 @@ SPEC-ARO-013:
   domain: 03-agent-runtime-orchestration
   name: Event Cursor and Processed Events
   cn_name: Event Cursor 与 Processed Events
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    01-domain-model §"Event Cursor" is explicit that this system's real idempotency
+    mechanism is the processed_events table plus business unique keys, not a literal
+    broker-offset cursor artifact ("Cursor 不代表 broker offset 的唯一真相。最终幂等依赖
+    processed_events 表和业务唯一键") — 07-data-model has no separate event-cursor table,
+    confirming there is nothing else to build there. The actual, concrete gap was in
+    09-concurrency-and-idempotency §"消费事件幂等": "每个 consumer 在处理事件前检查 eventId,
+    consumerName, eventType" — the dedup key is explicitly per-consumer, matching
+    07-data-model's own `processed_events` composite primary key (event_id,
+    consumer_name). PostgresProcessedEventRepository's save/lookup already used that exact
+    composite key on the Postgres row, but ProcessedEventRepository.is_processed()/
+    mark_processed() (the application-facing port) never accepted a consumer_name
+    parameter at all — the adapter filled it in with one hardcoded constant
+    ("agent-runtime-service") regardless of which of the service's two distinct logical
+    consumers (SPEC-ARO-005's ConsumeTicketCreatedService, SPEC-ARO-001's
+    ConsumeRuntimeEventService) was calling, making consumer_name dead data exactly the
+    way join_policy/agent_role/checkpoint.workflow_version were before their own specs
+    fixed them this session. InMemoryProcessedEventRepository had the identical bug one
+    layer down — keyed purely by event_id, no consumer dimension at all. Closed by adding
+    a required consumer_name parameter to both ProcessedEventRepository port methods,
+    removing the Postgres adapter's hardcoded constant in favor of the caller-supplied
+    value, and re-keying the in-memory adapter's store by (event_id, consumer_name) to
+    stay behaviorally symmetric with Postgres. Each consumer now owns one exported
+    module-level CONSUMER_NAME constant (consume_ticket_created.CONSUMER_NAME =
+    "consume_ticket_created", consume_runtime_event.CONSUMER_NAME =
+    "consume_runtime_event", named after the existing _COMMAND_TYPE constant convention
+    already used by every command service) rather than a per-event-type identifier —
+    ConsumeRuntimeEventService is one logical consumer regardless of which runtime event
+    type (tool.completed, approval.granted, ...) flows through it, per its own docstring's
+    existing "owns exactly the dedup/staleness gate every consumer must pass through
+    first" framing. No new migration needed — the composite primary key already existed
+    on the `processed_events` table (SPEC-ARO-002); this was purely an application/
+    infrastructure-layer fix. Verified with 210 tests (208 unit/architecture, up from
+    206 — added two dedicated cross-consumer-independence tests, one per consumer service,
+    each proving an event_id already marked processed under a different consumer_name does
+    not block this consumer from processing its own event, plus updated every existing
+    is_processed()/mark_processed() call site for the new required parameter; plus 29
+    integration tests against ephemeral testcontainers Postgres, with a new dedicated
+    Postgres-repository-level test proving the same (event_id, consumer_name) independence
+    directly against the composite primary key), lint-imports (3/3 contracts kept), ruff
+    --select F,E9 clean, and a curl walkthrough against the real docker-compose Postgres
+    (no new migration needed) covering: a runtime event (tool.completed) is applied once
+    and a literal redelivery under the same event_id is a no-op; a ticket.created event
+    sharing that exact same event_id string is still applied, because it is a genuinely
+    different logical consumer — confirmed by querying `agent_runtime.processed_events`
+    directly and finding exactly two rows for the shared event_id, one per consumer_name.
   lld_mapping:
     - 01-domain-model
     - 09-concurrency-and-idempotency

@@ -11,8 +11,14 @@ from agentruntime.application.services.complete_workflow import CompleteWorkflow
 from agentruntime.domain.enums import WorkflowState
 from agentruntime.domain.exceptions import InvalidWorkflowStateException
 from agentruntime.domain.ids import DefinitionVersion, IdempotencyKey, TicketCycleId, TicketId, WorkflowDefinitionId, WorkflowInstanceId, WorkflowType
-from agentruntime.infrastructure.persistence.in_memory import InMemoryCommandIdempotencyRepository, InMemoryOutboxRepository, InMemoryWorkflowInstanceRepository
+from agentruntime.infrastructure.persistence.in_memory import (
+    InMemoryCheckpointRepository,
+    InMemoryCommandIdempotencyRepository,
+    InMemoryOutboxRepository,
+    InMemoryWorkflowInstanceRepository,
+)
 from tests.support.clock import FakeClock
+from tests.support.telemetry import build_telemetry_collaborators
 
 pytestmark = pytest.mark.unit
 
@@ -22,8 +28,13 @@ def wiring():
     workflow_instance_repository = InMemoryWorkflowInstanceRepository()
     outbox_repository = InMemoryOutboxRepository()
     command_idempotency_repository = InMemoryCommandIdempotencyRepository()
+    checkpoint_repository = InMemoryCheckpointRepository()
     clock = FakeClock()
-    service = CompleteWorkflowService(workflow_instance_repository, outbox_repository, command_idempotency_repository, clock)
+    telemetry, audit_recorder = build_telemetry_collaborators(clock)
+    service = CompleteWorkflowService(
+        workflow_instance_repository, outbox_repository, command_idempotency_repository, clock, checkpoint_repository,
+        telemetry, audit_recorder,
+    )
 
     workflow_instance_id = WorkflowInstanceId.new_id()
     now = clock.now()
@@ -31,7 +42,7 @@ def wiring():
         id=workflow_instance_id, ticket_id=TicketId(uuid.uuid4()), ticket_cycle_id=TicketCycleId(uuid.uuid4()),
         workflow_type=WorkflowType("TICKET_TRIAGE"), definition_id=WorkflowDefinitionId("triage-v1"),
         definition_version=DefinitionVersion(1), state=WorkflowState.RUNNING, workflow_version=1, pause_generation=0,
-        created_at=now, updated_at=now,
+        current_checkpoint_id=None, completed_at=None, created_at=now, updated_at=now,
     ))
     return service, workflow_instance_id, outbox_repository
 
@@ -44,7 +55,7 @@ def test_completes_a_running_workflow_and_publishes_the_completed_event(wiring) 
     assert view.state is WorkflowState.COMPLETED
     assert view.workflow_version == 2
     [record] = outbox_repository.recorded()
-    assert record.event_type == "agent_runtime.workflow.completed"
+    assert record.event_type == "workflow.completed.v1"
 
 
 def test_duplicate_complete_with_the_same_key_returns_the_cached_result_without_publishing_again(wiring) -> None:

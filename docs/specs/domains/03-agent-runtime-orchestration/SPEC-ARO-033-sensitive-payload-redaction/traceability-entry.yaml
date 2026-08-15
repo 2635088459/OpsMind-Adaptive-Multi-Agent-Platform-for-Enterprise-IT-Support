@@ -2,7 +2,86 @@ SPEC-ARO-033:
   domain: 03-agent-runtime-orchestration
   name: Sensitive Payload Redaction
   cn_name: 敏感 Payload 脱敏
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    11-security §"Data Protection": "payload 中 PII 必须最小化" / "logs 中禁止输出 secret、
+    token、完整工具响应"; 12-observability §"日志": "日志不输出 secret、token、完整 PII
+    payload." No already-built-but-unwired signal named this spec anywhere in the
+    codebase (unlike SPEC-ARO-032's three explicit pointers) — its concrete scope came
+    from auditing every place a raw, caller-supplied payload string could currently
+    leave the process unmasked.
+
+    Two live exposure points were found by inspecting every view field that echoes a
+    persisted payload verbatim: CheckpointView.payload (SPEC-ARO-006's query API, any
+    internal-service consumer) and PoisonEventView.payload (SPEC-ARO-024's admin
+    visibility surface — the more likely real target, since a poisoned delivery is by
+    definition unparsed/unvalidated content that could carry anything). ToolRequestView
+    and AgentTaskView were checked and confirmed to expose no payload field at all
+    (already noted in ToolRequestView's own docstring: the other four Tool Request
+    fields "are structurally None ... so exposing them here would just be perpetual
+    noise"), so neither needed touching. Grepping (then permanently guarding via a new
+    architecture test) every logger.info/warning/error/debug/exception/critical call
+    in src/agentruntime found none that already embeds a raw payload attribute, so log
+    output itself needed no separate redaction path — only these two views did.
+
+    New agentruntime.application.redaction.redact_payload(payload: str) -> str: a
+    plain regex substitution (not a json.loads()-then-walk approach) masking the
+    string value of any JSON key matching a known-sensitive name (password/secret/
+    token/apiKey/accessToken/refreshToken/clientSecret/authorization/credential(s)),
+    case-insensitive, leaving every other key untouched. Deliberately a regex over the
+    raw string rather than a real JSON parse: PoisonEventRecord.payload is by
+    definition not guaranteed to be valid JSON (that is what made the delivery
+    poisoned), so redaction must degrade gracefully on malformed/truncated input
+    rather than only working on the well-formed CheckpointRecord.payload case — verified
+    directly (a truncated payload with a still-quoted sensitive key is still masked;
+    one with no closing quote for the regex to anchor on is left as-is, a known,
+    documented limitation of a plain-text scan rather than a false claim of catching
+    every malformed shape). Explicitly scoped as best-effort, known-key-name redaction,
+    not a general PII scrubber or secrets detector — the same honesty-over-fabrication
+    stance StaticCapabilityPolicyAdapter/StaticWorkflowDefinitionCatalogAdapter already
+    take for their own placeholder scope.
+
+    Applied only inside CheckpointView.from_record()/PoisonEventView.from_record() —
+    never to the underlying CheckpointRecord/PoisonEventRecord themselves. The
+    persisted artifact stays intact for Runtime's own internal use (a future
+    poison-event replay needs the real payload, not a redacted one), verified directly
+    against a real Postgres row in this spec's own E2E run. A named, deliberate
+    consequence: sha256(CheckpointView.payload) no longer equals CheckpointView.checksum
+    once a payload actually contains something to redact — checksum is computed over
+    the real CheckpointRecord.payload at write time and no current consumer in this
+    codebase recomputes/verifies that equality against the exposed view (checksum is
+    only ever asserted truthy in tests), so this is a documented tradeoff, not an
+    oversight.
+
+    New tests/architecture/test_log_payload_redaction.py: an AST scan (mirroring
+    test_tool_gateway_boundary.py's own approach for a different invariant) asserting
+    no logger.* call anywhere in src/agentruntime references an attribute whose name
+    contains "payload" — a permanent regression guard for the "nothing currently logs
+    a raw payload" finding this spec's own scoping depended on.
+
+    Verified with 368 unit tests total (up from 341) — new tests: 23 direct
+    redact_payload() tests (every known sensitive key name, case-insensitivity, mixed
+    payloads, non-sensitive keys left untouched, graceful degradation on malformed/
+    truncated JSON, empty/non-JSON input), 1 new architecture test, and 3 net new
+    tests/test_app.py tests (2 redaction tests — checkpoint and poison-event — plus a
+    1-test net increase from splitting an existing merged test that had accidentally
+    combined two unrelated concerns during an earlier edit in this same session, found
+    and fixed while adding this spec's own test coverage in the same area). 57
+    integration tests total (up from 56): 1 new test confirming both payloads are
+    redacted in the HTTP response while the real, unredacted value round-trips intact
+    through the actual Postgres columns. lint-imports (3/3 contracts kept), ruff
+    --select F,E9 clean.
+
+    Real E2E against the docker-compose Postgres + RabbitMQ instance (port 8033):
+    confirmed a checkpoint payload's declared token key is masked in the GET
+    /checkpoints/latest response while every non-sensitive key (before/service)
+    survives untouched, and direct SQL against agent_runtime.checkpoints confirmed the
+    real value is still there, unredacted; confirmed a poisoned (truncated) delivery's
+    password key is masked in the GET /admin/poison-events response while direct SQL
+    against agent_runtime.poison_events confirmed the real value is intact there too;
+    confirmed neither sensitive value appears anywhere in the running app's own stdout/
+    log output at all, closing the loop on the "logs" half of both mapped LLD sections.
   lld_mapping:
     - 11-security
     - 12-observability

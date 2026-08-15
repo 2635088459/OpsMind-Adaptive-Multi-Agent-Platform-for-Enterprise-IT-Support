@@ -29,6 +29,16 @@ class AgentTaskNotFoundException(RuntimeError):
         super().__init__(f"agent task not found: {reference}")
 
 
+class ToolRequestNotFoundException(RuntimeError):
+    """SPEC-ARO-020 06-event-contracts §"tool.completed.v1": "必须匹配 Runtime 已持久化的
+    Tool Request" — a tool.completed.v1 event whose toolRequestId does not match any
+    persisted Tool Request cannot be applied.
+    """
+
+    def __init__(self, reference: str) -> None:
+        super().__init__(f"tool request not found: {reference}")
+
+
 class CheckpointNotFoundException(RuntimeError):
     """SPEC-ARO-006 05-api-contracts "GET /workflows/{workflowInstanceId}/checkpoints/
     latest": raised when the Workflow Instance itself exists but has recorded no
@@ -97,6 +107,22 @@ class WorkflowNotRunningException(RuntimeError):
         super().__init__("workflow instance is not RUNNING; agent tasks cannot be claimed")
 
 
+class PauseCheckpointNotFoundException(RuntimeError):
+    """SPEC-ARO-014/015 04-use-cases UC-07 Resume step 4: "Read the PAUSED checkpoint."
+    02-business-invariants §"Checkpoint Invariants": "every recoverable waiting state must
+    include a checkpoint" — PauseWorkflowService (SPEC-ARO-012) always writes one before
+    a Workflow Instance reaches PAUSED, so a resume that finds none indicates that
+    invariant was violated somewhere else (data loss/corruption, or a future admin
+    tool bypassing PauseWorkflowService), not a normal, retriable client error. Resume
+    must fail loudly rather than silently proceed without the recoverable snapshot the
+    rest of this domain's crash-recovery story depends on.
+    """
+
+    def __init__(self, workflow_instance_id: WorkflowInstanceId) -> None:
+        super().__init__(f"workflow instance {workflow_instance_id} is PAUSED but has no PAUSE_POINT checkpoint")
+        self.workflow_instance_id = workflow_instance_id
+
+
 class AutomationNotAllowedException(RuntimeError):
     """SPEC-ARO-005 04-use-cases UC-01 step 3: "Query Ticket snapshot and confirm
     automation can start." Raised when a Ticket snapshot is available and its status is
@@ -124,6 +150,21 @@ class StaleRuntimeEventException(RuntimeError):
         super().__init__(f"stale runtime event, workflow has already advanced past it: {event_id}")
 
 
+class PoisonRuntimeEventException(RuntimeError):
+    """SPEC-ARO-024 10-failure-handling §"Poison Event": raised once a runtime event's
+    opaque payload could not even be parsed/understood by its type-specific consumer
+    (malformed JSON, a missing required field, an unparsable id) — the "invalid" leg of
+    "Duplicate/stale/invalid events must not advance Workflow again," distinct from a
+    well-classified business rejection like StaleRuntimeEventException/
+    WorkflowInstanceNotFoundException, both of which mean the event *was* understood.
+    """
+
+    def __init__(self, event_id: str, reason: str) -> None:
+        self.event_id = event_id
+        self.reason = reason
+        super().__init__(f"poison runtime event {event_id}: {reason}")
+
+
 class DefinitionVersionMismatchException(RuntimeError):
     """02-business-invariants §"Workflow Instance Invariants": "recovery must not silently
     switch definitions."
@@ -143,3 +184,26 @@ class WorkflowInstanceVersionConflictException(RuntimeError):
 class AgentTaskVersionConflictException(RuntimeError):
     def __init__(self) -> None:
         super().__init__("agent task was modified concurrently; retry with the latest version")
+
+
+class CapabilityNotAuthorizedException(RuntimeError):
+    """SPEC-ARO-032 11-security §"Authorization"/§"Tool Gateway 强制路径": raised when a
+    Tool Request's declared capability is not one CapabilityPolicyPort authorizes for
+    the requesting Agent Task's own agent_role. Only reachable when both agent_role and
+    capability are present — see RequestToolService's own docstring for why an absent
+    agent_role is a pass-through, not an implicit denial.
+    """
+
+    def __init__(self, agent_role: str, capability: str) -> None:
+        super().__init__(f"agent_role {agent_role!r} is not authorized for capability {capability!r}")
+        self.agent_role = agent_role
+        self.capability = capability
+
+
+class PoisonEventNotFoundException(RuntimeError):
+    """SPEC-ARO-031 05-api-contracts §"Admin API": "mark poison event quarantined" —
+    raised when the id an operator names does not match any recorded poison event.
+    """
+
+    def __init__(self, id: object) -> None:
+        super().__init__(f"poison event not found: {id}")

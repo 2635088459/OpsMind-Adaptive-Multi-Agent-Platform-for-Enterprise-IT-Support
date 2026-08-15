@@ -2,7 +2,67 @@ SPEC-ARO-026:
   domain: 03-agent-runtime-orchestration
   name: Publish Agent Task Events
   cn_name: 发布 Agent Task Events
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    06-event-contracts §"agent.task.completed.v1": "在 Agent Task 进入 COMPLETED 后发布."
+    The outbox-write mechanics were already correct (CompleteAgentTaskService since
+    SPEC-ARO-008/010, ConsumeToolResultService since SPEC-ARO-020 both already append the
+    outbox row in the same method as the domain state change); the gap was the same class
+    SPEC-ARO-025 already found and fixed for the workflow lifecycle events: both
+    publishers wrote event_type as the internal "agent_runtime.agent_task.completed"/
+    "agent_runtime.agent_task.failed" (inline string literals, not even named constants),
+    not the external contract name. Renamed both call sites to
+    "agent.task.completed.v1"/"agent.task.failed.v1" (now named module constants,
+    _EVENT_TYPE_COMPLETED/_EVENT_TYPE_FAILED, in both complete_agent_task.py and
+    consume_tool_result.py). 06-event-contracts documents only the completed case by
+    name, but AgentTaskCompleted/AgentTaskFailed are already genuinely separate domain
+    events (not a status field on one type) in both publishers, so the failed sibling
+    follows the same "agent.task.*" namespace rather than being left on the old internal
+    name — mirrors how workflow.completed.v1/workflow.failed.v1 are both documented as
+    separate types, and reuses SPEC-ARO-025's own RabbitMqEventPublisherAdapter/exchange
+    unchanged (no new broker infrastructure needed — that investment was this phase's
+    first spec's job).
+
+    12-observability's own full scope (metrics, tracing, alerts, a persisted audit-event
+    table) is NOT this spec's job: none of that infrastructure exists anywhere in this
+    codebase yet, and Phase 09's own roadmap entry explicitly names "metrics/tracing" as
+    its own goal ("补齐权限、脱敏、metrics/tracing、契约测试与最终 phase/spec 覆盖审计") —
+    attempting any of it here would be scope creep into a phase that hasn't started. The
+    one sub-section that IS directly, narrowly actionable without new infrastructure is
+    "日志": "所有 Runtime 日志必须带 workflowInstanceId, ticketId, ticketCycleId,
+    agentTaskId (如果存在), correlationId, causationId, workerId (如果存在)." Neither
+    publisher logged anything at all before this spec (confirmed: no `logger` reference
+    existed in either file, or in fact in almost any application service before
+    SPEC-ARO-024's own poison-event error log). Added a `_log_agent_task_event()` helper
+    to both, called right after the outbox append, reusing the exact correlation_id/
+    causation_id the outbox record itself was just published under so a log line and its
+    corresponding broker message are trivially correlatable by a human reading both.
+
+    Discovered and fixed a real, previously-latent gap while verifying this end-to-end:
+    nothing in this codebase ever called logging.basicConfig() or raised any logger's
+    level — Python's root logger defaults to WARNING, so every logger.info() call ever
+    written (this spec's own new ones, and it would have silently affected any future
+    ones) was being silently dropped, never reaching stdout/the app's own log, regardless
+    of correctness. Added agentruntime.main._configure_logging() (called from
+    create_app()): root stays at WARNING (third-party library chatter — SQLAlchemy, pika —
+    is not this service's own observability surface), only the `agentruntime` logger
+    namespace itself is raised to INFO. Idempotent, since create_app() is called once per
+    test client construction across the whole suite.
+
+    Verified with 341 tests total (up from 339): 297 unit/architecture — four existing
+    assertions (two in test_complete_agent_task_service.py, two in
+    test_consume_tool_result_service.py) updated for the renamed event_type, plus two new
+    tests (one per publisher) using caplog to prove the structured log line carries every
+    required 12-observability field; 44 integration tests unchanged (no integration test
+    asserted the old event_type string). lint-imports (3/3 contracts kept), ruff --select
+    F,E9 clean, and a real E2E against both docker-compose services exercising both
+    publish paths: CompleteAgentTaskService's direct worker-reported completion and
+    ConsumeToolResultService's tool-driven failure, each dispatched through the real
+    RabbitMqEventPublisherAdapter and consumed back off queues bound to
+    agent.task.completed.v1/agent.task.failed.v1 with the correct envelope — and, only
+    after the logging-configuration fix, each event's own structured log line was
+    confirmed present in the running app's actual log output with every required field.
   lld_mapping:
     - 06-event-contracts
     - 12-observability

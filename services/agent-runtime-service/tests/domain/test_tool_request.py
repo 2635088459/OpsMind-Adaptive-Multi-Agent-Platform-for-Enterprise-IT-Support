@@ -25,3 +25,21 @@ def test_create_with_a_preceding_checkpoint_succeeds() -> None:
     )
 
     assert event.tool_name == "restart_service"
+
+
+def test_create_threads_capability_onto_the_event() -> None:
+    """SPEC-ARO-017 01-domain-model: capability is one of Tool Request's own minimal fields."""
+    event = tool_request.create(
+        ToolRequestId.new_id(), WorkflowInstanceId.new_id(), AgentTaskId.new_id(), CheckpointId.new_id(), "restart_service", "{}", NOW,
+        "service_operations",
+    )
+
+    assert event.capability == "service_operations"
+
+
+def test_create_defaults_capability_to_none() -> None:
+    event = tool_request.create(
+        ToolRequestId.new_id(), WorkflowInstanceId.new_id(), AgentTaskId.new_id(), CheckpointId.new_id(), "restart_service", "{}", NOW
+    )
+
+    assert event.capability is None

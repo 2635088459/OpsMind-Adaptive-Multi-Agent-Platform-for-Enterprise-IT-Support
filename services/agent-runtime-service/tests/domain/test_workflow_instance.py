@@ -111,3 +111,66 @@ def test_a_waiting_state_is_neither_terminal_nor_missing_from_is_waiting(waiting
 ])
 def test_a_non_waiting_state_reports_is_waiting_false(state: WorkflowState) -> None:
     assert state.is_waiting() is False
+
+
+def test_wait_for_tool_from_running_increments_version() -> None:
+    """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction" step 5."""
+    event = workflow_instance.wait_for_tool(WORKFLOW_INSTANCE_ID, WorkflowState.RUNNING, 1, NOW)
+
+    assert event.to_state is WorkflowState.WAITING_FOR_TOOL
+    assert event.workflow_version == 2
+    assert event.from_state is WorkflowState.RUNNING
+
+
+def test_wait_for_tool_requires_a_running_source_state() -> None:
+    with pytest.raises(InvalidWorkflowTransitionException):
+        workflow_instance.wait_for_tool(WORKFLOW_INSTANCE_ID, WorkflowState.PAUSED, 1, NOW)
+
+
+def test_wake_from_tool_wait_from_waiting_for_tool_restores_running() -> None:
+    """SPEC-ARO-020 04-use-cases UC-04 "消费 tool.completed": the counterpart to
+    wait_for_tool().
+    """
+    event = workflow_instance.wake_from_tool_wait(WORKFLOW_INSTANCE_ID, WorkflowState.WAITING_FOR_TOOL, 2, NOW)
+
+    assert event.to_state is WorkflowState.RUNNING
+    assert event.workflow_version == 3
+    assert event.from_state is WorkflowState.WAITING_FOR_TOOL
+
+
+def test_wake_from_tool_wait_requires_a_waiting_for_tool_source_state() -> None:
+    with pytest.raises(InvalidWorkflowTransitionException):
+        workflow_instance.wake_from_tool_wait(WORKFLOW_INSTANCE_ID, WorkflowState.RUNNING, 1, NOW)
+
+
+def test_wake_from_approval_wait_from_waiting_for_approval_restores_running() -> None:
+    """SPEC-ARO-021 04-use-cases UC-03 "消费 approval.granted": an approved decision
+    wakes WAITING_FOR_APPROVAL the same way wake_from_tool_wait() wakes WAITING_FOR_TOOL.
+    """
+    event = workflow_instance.wake_from_approval_wait(WORKFLOW_INSTANCE_ID, WorkflowState.WAITING_FOR_APPROVAL, 2, NOW)
+
+    assert event.to_state is WorkflowState.RUNNING
+    assert event.workflow_version == 3
+    assert event.from_state is WorkflowState.WAITING_FOR_APPROVAL
+
+
+def test_wake_from_approval_wait_requires_a_waiting_for_approval_source_state() -> None:
+    with pytest.raises(InvalidWorkflowTransitionException):
+        workflow_instance.wake_from_approval_wait(WORKFLOW_INSTANCE_ID, WorkflowState.RUNNING, 1, NOW)
+
+
+def test_wake_from_verification_wait_from_waiting_for_verification_restores_running() -> None:
+    """SPEC-ARO-022 04-use-cases UC-05 "消费 verification.completed": a passing
+    verification wakes WAITING_FOR_VERIFICATION the same way wake_from_approval_wait()/
+    wake_from_tool_wait() wake their own waits.
+    """
+    event = workflow_instance.wake_from_verification_wait(WORKFLOW_INSTANCE_ID, WorkflowState.WAITING_FOR_VERIFICATION, 2, NOW)
+
+    assert event.to_state is WorkflowState.RUNNING
+    assert event.workflow_version == 3
+    assert event.from_state is WorkflowState.WAITING_FOR_VERIFICATION
+
+
+def test_wake_from_verification_wait_requires_a_waiting_for_verification_source_state() -> None:
+    with pytest.raises(InvalidWorkflowTransitionException):
+        workflow_instance.wake_from_verification_wait(WORKFLOW_INSTANCE_ID, WorkflowState.RUNNING, 1, NOW)

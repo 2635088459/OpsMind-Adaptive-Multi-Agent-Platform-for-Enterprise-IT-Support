@@ -199,7 +199,15 @@ class RequestToolCommand:
     RequestToolService, the only application service allowed to reach ToolGatewayPort.
     checkpoint_payload is written before the tool is dispatched (§"Checkpoint Invariants").
     09-concurrency-and-idempotency §"Command Idempotency": "... Request Tool must include
-    idempotencyKey."
+    idempotencyKey." SPEC-ARO-017 01-domain-model: capability is one of Tool Request's own
+    minimal fields — still optional (a Tool Request that declares none skips
+    authorization entirely). SPEC-ARO-018 11-security §"Authorization": "claim/complete
+    task：受信 worker identity" extends to request-tool too — it happens mid-claim, the
+    same trust boundary claim/complete already enforce via claimToken, so this command
+    now requires one too. SPEC-ARO-032 11-security §"Tool Gateway 强制路径": when a
+    capability *is* declared, RequestToolService now checks it against
+    CapabilityPolicyPort — see that service's own docstring for the full rule
+    (including why an unassigned agent_role is a pass-through, not a denial).
     """
 
     workflow_instance_id: WorkflowInstanceId
@@ -208,6 +216,8 @@ class RequestToolCommand:
     tool_name: str
     tool_request_payload: str
     idempotency_key: IdempotencyKey
+    claim_token: LeaseToken
+    capability: str | None = None
 
     def __post_init__(self) -> None:
         if not self.checkpoint_payload or not self.checkpoint_payload.strip():
@@ -220,6 +230,26 @@ class RequestToolCommand:
 class RecoveryCommand:
     workflow_instance_id: WorkflowInstanceId
     expected_definition_version: DefinitionVersion | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ForceRecoverWorkflowCommand:
+    """SPEC-ARO-031 05-api-contracts §"Admin API": "force recover workflow" — the
+    admin-triggered, single-instance counterpart to RecoveryCommand's own batch sibling
+    (RecoverWorkflowService.scan_and_recover()).
+    """
+
+    workflow_instance_id: WorkflowInstanceId
+
+
+@dataclass(frozen=True, slots=True)
+class RetryAgentTaskCommand:
+    """SPEC-ARO-031 05-api-contracts §"Admin API": "retry failed task" — the
+    admin-triggered, single-task counterpart to RecoverExpiredLeaseTasksService's own
+    batch scan_and_recover().
+    """
+
+    agent_task_id: AgentTaskId
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,3 +317,71 @@ class ConsumeTicketCreatedCommand:
             raise ValueError("schema_version must be at least 1")
         if not self.category or not self.category.strip():
             raise ValueError("category must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeTicketCancelledCommand:
+    """SPEC-ARO-023 06-event-contracts (02-ticket-workflow PUB-014 "ticket.cancelled.v1",
+    Consumers: "Agent Runtime 取消 Workflow"). Deliberately its own shape rather than
+    RuntimeEventEnvelope's, for the same structural reason as ConsumeTicketCreatedCommand:
+    the publisher (Ticket Workflow) has no knowledge of this Runtime's own internal
+    workflow_instance_id, only ticketId + ticketCycleId — the active Workflow Instance(s)
+    for that key are looked up here, not supplied by the caller.
+    """
+
+    event_id: str
+    event_type: str
+    producer: str
+    schema_version: int
+    correlation_id: CorrelationId
+    causation_id: CausationId
+    ticket_id: TicketId
+    ticket_cycle_id: TicketCycleId
+    cancel_reason_code: str
+    occurred_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.event_id or not self.event_id.strip():
+            raise ValueError("event_id must not be blank")
+        if not self.event_type or not self.event_type.strip():
+            raise ValueError("event_type must not be blank")
+        if not self.producer or not self.producer.strip():
+            raise ValueError("producer must not be blank")
+        if self.schema_version < 1:
+            raise ValueError("schema_version must be at least 1")
+        if not self.cancel_reason_code or not self.cancel_reason_code.strip():
+            raise ValueError("cancel_reason_code must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeTicketReopenedCommand:
+    """SPEC-ARO-023 06-event-contracts (02-ticket-workflow PUB-015 "ticket.reopened.v1").
+    previous_resolution_cycle_id is the lookup key (whatever Workflow Instance(s) are
+    still active under the *old* cycle must stop); new_resolution_cycle_id is carried
+    through for audit only — the new cycle's own Workflow Instance is started later, by a
+    ticket.created.v1 delivery for that new cycle, not by this command.
+    """
+
+    event_id: str
+    event_type: str
+    producer: str
+    schema_version: int
+    correlation_id: CorrelationId
+    causation_id: CausationId
+    ticket_id: TicketId
+    previous_ticket_cycle_id: TicketCycleId
+    new_ticket_cycle_id: TicketCycleId
+    reason_code: str
+    occurred_at: datetime
+
+    def __post_init__(self) -> None:
+        if not self.event_id or not self.event_id.strip():
+            raise ValueError("event_id must not be blank")
+        if not self.event_type or not self.event_type.strip():
+            raise ValueError("event_type must not be blank")
+        if not self.producer or not self.producer.strip():
+            raise ValueError("producer must not be blank")
+        if self.schema_version < 1:
+            raise ValueError("schema_version must be at least 1")
+        if not self.reason_code or not self.reason_code.strip():
+            raise ValueError("reason_code must not be blank")

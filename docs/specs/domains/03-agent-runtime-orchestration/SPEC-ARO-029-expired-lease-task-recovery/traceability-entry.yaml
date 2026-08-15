@@ -2,7 +2,99 @@ SPEC-ARO-029:
   domain: 03-agent-runtime-orchestration
   name: Expired Lease Task Recovery
   cn_name: 过期 Lease Task Recovery
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    10-failure-handling §"Runtime 崩溃后怎么恢复" step 5: "对 CLAIMED/RUNNING 且 lease 过期的
+    task 做 retry 或 stale 标记" — this spec's own scope, the lease-expiry half of the
+    reconciliation sweep RecoverWorkflowService's own pre-SPEC-ARO-028 docstring already
+    named ("lease expiry requeue... is phase-08") but SPEC-ARO-028 deliberately left out
+    (it took the checkpoint-restore half instead).
+
+    Two 10-failure-handling sections disagree about the terminal state once retries are
+    exhausted: the recovery-worker step list above says "retry 或 stale 标记" (STALE),
+    while a separate "Retry Policy" section says exhausted retries land in FAILED_FINAL.
+    Confirmed with the user (AskUserQuestion, before writing any code) in favor of the
+    more specific recovery-worker step: exhausted -> STALE, reusing SPEC-ARO-016's
+    existing domain.agent_task.mark_stale() unchanged — from this aggregate's point of
+    view "the lease that would have produced a legitimate result already expired" and
+    "the task exhausted its retry budget" are the same kind of stale-outcome fact
+    complete_agent_task.py's own _mark_stale() already persists for a different trigger
+    (stale workflowVersion/pauseGeneration).
+
+    Already-built-but-unwired signal that set this spec's real scope: AgentTaskRow.attempt/
+    max_attempts (07-data-model columns, default=1/1) have carried an explicit "retry/
+    attempt counting is phase-02/phase-08" comment since SPEC-ARO-002, and
+    AgentTaskState.FAILED_RETRYABLE's own docstring named this exact deferral ("deciding
+    when a failure is retryable... is SPEC-ARO-010/phase-08's job... until that exists,
+    domain.agent_task.fail() always produces FAILED_FINAL"). Neither column had ever been
+    wired onto application.records.AgentTaskRecord.
+
+    Wired attempt/max_attempts onto AgentTaskRecord as *defaulted* fields (attempt=1,
+    max_attempts=1) — deliberately unlike SPEC-ARO-028's current_checkpoint_id/
+    completed_at, which were made required. The two cases differ: SPEC-ARO-028's fields
+    had no safe default (silently defaulting to None would lose a previously-recorded
+    pointer), while 1/1 here matches both the DB schema's own default and every
+    pre-existing construction site's prior implicit behavior — no data loss to guard
+    against by forcing an explicit choice everywhere, so a defaulted field was the
+    correct, lower-ripple choice.
+
+    New domain.agent_task.retry_after_lease_expiry(): requires CLAIMED/RUNNING (reuses
+    complete()/fail()/mark_stale()'s own _require_active_claim() guard) and
+    attempt < max_attempts, produces AgentTaskRetried (to_state=READY, attempt
+    incremented). mark_stale() itself needed zero changes for the exhausted case — the
+    "path back to claimable" it already relies on (is_claimable() including STALE) was
+    already there since SPEC-ARO-016.
+
+    New AgentTaskRepository.find_expired_leases(now, limit): CLAIMED/RUNNING rows whose
+    claim_expires_at has already passed, oldest lease first — no dedicated index added
+    (unlike ix_agent_tasks_role_state_claim_expiry, led by agent_role for the hot claim
+    path); this is a low-frequency admin/ops-triggered batch scan, the same performance
+    profile WorkflowInstanceRepository.find_non_terminal() already accepted for
+    SPEC-ARO-028's own scanner.
+
+    New RecoverExpiredLeaseTasksService.scan_and_recover(batch_size), the Agent
+    Task-scoped counterpart to RecoverWorkflowService.scan_and_recover() (Workflow
+    Instance-scoped) — kept as a separate service/port (LeaseRecoveryPort) rather than a
+    third method bolted onto RecoveryPort, since the two scanners' units of work are
+    different aggregates entirely. Each expired-lease candidate is routed by its own
+    attempt/max_attempts budget: attempts remaining -> retry_after_lease_expiry() back to
+    READY; exhausted -> mark_stale(). Both save paths clear only lease_expires_at (not
+    worker_id/lease_token, retained as an audit trail of who last held the claim),
+    mirroring complete_agent_task.py's own _mark_stale() precedent exactly. A lost race
+    against something else that already moved a candidate on between the scan read and
+    the save (e.g. a legitimately-late worker submission, or a concurrent recovery pass)
+    is silently skipped, not an error — the same tolerance RecoverWorkflowService already
+    applies to its own checkpoint-inconsistency flagging.
+
+    New POST /admin/agent-tasks/lease-recovery-scan (manual/ops trigger until a real
+    scheduler exists, mirroring /admin/workflows/recovery-scan and /admin/outbox/dispatch).
+
+    Verified with 313 unit tests total (up from 302) — new tests: 4 domain tests
+    (retry_after_lease_expiry's successful retry from CLAIMED/RUNNING, parametrized;
+    active-claim guard; attempt-budget guard), 5 RecoverExpiredLeaseTasksService tests
+    (ignores unexpired leases, retries with attempts remaining, stales when exhausted,
+    mixed batch, batch_size respected), 2 tests/test_app.py HTTP-level tests (retry path,
+    stale path, both forcing an expired lease directly via the container's repository
+    since no HTTP path can make real time pass) — and 4 new integration tests: 3
+    PostgresAgentTaskRepository tests (attempt/max_attempts round-trip through a real
+    INSERT/UPDATE cycle; find_expired_leases filters by CLAIMED/RUNNING + expiry;
+    find_expired_leases respects the limit) plus 1
+    tests/integration/test_app_postgres_integration.py HTTP-level walk against the real
+    migrated schema. 50 integration tests total (up from 46). lint-imports (3/3 contracts
+    kept), ruff --select F,E9 clean.
+
+    Real E2E against the docker-compose Postgres instance (port 8029): claimed a task,
+    forced its lease into the past and max_attempts to 3 via direct SQL, confirmed the
+    scan retried it to READY with attempt incremented 1->2 and task_version bumped;
+    reclaimed it, forced attempt to 3 (exhausted) with another expired lease, confirmed
+    the scan marked it STALE (not FAILED_FINAL) with claim_owner retained as an audit
+    trail and claim_expires_at cleared; confirmed a task with a still-unexpired lease is
+    left untouched by the scan. The very first scan in this run also organically found
+    and correctly retried/staled 5 already-expired-lease CLAIMED tasks left over from
+    earlier specs' own E2E runs still sitting in this session's persistent docker-compose
+    database — the same kind of unplanned but exactly-on-target real-world validation
+    SPEC-ARO-028's own orphaned-PAUSED-workflow discovery produced.
   lld_mapping:
     - 09-concurrency-and-idempotency
     - 10-failure-handling

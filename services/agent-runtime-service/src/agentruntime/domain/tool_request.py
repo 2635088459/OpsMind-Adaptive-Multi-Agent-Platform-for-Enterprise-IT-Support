@@ -21,6 +21,7 @@ def create(
     tool_name: str,
     request_payload: str,
     occurred_at: datetime,
+    capability: str | None = None,
 ) -> ToolRequested:
     if preceding_checkpoint_id is None:
         raise ValueError(
@@ -38,4 +39,5 @@ def create(
         tool_name=tool_name,
         request_payload=request_payload,
         occurred_at=occurred_at,
+        capability=capability,
     )

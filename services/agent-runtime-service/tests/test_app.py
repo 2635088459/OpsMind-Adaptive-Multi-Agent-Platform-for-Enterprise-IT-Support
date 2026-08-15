@@ -10,12 +10,18 @@ real Postgres.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import uuid
+from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
+from agentruntime.application.records import OutboxRecord
 from agentruntime.container import get_container
+from agentruntime.domain.enums import OutboxStatus, WorkflowState
+from agentruntime.domain.ids import AgentTaskId, CausationId, CorrelationId, TicketId, WorkflowInstanceId
 from agentruntime.main import create_app
 from agentruntime.settings import Settings
 
@@ -77,6 +83,12 @@ def test_full_workflow_lifecycle(client: TestClient) -> None:
     assert paused.status_code == 200
     assert paused.json()["state"] == "PAUSED"
 
+    # SPEC-ARO-012 08-transaction-and-outbox §"Pause Transaction" step 6: "Write PAUSED
+    # checkpoint."
+    pause_checkpoint = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/checkpoints/latest")
+    assert pause_checkpoint.json()["type"] == "PAUSE_POINT"
+    assert pause_checkpoint.json()["workflow_version"] == paused.json()["workflow_version"]
+
     duplicate_pause = client.post(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/pause", json={"idempotency_key": "pause-1"})
     assert duplicate_pause.status_code == 200
 
@@ -95,14 +107,12 @@ def test_full_workflow_lifecycle(client: TestClient) -> None:
     assert claim_token is not None
     assert workflow_version is not None
 
-    tool_response = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
-        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
-        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
-        "idempotency_key": "tool-1",
-    })
-    assert tool_response.status_code == 200
-    assert tool_response.json()["status"] == "DISPATCHED"
-
+    # request-tool's own WAITING_TOOL/WAITING_FOR_TOOL side effects are covered by
+    # test_requesting_a_tool_moves_the_task_and_workflow_into_a_waiting_state below, kept
+    # deliberately separate from this test: entering that wait is a one-way trip until
+    # SPEC-ARO-020 exists (nothing wakes it back up yet), so exercising it here would
+    # derail every assertion below that expects "collect" to still be a normally
+    # completable, RUNNING-workflow task.
     wrong_claim_token = client.post(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}/complete", json={
         "claim_token": str(uuid.uuid4()), "idempotency_key": "complete-x", "workflow_version": workflow_version,
         "result_payload": "should not apply",
@@ -115,6 +125,24 @@ def test_full_workflow_lifecycle(client: TestClient) -> None:
     })
     assert stale_workflow_version.status_code == 409
     assert stale_workflow_version.json()["error"]["code"] == "STALE_WORKFLOW_VERSION"
+
+    # SPEC-ARO-016: the rejected stale-generation submission also marks the task STALE —
+    # the original claim_token can no longer complete it (its own claim is no longer
+    # trusted), so a fresh claim is required before the task can be completed.
+    stale_claim_attempt = client.post(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}/complete", json={
+        "claim_token": claim_token, "idempotency_key": "complete-after-stale", "workflow_version": workflow_version,
+        "result_payload": "should not apply either",
+    })
+    assert stale_claim_attempt.status_code == 409
+    assert stale_claim_attempt.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+
+    reclaimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-2", "lease_seconds": 60,
+    })
+    assert reclaimed.status_code == 200
+    assert reclaimed.json()["state"] == "CLAIMED"
+    claim_token = reclaimed.json()["claim_token"]
+    workflow_version = reclaimed.json()["workflow_version"]
 
     completed = client.post(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}/complete", json={
         "claim_token": claim_token, "idempotency_key": "complete-1", "workflow_version": workflow_version,
@@ -130,9 +158,9 @@ def test_full_workflow_lifecycle(client: TestClient) -> None:
     assert recovered.status_code == 200
     body = recovered.json()
     assert body["state"] == "COMPLETED"
-    # SPEC-ARO-005 writes a STARTED checkpoint on start, request-tool writes a
-    # PRE_TOOL_CALL checkpoint, and SPEC-ARO-008 writes an AFTER_TASK checkpoint on
-    # completion.
+    # SPEC-ARO-005 writes a STARTED checkpoint on start, SPEC-ARO-012 writes a
+    # PAUSE_POINT checkpoint on pause, and SPEC-ARO-008 writes an AFTER_TASK checkpoint
+    # on completion.
     assert body["recoverable_checkpoint_count"] == 3
     assert body["open_lease_count"] == 0
 
@@ -152,6 +180,845 @@ def test_full_workflow_lifecycle(client: TestClient) -> None:
         json={"idempotency_key": "complete-workflow-1"}, headers={"X-Actor-Id": "ops-user-1"},
     )
     assert admin_complete_after_auto_complete.status_code == 409
+
+
+def test_requesting_a_tool_moves_the_task_and_workflow_into_a_waiting_state(client: TestClient) -> None:
+    """SPEC-ARO-018 11-security §"Authorization": request-tool requires proof of holding
+    the task's own claim. SPEC-ARO-019 08-transaction-and-outbox §"Tool Request
+    Transaction" steps 4-6: the task moves to WAITING_TOOL, the workflow to
+    WAITING_FOR_TOOL, and the Tool Request is only PENDING until
+    DispatchToolRequestsService (not ToolGatewayPort synchronously) actually dispatches
+    it. Once WAITING_TOOL, the original claim can no longer complete the task directly —
+    that is by design (02-business-invariants: "Tool result 必须通过 tool.completed 或
+    tool.failed 回到 Runtime").
+    """
+    workflow_instance_id = _start_workflow(client, "start-tool-1")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+
+    wrong_claim_token = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-wrong-claim", "claim_token": str(uuid.uuid4()),
+    })
+    assert wrong_claim_token.status_code == 409
+    assert wrong_claim_token.json()["error"]["code"] == "CLAIM_TOKEN_MISMATCH"
+
+    tool_response = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-1", "claim_token": claim_token,
+    })
+    assert tool_response.status_code == 200
+    # SPEC-ARO-019: PENDING, not DISPATCHED — the Tool Gateway call happens later, outside
+    # this transaction.
+    assert tool_response.json()["status"] == "PENDING"
+
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "WAITING_TOOL"
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "WAITING_FOR_TOOL"
+
+
+def test_requesting_a_tool_with_an_unauthorized_capability_is_rejected(client: TestClient) -> None:
+    """SPEC-ARO-032 11-security §"Tool Gateway 强制路径": StaticCapabilityPolicyAdapter's
+    default policy does not authorize kb_agent for service_operations.
+    """
+    started = client.post("/internal/agent-runtime/v1/workflows", json={
+        "ticket_id": str(uuid.uuid4()), "ticket_cycle_id": str(uuid.uuid4()), "workflow_definition_id": "triage-v1",
+        "definition_version": 1, "workflow_type": "TICKET_TRIAGE",
+        "task_graph": [{
+            "task_key": "collect", "task_type": "collect_diagnostics", "depends_on": [], "join_policy": "ALL_SUCCESS",
+            "agent_role": "kb_agent",
+        }],
+        "idempotency_key": "start-capability-1",
+    })
+    workflow_instance_id = started.json()["workflow_instance_id"]
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    assert claimed.status_code == 200
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+
+    rejected = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-capability-1", "claim_token": claim_token, "capability": "service_operations",
+    })
+    assert rejected.status_code == 403
+    assert rejected.json()["error"]["code"] == "CAPABILITY_NOT_AUTHORIZED"
+
+    # Rejected before any side effect — the task is still just CLAIMED.
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "CLAIMED"
+
+
+def test_requesting_a_tool_with_an_authorized_capability_succeeds(client: TestClient) -> None:
+    started = client.post("/internal/agent-runtime/v1/workflows", json={
+        "ticket_id": str(uuid.uuid4()), "ticket_cycle_id": str(uuid.uuid4()), "workflow_definition_id": "triage-v1",
+        "definition_version": 1, "workflow_type": "TICKET_TRIAGE",
+        "task_graph": [{
+            "task_key": "collect", "task_type": "collect_diagnostics", "depends_on": [], "join_policy": "ALL_SUCCESS",
+            "agent_role": "triage_agent",
+        }],
+        "idempotency_key": "start-capability-2",
+    })
+    workflow_instance_id = started.json()["workflow_instance_id"]
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+
+    accepted = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-capability-2", "claim_token": claim_token, "capability": "service_operations",
+    })
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "PENDING"
+
+
+def test_a_pending_tool_request_blocks_direct_completion_and_is_later_dispatched(client: TestClient) -> None:
+    """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction": once a task
+    is WAITING_TOOL, the original claim can no longer complete it directly (02-business-
+    invariants: "Tool result 必须通过 tool.completed 或 tool.failed 回到 Runtime"), and the
+    Tool Request itself is only PENDING until DispatchToolRequestsService — not
+    ToolGatewayPort synchronously inside request-tool — actually dispatches it.
+    """
+    workflow_instance_id = _start_workflow(client, "start-tool-3")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+    client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-3", "claim_token": claim_token,
+    })
+
+    # The task is no longer actively claimed in the sense complete() requires.
+    blocked_complete = client.post(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}/complete", json={
+        "claim_token": claim_token, "idempotency_key": "complete-while-waiting", "workflow_version": claimed.json()["workflow_version"],
+        "result_payload": "should not apply",
+    })
+    assert blocked_complete.status_code == 409
+
+    dispatched = client.post("/internal/agent-runtime/v1/admin/tool-requests/dispatch", headers={"X-Actor-Id": "ops-user-1"})
+    assert dispatched.status_code == 200
+    dispatch_body = dispatched.json()
+    assert dispatch_body["scanned"] == 1
+    assert dispatch_body["dispatched"] == 1
+
+
+def test_a_tool_completed_v1_event_wakes_the_workflow_and_completes_the_task(client: TestClient) -> None:
+    """SPEC-ARO-020 04-use-cases UC-04 "消费 tool.completed": the counterpart to the
+    previous test — once a real tool.completed.v1 event references the pending Tool
+    Request, the task moves WAITING_TOOL -> COMPLETED, the workflow wakes
+    WAITING_FOR_TOOL -> RUNNING and then auto-settles to COMPLETED ("collect" was this
+    workflow's only task), and a duplicate delivery of the same event is idempotent.
+    """
+    workflow_instance_id = _start_workflow(client, "start-tool-2")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+
+    tool_response = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-2", "claim_token": claim_token,
+    })
+    tool_request_id = tool_response.json()["tool_request_id"]
+
+    workflow_waiting = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    waiting_workflow_version = workflow_waiting.json()["workflow_version"]
+
+    dispatched = client.post("/internal/agent-runtime/v1/admin/tool-requests/dispatch", headers={"X-Actor-Id": "ops-user-1"})
+    assert dispatched.status_code == 200
+
+    event_body = {
+        "event_id": "evt-tool-1", "event_type": "tool.completed.v1", "producer": "tool-gateway-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": waiting_workflow_version,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "payload": json.dumps({"toolRequestId": tool_request_id, "status": "COMPLETED", "resultPayload": "diagnostics ok"}),
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "COMPLETED"
+
+    # "collect" was this workflow's only task, so waking it back to RUNNING immediately
+    # settles the whole graph to COMPLETED — mirroring SPEC-ARO-010's own auto-settle path.
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "COMPLETED"
+
+    checkpoints = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/checkpoints/latest")
+    assert checkpoints.json()["type"] == "AFTER_TASK"
+    checkpoint_payload = json.loads(checkpoints.json()["payload"])
+    assert checkpoint_payload["resultPayload"] == "diagnostics ok"
+
+    # A duplicate delivery under the same event_id is a dedup no-op — mark_processed's
+    # own (event_id, consumer_name) key rejects re-applying an outcome that already landed.
+    duplicate = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["applied"] is False
+
+
+def test_a_failed_tool_completed_v1_event_fails_the_task(client: TestClient) -> None:
+    """SPEC-ARO-020 06-event-contracts §"tool.completed.v1": the same event type's
+    `status` field, not a separate tool.failed.v1 contract, carries the FAILED outcome.
+    """
+    workflow_instance_id = _start_workflow(client, "start-tool-3")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+
+    tool_response = client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-3", "claim_token": claim_token,
+    })
+    tool_request_id = tool_response.json()["tool_request_id"]
+
+    workflow_waiting = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    waiting_workflow_version = workflow_waiting.json()["workflow_version"]
+
+    event_body = {
+        "event_id": "evt-tool-2", "event_type": "tool.completed.v1", "producer": "tool-gateway-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": waiting_workflow_version,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "payload": json.dumps({"toolRequestId": tool_request_id, "status": "FAILED", "resultPayload": "tool exhausted retries"}),
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "FAILED_FINAL"
+
+    # "collect" was this workflow's only task and it failed outright, so the workflow
+    # graph is settled with no successful outcome — the same auto-fail path
+    # CompleteAgentTaskService's own failure settlement exercises.
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "FAILED"
+
+    checkpoints = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/checkpoints/latest")
+    checkpoint_payload = json.loads(checkpoints.json()["payload"])
+    assert checkpoint_payload["failureReason"] == "tool exhausted retries"
+
+
+def _seed_waiting_for_approval(client: TestClient, workflow_instance_id: str) -> None:
+    """SPEC-ARO-021: unlike WAITING_FOR_TOOL (SPEC-ARO-019 built a real request-tool HTTP
+    entry point), nothing in this codebase's roadmap yet builds an entry point into
+    WAITING_FOR_APPROVAL (AgentTaskState's own WAITING_EXTERNAL docstring: "once an
+    approval/verification/input wait exists" — no spec has built that entry path yet).
+    The wait is therefore seeded directly through the repository, respecting the same
+    one-version-at-a-time CAS every other test in this session seeds a non-1 version
+    through, so only the consumption side (POST /events) needs to go through real HTTP.
+    """
+    container = get_container()
+    running = container.workflow_instance_repository.find_by_id(WorkflowInstanceId(uuid.UUID(workflow_instance_id)))
+    container.workflow_instance_repository.save(
+        dataclasses.replace(running, state=WorkflowState.WAITING_FOR_APPROVAL, workflow_version=running.workflow_version + 1)
+    )
+
+
+def test_an_approval_granted_v1_event_wakes_the_workflow_from_waiting_for_approval(client: TestClient) -> None:
+    """SPEC-ARO-021 04-use-cases UC-03 "消费 approval.granted": decision == "APPROVED"
+    wakes WAITING_FOR_APPROVAL back to RUNNING and records a RECOVERY_SNAPSHOT
+    checkpoint; a duplicate delivery is idempotent (workflow no longer WAITING_FOR_APPROVAL).
+    """
+    workflow_instance_id = _start_workflow(client, "start-approval-1")
+    _seed_waiting_for_approval(client, workflow_instance_id)
+
+    event_body = {
+        "event_id": "evt-approval-1", "event_type": "approval.granted.v1", "producer": "approval-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "payload": json.dumps({"approvalRequestId": str(uuid.uuid4()), "decision": "APPROVED", "approvedBy": "ops-user-2"}),
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "RUNNING"
+
+    checkpoints = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/checkpoints/latest")
+    assert checkpoints.json()["type"] == "RECOVERY_SNAPSHOT"
+
+    # Duplicate delivery under the same event_id is a dedup no-op at the generic gate.
+    duplicate = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["applied"] is False
+
+
+def test_an_approval_granted_v1_event_with_a_non_approved_decision_fails_the_workflow(client: TestClient) -> None:
+    """The recommended resolution from this spec's own decision discriminator: any
+    decision other than "APPROVED" fails the workflow outright via the existing
+    FailWorkflowService, with the decision/approvedBy folded into the auditable reason.
+    """
+    workflow_instance_id = _start_workflow(client, "start-approval-2")
+    _seed_waiting_for_approval(client, workflow_instance_id)
+
+    event_body = {
+        "event_id": "evt-approval-2", "event_type": "approval.granted.v1", "producer": "approval-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "payload": json.dumps({"approvalRequestId": str(uuid.uuid4()), "decision": "REJECTED", "approvedBy": "ops-user-2"}),
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "FAILED"
+
+
+def _seed_waiting_for_verification(client: TestClient, workflow_instance_id: str) -> None:
+    """SPEC-ARO-022: mirrors _seed_waiting_for_approval — no spec builds an entry path
+    into WAITING_FOR_VERIFICATION either.
+    """
+    container = get_container()
+    running = container.workflow_instance_repository.find_by_id(WorkflowInstanceId(uuid.UUID(workflow_instance_id)))
+    container.workflow_instance_repository.save(
+        dataclasses.replace(running, state=WorkflowState.WAITING_FOR_VERIFICATION, workflow_version=running.workflow_version + 1)
+    )
+
+
+def test_a_verification_completed_v1_event_wakes_the_workflow_to_running(client: TestClient) -> None:
+    """SPEC-ARO-022 04-use-cases UC-05 "消费 verification.completed": passed == True
+    wakes WAITING_FOR_VERIFICATION back to RUNNING — "collect" is still outstanding here,
+    so the task graph is not yet settled and the workflow stays RUNNING rather than
+    auto-completing (that path is covered at the application-service test level).
+    """
+    workflow_instance_id = _start_workflow(client, "start-verification-1")
+    _seed_waiting_for_verification(client, workflow_instance_id)
+
+    event_body = {
+        "event_id": "evt-verification-1", "event_type": "verification.completed.v1", "producer": "verification-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "payload": json.dumps({"verificationRequestId": str(uuid.uuid4()), "passed": True, "evidence": "all checks green"}),
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "RUNNING"
+
+    # Duplicate delivery under the same event_id is a dedup no-op at the generic gate.
+    duplicate = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["applied"] is False
+
+
+def test_a_verification_completed_v1_event_with_passed_false_fails_the_workflow(client: TestClient) -> None:
+    workflow_instance_id = _start_workflow(client, "start-verification-2")
+    _seed_waiting_for_verification(client, workflow_instance_id)
+
+    event_body = {
+        "event_id": "evt-verification-2", "event_type": "verification.completed.v1", "producer": "verification-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        "payload": json.dumps({"verificationRequestId": str(uuid.uuid4()), "passed": False, "evidence": "disk still full"}),
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "FAILED"
+
+
+def test_a_ticket_cancelled_v1_event_cancels_the_active_workflow(client: TestClient) -> None:
+    """SPEC-ARO-023 06-event-contracts (02-ticket-workflow PUB-014 "ticket.cancelled.v1"):
+    reuses the existing (previously admin-only) CancelWorkflowService — its own docstring
+    already named this spec as the trigger owner.
+    """
+    ticket_id, ticket_cycle_id = str(uuid.uuid4()), str(uuid.uuid4())
+    started = client.post("/internal/agent-runtime/v1/workflows", json={
+        "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id, "workflow_definition_id": "triage-v1",
+        "definition_version": 1, "workflow_type": "TICKET_TRIAGE",
+        "task_graph": [{"task_key": "collect", "task_type": "collect_diagnostics", "depends_on": [], "join_policy": "ALL_SUCCESS"}],
+        "idempotency_key": "start-cycle-cancel-1",
+    })
+    workflow_instance_id = started.json()["workflow_instance_id"]
+
+    event_body = {
+        "event_id": "evt-cycle-cancel-1", "event_type": "ticket.cancelled.v1", "producer": "ticket-workflow-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id,
+        "cancel_reason_code": "NO_LONGER_NEEDED", "occurred_at": "2026-01-01T00:00:00Z",
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events/ticket-cancelled", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "CANCELLED"
+
+    # Duplicate delivery under the same event_id is a dedup no-op.
+    duplicate = client.post("/internal/agent-runtime/v1/events/ticket-cancelled", json=event_body)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["applied"] is False
+
+
+def test_a_ticket_reopened_v1_event_cancels_the_previous_cycles_workflow(client: TestClient) -> None:
+    """SPEC-ARO-023 06-event-contracts (02-ticket-workflow PUB-015 "ticket.reopened.v1"):
+    the new cycle's own Workflow Instance is started separately by a future
+    ticket.created.v1 for newTicketCycleId — this event only ends the old cycle's automation.
+    """
+    ticket_id, previous_cycle_id, new_cycle_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    started = client.post("/internal/agent-runtime/v1/workflows", json={
+        "ticket_id": ticket_id, "ticket_cycle_id": previous_cycle_id, "workflow_definition_id": "triage-v1",
+        "definition_version": 1, "workflow_type": "TICKET_TRIAGE",
+        "task_graph": [{"task_key": "collect", "task_type": "collect_diagnostics", "depends_on": [], "join_policy": "ALL_SUCCESS"}],
+        "idempotency_key": "start-cycle-reopen-1",
+    })
+    workflow_instance_id = started.json()["workflow_instance_id"]
+
+    event_body = {
+        "event_id": "evt-cycle-reopen-1", "event_type": "ticket.reopened.v1", "producer": "ticket-workflow-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": ticket_id,
+        "previous_ticket_cycle_id": previous_cycle_id, "new_ticket_cycle_id": new_cycle_id, "reason_code": "ISSUE_RECURRED",
+        "occurred_at": "2026-01-01T00:00:00Z",
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events/ticket-reopened", json=event_body)
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "CANCELLED"
+
+
+def test_ticket_workflow_cancelled_outbox_envelope_cancels_the_active_workflow(client: TestClient) -> None:
+    ticket_id, ticket_cycle_id = str(uuid.uuid4()), str(uuid.uuid4())
+    started = client.post("/internal/agent-runtime/v1/workflows", json={
+        "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id, "workflow_definition_id": "triage-v1",
+        "definition_version": 1, "workflow_type": "TICKET_TRIAGE",
+        "task_graph": [{"task_key": "collect", "task_type": "collect_diagnostics", "depends_on": [], "join_policy": "ALL_SUCCESS"}],
+        "idempotency_key": "start-cycle-cancel-outbox-1",
+    })
+    workflow_instance_id = started.json()["workflow_instance_id"]
+
+    event_body = {
+        "eventId": "evt-cycle-cancel-outbox-1", "eventType": "ticket.cancelled", "eventVersion": "1.0",
+        "routingKey": "ticket.cancelled.v1", "aggregateType": "Ticket", "aggregateId": ticket_id,
+        "aggregateVersion": 2, "ticketId": ticket_id, "traceId": "trace-cancel-1",
+        "correlationId": str(uuid.uuid4()), "causationId": str(uuid.uuid4()), "dataClassification": "INTERNAL",
+        "occurredAt": "2026-01-01T00:00:00Z",
+        "payload": {
+            "supportQueueId": str(uuid.uuid4()), "assigneeId": None, "resolutionCycleId": ticket_cycle_id,
+            "previousStatus": "IN_PROGRESS", "newStatus": "CANCELLED", "cancelReasonCode": "NO_LONGER_NEEDED",
+            "cancelReason": "Requester no longer needs support", "cancelledBy": "requester-1",
+            "cancelledAt": "2026-01-01T00:00:00Z",
+        },
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events/ticket-cancelled", json=event_body)
+
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+    assert client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}").json()["state"] == "CANCELLED"
+
+
+def test_ticket_workflow_reopened_outbox_envelope_cancels_the_previous_cycles_workflow(client: TestClient) -> None:
+    ticket_id, previous_cycle_id, new_cycle_id = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    started = client.post("/internal/agent-runtime/v1/workflows", json={
+        "ticket_id": ticket_id, "ticket_cycle_id": previous_cycle_id, "workflow_definition_id": "triage-v1",
+        "definition_version": 1, "workflow_type": "TICKET_TRIAGE",
+        "task_graph": [{"task_key": "collect", "task_type": "collect_diagnostics", "depends_on": [], "join_policy": "ALL_SUCCESS"}],
+        "idempotency_key": "start-cycle-reopen-outbox-1",
+    })
+    workflow_instance_id = started.json()["workflow_instance_id"]
+
+    event_body = {
+        "eventId": "evt-cycle-reopen-outbox-1", "eventType": "ticket.reopened", "eventVersion": "1.0",
+        "routingKey": "ticket.reopened.v1", "aggregateType": "Ticket", "aggregateId": ticket_id,
+        "aggregateVersion": 3, "ticketId": ticket_id, "traceId": "trace-reopen-1",
+        "correlationId": str(uuid.uuid4()), "causationId": str(uuid.uuid4()), "dataClassification": "INTERNAL",
+        "occurredAt": "2026-01-01T00:00:00Z",
+        "payload": {
+            "supportQueueId": str(uuid.uuid4()), "assigneeId": None, "previousResolutionCycleId": previous_cycle_id,
+            "newResolutionCycleId": new_cycle_id, "previousStatus": "RESOLVED", "newStatus": "IN_PROGRESS",
+            "reopenReasonCode": "ISSUE_RECURRED", "reopenCount": 1, "reopenedBy": "requester-1",
+            "reopenedAt": "2026-01-01T00:00:00Z", "ownershipStatus": "ACTIVE",
+        },
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events/ticket-reopened", json=event_body)
+
+    assert ingested.status_code == 200
+    assert ingested.json()["applied"] is True
+    assert client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}").json()["state"] == "CANCELLED"
+
+
+def test_a_malformed_tool_completed_v1_payload_is_recorded_as_a_poison_event_and_stays_replayable(client: TestClient) -> None:
+    """SPEC-ARO-024 10-failure-handling §"Poison Event": a payload the type-specific
+    consumer cannot even parse is recorded to /admin/poison-events (422, not a raw 500 or
+    an unclassified 400) and is NOT marked processed — a corrected redelivery under the
+    same event_id must still reach the type-specific consumer.
+    """
+    workflow_instance_id = _start_workflow(client, "start-poison-1")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+    client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-poison-1", "claim_token": claim_token,
+    })
+
+    event_body = {
+        "event_id": "evt-poison-app-1", "event_type": "tool.completed.v1", "producer": "tool-gateway-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z", "payload": '{"status": "COMPLETED"',  # missing toolRequestId, truncated JSON
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 422
+    assert ingested.json()["error"]["code"] == "POISON_EVENT"
+
+    poison_events = client.get("/internal/agent-runtime/v1/admin/poison-events", headers={"X-Actor-Id": "ops-user-1"})
+    assert poison_events.status_code == 200
+    entries = poison_events.json()["poison_events"]
+    assert any(entry["event_id"] == "evt-poison-app-1" and entry["event_type"] == "tool.completed.v1" for entry in entries)
+
+    # Task/workflow untouched by the poisoned delivery.
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "WAITING_TOOL"
+
+
+def test_admin_recovery_scan_counts_a_running_workflow_and_flags_nothing(client: TestClient) -> None:
+    """SPEC-ARO-028 10-failure-handling §"Runtime 崩溃后怎么恢复": "Recovery worker 周期性
+    扫描非终态 Workflow Instance."
+    """
+    _start_workflow(client, "start-scan-1")
+
+    scanned = client.post("/internal/agent-runtime/v1/admin/workflows/recovery-scan", headers={"X-Actor-Id": "ops-user-1"})
+    assert scanned.status_code == 200
+    body = scanned.json()
+    assert body["scanned"] >= 1
+    assert body["checkpoint_inconsistent"] == 0
+
+
+def test_admin_recovery_scan_flags_and_fails_a_paused_workflow_with_no_pause_point_checkpoint(client: TestClient) -> None:
+    """No spec builds an HTTP path into this specific inconsistency (a PAUSED workflow
+    whose latest checkpoint isn't the PAUSE_POINT SPEC-ARO-012's Pause Transaction
+    writes) — seeded directly, mirroring _seed_waiting_for_verification's own reasoning.
+    """
+    workflow_instance_id = _start_workflow(client, "start-scan-2")
+    container = get_container()
+    running = container.workflow_instance_repository.find_by_id(WorkflowInstanceId(uuid.UUID(workflow_instance_id)))
+    container.workflow_instance_repository.save(
+        dataclasses.replace(running, state=WorkflowState.PAUSED, pause_generation=1, workflow_version=running.workflow_version + 1)
+    )
+
+    scanned = client.post("/internal/agent-runtime/v1/admin/workflows/recovery-scan", headers={"X-Actor-Id": "ops-user-1"})
+    assert scanned.status_code == 200
+    assert scanned.json()["checkpoint_inconsistent"] == 1
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "FAILED"
+
+
+def test_admin_replay_dead_letter_requeues_and_republishes_a_dead_lettered_event(client: TestClient) -> None:
+    """SPEC-ARO-030 10-failure-handling §"Runtime 崩溃后怎么恢复" step 3: "重放未发布 outbox"
+    — the manual/ops intervention OutboxStatus.DEAD_LETTER's own docstring names. No HTTP
+    path can drive a real publish failure (LoggingEventPublisherAdapter always succeeds),
+    so a DEAD_LETTER row is seeded directly on the container's repository, mirroring how
+    the lease-recovery tests below force their own otherwise-unreachable state.
+    """
+    workflow_instance_id = _start_workflow(client, "start-outbox-replay-1")
+    container = get_container()
+    now = container.clock.now()
+    dead_lettered = OutboxRecord(
+        outbox_id=uuid.uuid4(), workflow_instance_id=WorkflowInstanceId(uuid.UUID(workflow_instance_id)),
+        ticket_id=TicketId(uuid.uuid4()), correlation_id=CorrelationId.new_id(), causation_id=CausationId.new_id(),
+        event_type="workflow.started.v1", schema_version=1, payload="{}", occurred_at=now,
+        status=OutboxStatus.DEAD_LETTER, attempts=5,
+    )
+    container.outbox_repository.append(dead_lettered)
+
+    replayed = client.post("/internal/agent-runtime/v1/admin/outbox/replay-dead-letter", headers={"X-Actor-Id": "ops-user-1"})
+    assert replayed.status_code == 200
+    body = replayed.json()
+    assert body["scanned"] >= 1
+    assert body["published"] >= 1
+    assert body["dead_lettered"] == 0
+
+    [record] = [r for r in container.outbox_repository.recorded() if r.outbox_id == dead_lettered.outbox_id]
+    assert record.status is OutboxStatus.PUBLISHED
+    assert record.attempts == 0
+
+
+def test_admin_force_recover_workflow_flags_a_named_paused_instance(client: TestClient) -> None:
+    """SPEC-ARO-031 05-api-contracts §"Admin API": "force recover workflow" — the
+    admin-triggered, single-instance counterpart to /workflows/recovery-scan.
+    """
+    workflow_instance_id = _start_workflow(client, "start-force-recover-1")
+    container = get_container()
+    running = container.workflow_instance_repository.find_by_id(WorkflowInstanceId(uuid.UUID(workflow_instance_id)))
+    container.workflow_instance_repository.save(
+        dataclasses.replace(running, state=WorkflowState.PAUSED, pause_generation=1, workflow_version=running.workflow_version + 1)
+    )
+
+    forced = client.post(
+        f"/internal/agent-runtime/v1/admin/workflows/{workflow_instance_id}/force-recover", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert forced.status_code == 200
+    body = forced.json()
+    assert body["scanned"] == 1
+    assert body["checkpoint_inconsistent"] == 1
+
+    workflow_after = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}")
+    assert workflow_after.json()["state"] == "FAILED"
+
+
+def test_admin_force_recover_an_unknown_workflow_instance_is_a_404(client: TestClient) -> None:
+    forced = client.post(
+        f"/internal/agent-runtime/v1/admin/workflows/{uuid.uuid4()}/force-recover", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert forced.status_code == 404
+
+
+def test_admin_retry_agent_task_retries_a_claimed_task_with_an_unexpired_lease(client: TestClient) -> None:
+    """SPEC-ARO-031 05-api-contracts §"Admin API": "retry failed task" — the
+    admin-triggered, single-task counterpart to /agent-tasks/lease-recovery-scan; unlike
+    the batch scan, this operates even though the lease has not actually expired yet.
+    """
+    workflow_instance_id = _start_workflow(client, "start-admin-retry-1")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 300,
+    })
+    assert claimed.status_code == 200
+    agent_task_id = claimed.json()["agent_task_id"]
+    container = get_container()
+    claimed_record = container.agent_task_repository.find_by_id(AgentTaskId(uuid.UUID(agent_task_id)))
+    container.agent_task_repository.save(dataclasses.replace(claimed_record, max_attempts=3, task_version=claimed_record.task_version + 1))
+
+    retried = client.post(
+        f"/internal/agent-runtime/v1/admin/agent-tasks/{agent_task_id}/retry", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert retried.status_code == 200
+    assert retried.json()["state"] == "READY"
+
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "READY"
+
+
+def test_admin_retry_agent_task_an_unknown_id_is_a_404(client: TestClient) -> None:
+    retried = client.post(
+        f"/internal/agent-runtime/v1/admin/agent-tasks/{uuid.uuid4()}/retry", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert retried.status_code == 404
+
+
+def test_admin_retry_agent_task_rejects_a_terminal_task(client: TestClient) -> None:
+    """03-state-machine: FAILED_FINAL is "不可重试失败"."""
+    workflow_instance_id = _start_workflow(client, "start-admin-retry-2")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 300,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+    workflow_version = claimed.json()["workflow_version"]
+    failed = client.post(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}/complete", json={
+        "claim_token": claim_token, "idempotency_key": "admin-retry-2-fail", "workflow_version": workflow_version,
+        "failure_reason": "tool exhausted retries",
+    })
+    assert failed.status_code == 200
+    assert failed.json()["state"] == "FAILED_FINAL"
+
+    retried = client.post(
+        f"/internal/agent-runtime/v1/admin/agent-tasks/{agent_task_id}/retry", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert retried.status_code == 409
+
+
+def test_checkpoint_payload_redacts_a_sensitive_key(client: TestClient) -> None:
+    """SPEC-ARO-033 11-security §"Data Protection": "logs 中禁止输出 secret、token、完整
+    工具响应" — extended to any outward-facing view that echoes a raw payload, not just
+    logs; GET /checkpoints/latest is the one CheckpointView reaches through.
+    """
+    workflow_instance_id = _start_workflow(client, "start-redact-1")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+
+    client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart","token":"super-secret-value"}',
+        "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-redact-1", "claim_token": claim_token,
+    })
+
+    checkpoint = client.get(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/checkpoints/latest")
+    assert checkpoint.status_code == 200
+    assert "super-secret-value" not in checkpoint.json()["payload"]
+    assert "***REDACTED***" in checkpoint.json()["payload"]
+    payload = json.loads(checkpoint.json()["payload"])
+    assert payload["before"] == "restart"
+
+
+def test_admin_poison_event_payload_redacts_a_sensitive_key_even_when_malformed(client: TestClient) -> None:
+    """The concrete real-world target of redact_payload(): a poisoned delivery's own
+    payload is by definition unparsed/unvalidated content that could carry anything,
+    including a still-recognizable sensitive key even inside otherwise-truncated JSON.
+    """
+    workflow_instance_id = _start_workflow(client, "start-redact-2")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+    client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-redact-2", "claim_token": claim_token,
+    })
+    event_body = {
+        "event_id": "evt-redact-1", "event_type": "tool.completed.v1", "producer": "tool-gateway-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z",
+        # Malformed (truncated, no closing brace) — what actually makes this poisoned —
+        # but the password value is still cleanly quoted, so it must still be masked.
+        "payload": '{"password": "hunter2", "status": "COMPLETED"',
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 422
+
+    poison_events = client.get("/internal/agent-runtime/v1/admin/poison-events", headers={"X-Actor-Id": "ops-user-1"})
+    [entry] = [e for e in poison_events.json()["poison_events"] if e["event_id"] == "evt-redact-1"]
+    assert "hunter2" not in entry["payload"]
+    assert "***REDACTED***" in entry["payload"]
+    assert "COMPLETED" in entry["payload"]
+
+
+def test_admin_quarantine_poison_event(client: TestClient) -> None:
+    """SPEC-ARO-031 05-api-contracts §"Admin API": "mark poison event quarantined"."""
+    workflow_instance_id = _start_workflow(client, "start-quarantine-1")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+    claim_token = claimed.json()["claim_token"]
+    client.post("/internal/agent-runtime/v1/agent-tasks/request-tool", json={
+        "workflow_instance_id": workflow_instance_id, "agent_task_id": agent_task_id,
+        "checkpoint_payload": '{"before":"restart"}', "tool_name": "restart_service", "tool_request_payload": '{"service":"api"}',
+        "idempotency_key": "tool-quarantine-1", "claim_token": claim_token,
+    })
+    event_body = {
+        "event_id": "evt-quarantine-1", "event_type": "tool.completed.v1", "producer": "tool-gateway-service", "schema_version": 1,
+        "correlation_id": str(uuid.uuid4()), "causation_id": str(uuid.uuid4()), "ticket_id": str(uuid.uuid4()),
+        "workflow_instance_id": workflow_instance_id, "expected_workflow_version": None,
+        "occurred_at": "2026-01-01T00:00:00Z", "payload": '{"status": "COMPLETED"',
+    }
+    ingested = client.post("/internal/agent-runtime/v1/events", json=event_body)
+    assert ingested.status_code == 422
+
+    poison_events = client.get("/internal/agent-runtime/v1/admin/poison-events", headers={"X-Actor-Id": "ops-user-1"})
+    [entry] = [e for e in poison_events.json()["poison_events"] if e["event_id"] == "evt-quarantine-1"]
+    assert entry["quarantined_at"] is None
+
+    quarantined = client.post(
+        f"/internal/agent-runtime/v1/admin/poison-events/{entry['id']}/quarantine", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert quarantined.status_code == 200
+    assert quarantined.json()["quarantined_at"] is not None
+
+    after = client.get("/internal/agent-runtime/v1/admin/poison-events", headers={"X-Actor-Id": "ops-user-1"})
+    [entry_after] = [e for e in after.json()["poison_events"] if e["event_id"] == "evt-quarantine-1"]
+    assert entry_after["quarantined_at"] is not None
+
+
+def test_admin_quarantine_an_unknown_poison_event_is_a_404(client: TestClient) -> None:
+    quarantined = client.post(
+        f"/internal/agent-runtime/v1/admin/poison-events/{uuid.uuid4()}/quarantine", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert quarantined.status_code == 404
+
+
+def test_admin_lease_recovery_scan_retries_a_task_with_attempts_remaining(client: TestClient) -> None:
+    """SPEC-ARO-029 10-failure-handling §"Runtime 崩溃后怎么恢复" step 5: "对 CLAIMED/RUNNING
+    且 lease 过期的 task 做 retry 或 stale 标记" — the retry half. No HTTP path forces a lease
+    to expire, so the claim's lease_expires_at is force-set into the past directly on the
+    container's repository, mirroring how the checkpoint-inconsistency scan test above
+    seeds its own scenario.
+    """
+    workflow_instance_id = _start_workflow(client, "start-lease-1")
+    client.post(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/resume", json={"idempotency_key": "resume-lease-1"})
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    assert claimed.status_code == 200
+    agent_task_id = claimed.json()["agent_task_id"]
+
+    container = get_container()
+    claimed_record = container.agent_task_repository.find_by_id(AgentTaskId(uuid.UUID(agent_task_id)))
+    container.agent_task_repository.save(dataclasses.replace(
+        claimed_record, lease_expires_at=claimed_record.updated_at - timedelta(seconds=1),
+        task_version=claimed_record.task_version + 1, max_attempts=3,
+    ))
+
+    scanned = client.post("/internal/agent-runtime/v1/admin/agent-tasks/lease-recovery-scan", headers={"X-Actor-Id": "ops-user-1"})
+    assert scanned.status_code == 200
+    body = scanned.json()
+    assert body["scanned"] == 1
+    assert body["retried"] == 1
+    assert body["staled"] == 0
+
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "READY"
+
+
+def test_admin_lease_recovery_scan_marks_stale_when_attempts_are_exhausted(client: TestClient) -> None:
+    workflow_instance_id = _start_workflow(client, "start-lease-2")
+    client.post(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/resume", json={"idempotency_key": "resume-lease-2"})
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    assert claimed.status_code == 200
+    agent_task_id = claimed.json()["agent_task_id"]
+
+    container = get_container()
+    claimed_record = container.agent_task_repository.find_by_id(AgentTaskId(uuid.UUID(agent_task_id)))
+    container.agent_task_repository.save(dataclasses.replace(
+        claimed_record, lease_expires_at=claimed_record.updated_at - timedelta(seconds=1), attempt=claimed_record.max_attempts,
+        task_version=claimed_record.task_version + 1,
+    ))
+
+    scanned = client.post("/internal/agent-runtime/v1/admin/agent-tasks/lease-recovery-scan", headers={"X-Actor-Id": "ops-user-1"})
+    assert scanned.status_code == 200
+    body = scanned.json()
+    assert body["scanned"] == 1
+    assert body["retried"] == 0
+    assert body["staled"] == 1
+
+    task_after = client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}")
+    assert task_after.json()["state"] == "STALE"
 
 
 def test_admin_complete_workflow_is_idempotent_and_rejects_a_new_key_once_terminal(client: TestClient) -> None:
@@ -334,6 +1201,11 @@ def test_get_latest_checkpoint(client: TestClient) -> None:
     body = response.json()
     assert body["workflow_instance_id"] == workflow_instance_id
     assert body["type"] == "STARTED"
+    # SPEC-ARO-011 01-domain-model: workflow_version/checksum/cursor are Checkpoint's own
+    # minimal fields, now exposed end to end through the existing SPEC-ARO-006 query API.
+    assert body["workflow_version"] == 1
+    assert body["checksum"]
+    assert body["cursor"] is None
 
 
 def test_get_latest_checkpoint_404_for_unknown_workflow_instance(client: TestClient) -> None:
@@ -528,3 +1400,57 @@ def test_a_multi_task_workflow_auto_fails_when_a_task_fails_through_the_real_com
         "workflow_instance_id": workflow_instance_id, "task_key": "remediate", "worker_id": "worker-2", "lease_seconds": 60,
     })
     assert remediate_claim.status_code == 409
+
+
+def test_admin_audit_events_records_a_workflow_transition(client: TestClient) -> None:
+    """SPEC-ARO-034 12-observability §"Audit Events": "审计事件必须可长期保存: workflow
+    transition, task transition, ..." — starting a workflow must produce a persisted,
+    queryable audit row, not just a log line.
+    """
+    workflow_instance_id = _start_workflow(client, "start-audit-1")
+
+    audit_events = client.get("/internal/agent-runtime/v1/admin/audit-events", headers={"X-Actor-Id": "ops-user-1"})
+    assert audit_events.status_code == 200
+    entries = audit_events.json()["audit_events"]
+    matches = [
+        e for e in entries
+        if e["workflow_instance_id"] == workflow_instance_id and e["action"] == "start_workflow"
+    ]
+    assert len(matches) == 1
+    entry = matches[0]
+    assert entry["audit_type"] == "WORKFLOW_TRANSITION"
+    assert entry["resource_type"] == "WorkflowInstance"
+    assert entry["outcome"] == "SUCCESS"
+    assert entry["actor_type"] == "SYSTEM"
+
+
+def test_admin_audit_events_records_a_task_claim_and_an_admin_intervention(client: TestClient) -> None:
+    workflow_instance_id = _start_workflow(client, "start-audit-2")
+    claimed = client.post("/internal/agent-runtime/v1/agent-tasks/claim", json={
+        "workflow_instance_id": workflow_instance_id, "task_key": "collect", "worker_id": "worker-1", "lease_seconds": 60,
+    })
+    agent_task_id = claimed.json()["agent_task_id"]
+
+    client.post(f"/internal/agent-runtime/v1/admin/agent-tasks/{agent_task_id}/retry", headers={"X-Actor-Id": "ops-user-1"})
+
+    audit_events = client.get("/internal/agent-runtime/v1/admin/audit-events", headers={"X-Actor-Id": "ops-user-1"})
+    entries = audit_events.json()["audit_events"]
+
+    claim_entries = [e for e in entries if e["resource_id"] == agent_task_id and e["action"] == "claim_task"]
+    assert len(claim_entries) == 1
+    assert claim_entries[0]["audit_type"] == "TASK_TRANSITION"
+    assert claim_entries[0]["actor_type"] == "WORKER"
+    assert claim_entries[0]["actor_id"] == "worker-1"
+
+    admin_entries = [e for e in entries if e["resource_id"] == agent_task_id and e["audit_type"] == "ADMIN_INTERVENTION"]
+    assert len(admin_entries) == 1
+    assert admin_entries[0]["actor_type"] == "ADMIN"
+
+
+def test_admin_audit_events_respects_the_limit(client: TestClient) -> None:
+    for i in range(3):
+        _start_workflow(client, f"start-audit-limit-{i}")
+
+    limited = client.get("/internal/agent-runtime/v1/admin/audit-events?limit=1", headers={"X-Actor-Id": "ops-user-1"})
+    assert limited.status_code == 200
+    assert len(limited.json()["audit_events"]) == 1

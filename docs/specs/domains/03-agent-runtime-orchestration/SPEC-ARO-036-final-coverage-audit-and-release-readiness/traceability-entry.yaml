@@ -2,7 +2,134 @@ SPEC-ARO-036:
   domain: 03-agent-runtime-orchestration
   name: Final Coverage Audit and Release Readiness
   cn_name: 最终覆盖审计与发布就绪
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Final spec in this domain's own 36-spec roadmap. Its own generic template ("目标":
+    "支撑最终覆盖审计与发布就绪") and lld_mapping (14-testing-strategy + 12-observability —
+    the same two sections SPEC-ARO-035 and SPEC-ARO-034 already substantially built) point
+    at one job: literally audit those two sections' own checklists item-by-item against
+    what SPEC-ARO-001 through -035 actually shipped, and close whatever small, genuine
+    gaps that audit turns up — not invent new features. 14-testing-strategy's own gaps
+    were already fully closed by SPEC-ARO-035 (its own traceability entry documents that
+    audit in full); this spec's own remaining job was auditing 12-observability.
+
+    12-observability audit, section by section:
+
+      - Metrics (16 named counters/gauges/histograms): RuntimeTelemetry (SPEC-ARO-034)
+        already names every one of them verbatim — checked telemetry.py's own instrument
+        names against the LLD's own list one by one; no gap.
+      - Tracing (8 named trace points: consumed event / workflow command / task claim /
+        agent execution / tool request / tool completed callback / task completion /
+        published event): 7 of 8 already exist as real tracer spans ("event.consumed"
+        covers both "consumed event" and "tool completed callback" — every consumed
+        runtime event, tool.completed.v1 included, flows through
+        ConsumeRuntimeEventService's own one span; "event.published" covers "published
+        event", confirmed present in dispatch_outbox_events.py). "Agent execution" is
+        structurally not this service's own code — that span belongs to the Agent Worker
+        process, a separate deployable this domain does not own — stated here as an
+        honest boundary, not a gap this spec could close.
+      - Audit Events (8 named types): a real, concrete gap found — RecoverWorkflowService
+        (scan_and_recover()/force_recover(), the checkpoint-consistency half of recovery)
+        had never been wired with AuditRecorder at all, despite 12-observability naming
+        "recovery decision" as a required audit type and despite its own sibling
+        RecoverExpiredLeaseTasksService (the lease-expiry half) already recording both
+        RECOVERY_DECISION and ADMIN_INTERVENTION since SPEC-ARO-034. Fixed: AuditRecorder
+        now injected into RecoverWorkflowService; scan_and_recover() records
+        RECOVERY_DECISION only when a checkpoint inconsistency is actually flagged
+        (mirrors RecoverExpiredLeaseTasksService's own scan_and_recover() — an audited
+        action taken, not every no-op candidate scanned); force_recover() records
+        ADMIN_INTERVENTION unconditionally (mirrors RecoverExpiredLeaseTasksService
+        .retry_task()'s own convention — an explicit, single-instance operator action).
+        "Checkpoint created" was interpreted as satisfied by the parent transition's own
+        already-existing audit entry (WORKFLOW_TRANSITION/TASK_TRANSITION/
+        TOOL_REQUEST_CREATED) rather than needing a second, checkpoint-specific audit row
+        for what is fundamentally one business action — stated explicitly as an
+        interpretation, not silently assumed.
+      - 日志 (workflowInstanceId/ticketId/ticketCycleId/agentTaskId-if-present/
+        correlationId/causationId/workerId-if-present on every log line, no secrets):
+        grepped every logger.info/warning/error call across application/services/*.py.
+        ticketCycleId was missing from every workflow-lifecycle log line
+        (pause/resume/complete/fail/cancel_workflow.py all had workflowInstanceId/
+        ticketId/correlationId/causationId but not ticketCycleId, despite the record
+        already carrying it in scope — zero new plumbing needed), from claim_agent_task.py
+        .claim()'s own log line (added ticketId/ticketCycleId from the already-loaded
+        workflow), from request_tool.py's own log line (same fix), from
+        recover_workflow.py's force_recover() log line (same fix), and from
+        consume_runtime_event.py's poison-event error log (added workflow_instance_id/
+        ticket_id/correlation_id/causation_id, all already on the envelope — ticket_cycle_id
+        deliberately NOT looked up here, since RuntimeEventEnvelope has no such field and
+        this log fires exactly when payload parsing already failed, so a second repository
+        call on this specific failure path would risk masking the original poison
+        detection behind a new one). recover_expired_lease_tasks.py's four log lines
+        (scan_and_recover's _retry/_mark_stale, retry_task's two branches) had no
+        ticketId/ticketCycleId at all and no way to get it — that service only ever
+        depended on AgentTaskRepository, never WorkflowInstanceRepository — so
+        WorkflowInstanceRepository was added as a new constructor dependency, with a
+        per-scan-batch workflow_cache (mirrors ClaimAgentTaskService.claim_ready()'s own
+        established caching idiom, since several expired-lease tasks scanned together
+        commonly share one workflow) added purely for scan_and_recover(); retry_task()
+        (a single-task admin action) resolves it directly, no cache needed. correlationId/
+        causationId were deliberately left out of claim/claim_ready/request_tool/the four
+        recover_expired_lease_tasks.py log lines: none of those commands carry a
+        correlation_id/causation_id field anywhere in this codebase's own command model
+        (grepped commands.py) — those two ids are this codebase's own event-chain-tracing
+        concept (every place they do appear traces back to an OutboxRecord or a consumed
+        RuntimeEventEnvelope), structurally undefined for a synchronous worker/admin HTTP
+        action with no upstream event driving it; idempotencyKey already serves the
+        "identify/dedupe/trace this specific action" role SPEC-ARO-003's own baseline gives
+        it for exactly these commands. Two batch-summary log lines (claim_ready()'s own
+        "action=claim_ready_tasks" line, dispatch_outbox_events.py's own
+        "action=dispatch_outbox_events" line, recover_workflow.py's own
+        "action=scan_and_recover_workflows" line) were left as-is: each covers potentially
+        many workflows/tickets in one scan, so a single ticketId/ticketCycleId value would
+        misrepresent the log line, not complete it — the per-item RECOVERY_DECISION/
+        TASK_TRANSITION audit entries and per-item _retry/_mark_stale log lines already
+        carry the real per-instance ids these batch summaries structurally cannot.
+      - Alerts (6 named triggers: outbox backlog, task lease mass-expiry, WAITING_* SLA
+        breach, poison event, recovery worker repeated failure, Tool Gateway callback
+        missing/timeout): confirmed, not built — SPEC-ARO-034's own traceability entry
+        already drew this exact boundary ("alerting rules consume the metrics this spec
+        emits, but rule authoring belongs to ops/infra config outside this service's own
+        code"), restated here as this final audit's own conclusion: every metric an
+        alerting rule for these six triggers would need
+        (agent_runtime_outbox_pending/_publish_failed_total, _task_lease_expired_total,
+        the WAITING_* states already queryable via GET /workflows, poison_events already
+        queryable via GET /admin/poison-events, _workflow_recovered_total,
+        request_tool.py's own ToolRequest status) already genuinely exists and is
+        genuinely exported — release-readiness for Alerts means "the signals are real and
+        available," which they are; authoring the six actual alert rules remains outside
+        this service's own repository.
+
+    One pre-existing, real gap re-confirmed (not re-litigated): SPEC-ARO-035's own
+    traceability entry already found and documented that "admin API requires admin
+    permission" (14-testing-strategy's own 安全测试 list) has no real enforcement anywhere
+    in interfaces/admin/ — restated here for release-readiness visibility since this is the
+    domain's own final spec, not re-attempted, for the identical reason SPEC-ARO-035 gave
+    (production security-feature scope creep bolted onto a coverage-audit/test-harness
+    spec, with no spec anywhere in this roadmap naming itself that feature's owner).
+
+    Verified: 442 unit tests (up from 441 — one new test,
+    test_scan_and_recover_resolves_the_real_ticket_id_and_ticket_cycle_id, proving via
+    caplog + a real InMemoryAuditRecordRepository that the new WorkflowInstanceRepository
+    lookup in RecoverExpiredLeaseTasksService genuinely resolves real ids rather than only
+    exercising its own defensive None fallback), 60 integration tests (unchanged in count,
+    all still green against real Postgres/RabbitMQ constructors with the new
+    WorkflowInstanceRepository/AuditRecorder dependencies wired in). lint-imports 3/3
+    contracts kept. ruff --select F,E9 clean. No new migration — no schema changed.
+
+    Real E2E against the docker-compose Postgres + RabbitMQ instance (port 8036): started,
+    paused, resumed a workflow and claimed its task, confirming ticket_cycle_id is
+    genuinely present on every start_workflow/pause_workflow/resume_workflow/claim_task log
+    line emitted by the real running process (not just asserted in a unit test); force-
+    recovered the same workflow via the admin endpoint and confirmed both the new
+    ticket_id/ticket_cycle_id-carrying log line AND a real, newly-queryable
+    ADMIN_INTERVENTION row via GET /admin/audit-events, cross-checked against the response
+    body directly; issued a request-tool call and confirmed its own log line also carries
+    ticket_cycle_id now.
+
+    With this spec, every spec in domain 03-agent-runtime-orchestration's own roadmap
+    (SPEC-ARO-001 through SPEC-ARO-036) is status: implemented.
   lld_mapping:
     - 14-testing-strategy
     - 12-observability

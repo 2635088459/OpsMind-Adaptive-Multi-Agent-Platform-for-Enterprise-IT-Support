@@ -2,7 +2,83 @@ SPEC-ARO-025:
   domain: 03-agent-runtime-orchestration
   name: Publish Workflow Lifecycle Events
   cn_name: 发布 Workflow Lifecycle Events
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    08-transaction-and-outbox's own Start/Pause/Resume transaction sections were already
+    fully implemented (phases 00-04): every workflow lifecycle transition writes its
+    outbox row in the same application-service method as the domain state change, before
+    any publish attempt — the outbox mechanics this spec's own mapped section describes
+    were never the gap. Two concrete, already-built-but-unwired signals pointed at the
+    real gap instead: EventPublisherPort's own docstring ("Real RabbitMQ wiring is
+    phase-07"), and pyproject.toml's own comment ("RabbitMQ async client ... still land
+    later ... phase-05/06/07") — SPEC-ARO-003's LoggingEventPublisherAdapter was always
+    meant to be a placeholder, and the docker-compose `opsmind-rabbitmq` container it
+    would connect to already existed, unused, this whole session. Confirmed the scope
+    with the user (AskUserQuestion) before committing to it, given the size of the
+    change (a new runtime dependency, a new adapter, a real broker to test against) and
+    a second, independent finding worth folding into the same spec: every workflow
+    lifecycle outbox event's own event_type was written with an internal
+    "agent_runtime.workflow.*" prefix (SPEC-ARO-003's original naming), not the external
+    contract name 06-event-contracts' own "发布事件" section documents ("workflow.
+    started.v1", not "agent_runtime.workflow.started") — a real broker publishing under
+    the wrong routing key would be a functionally broken publish, not just a cosmetic
+    mismatch, so fixing it was inseparable from building the real adapter.
+
+    Added pika (blocking client) as a new dependency — not an async client, deliberately:
+    every application service and FastAPI route in this codebase is synchronous end to
+    end, and testcontainers' own RabbitMqContainer test double depends on pika itself,
+    reinforcing it as the natural fit over introducing a second, asyncio-based execution
+    model alongside the SQLAlchemy Core synchronous session pattern used everywhere else.
+    New RabbitMqEventPublisherAdapter (infrastructure.event_publisher_rabbitmq) lazily
+    opens and reuses a single blocking connection/channel across publish() calls
+    (DispatchOutboxEventsService may call it once per record in a batch), reconnecting on
+    the *next* call after any failure rather than trying to recover mid-call — the
+    retry/backoff decision stays entirely in DispatchOutboxEventsService's own hands, a
+    returned False being a normal, already-handled outcome (08-transaction-and-outbox:
+    "发布失败过多后进入 DEAD_LETTER"), not a bug. Assembles 06-event-contracts' own
+    "Envelope" shape (eventId/eventType/aggregateId/ticketId/correlationId/causationId/
+    occurredAt/payload) around OutboxRecord's already-separate fields, publishes to a
+    single durable topic exchange ("agent-runtime-events", routing key = event_type) with
+    delivery_mode=2 (persistent) and message_id = the outbox_id 08-transaction-and-outbox
+    itself requires ("发布必须带 event id，消费者依赖 event id 去重").
+
+    New Settings fields (rabbitmq_host/port/username/password/vhost/exchange, mirroring
+    docker-compose's own RABBITMQ_* env var names/defaults) plus a new
+    event_publisher_adapter: Literal["logging", "rabbitmq"] toggle. Deliberately defaults
+    to "logging", unlike agent_runtime_persistence's own "postgres" default: every
+    hermetic unit test that boots the container without overriding this setting must not
+    silently attempt a real broker connection — a service that merely logs an unpublished
+    event on an unconfigured host is a safe, inert default, unlike silently falling back
+    to non-durable storage (the reasoning agent_runtime_persistence's own docstring gives
+    for defaulting the *other* way). container.py picks the real adapter only when
+    EVENT_PUBLISHER_ADAPTER=rabbitmq is explicitly set.
+
+    Event_type renamed for the three lifecycle events this spec owns
+    (workflow.started.v1/workflow.paused.v1/workflow.resumed.v1) in start_workflow.py/
+    pause_workflow.py/resume_workflow.py — a straight rename, not an alias, since nothing
+    before this spec ever published to a real broker under the old internal name, so
+    there is no compatibility concern. agent.task.completed.v1's and workflow.completed.
+    v1/workflow.failed.v1's own analogous renames are left to SPEC-ARO-026/027, keeping
+    each spec's diff scoped to the event family its own name claims.
+
+    Verified with 339 tests total (up from 336): 295 unit/architecture (two existing
+    assertions in test_start_workflow_service.py/test_consume_ticket_created_service.py
+    updated for the renamed event_type; no other test asserted the old string), plus a
+    new tests/integration/test_rabbitmq_event_publisher.py (marked integration, spinning
+    up an ephemeral RabbitMQ via testcontainers — not a mock) covering: the full envelope
+    round-trips correctly to a real bound queue with the right routing key/message_id/
+    content_type; the adapter reuses its connection across calls; a forcibly-closed
+    connection is transparently recovered on the next publish() rather than raising —
+    44 integration tests total. lint-imports (3/3 contracts kept — the new adapter lives
+    entirely in infrastructure, wired only through container.py, same boundary shape as
+    every other adapter), ruff --select F,E9 clean, and a real E2E against both
+    docker-compose services at once (opsmind-postgres AND opsmind-rabbitmq, the latter
+    started for the first time this session): the app booted with
+    EVENT_PUBLISHER_ADAPTER=rabbitmq, a real workflow start via the HTTP API, dispatched
+    through POST /admin/outbox/dispatch, and consumed back off a queue bound to the real
+    exchange — confirming the exact envelope shape, routing key, message_id, and
+    content_type a real downstream consumer would see.
   lld_mapping:
     - 06-event-contracts
     - 08-transaction-and-outbox

@@ -8,10 +8,23 @@ requires-python = ">=3.13"
 #
 # SPEC-ARO-001 established module and package boundaries with in-memory
 # placeholder adapters. SPEC-ARO-002 (schema baseline) adds the real
-# `agent_runtime` PostgreSQL schema via SQLAlchemy + Alembic. The RabbitMQ
-# async client, LangGraph, and LangSmith still land later (SPEC-ARO-003 /
-# phase-05/06/07 / phase-02) — see docs/low-level-design/shared/
-# technology-baseline for the full frozen Python Agent Runtime stack.
+# `agent_runtime` PostgreSQL schema via SQLAlchemy + Alembic. SPEC-ARO-025
+# (phase-07) adds the real RabbitMQ publisher. SPEC-ARO-034 adds
+# opentelemetry-api/sdk ("OpenTelemetry Python" is explicitly listed in the
+# frozen Python Agent Runtime stack, docs/low-level-design/shared/
+# technology-baseline §10 "System Observability") — no live OTel
+# Collector/Prometheus exists in this repo's own docker-compose yet, so the
+# default exporter is Console (see settings.otel_exporter), the same
+# honesty-over-fabrication stance LoggingEventPublisherAdapter took before
+# SPEC-ARO-025 confirmed a real RabbitMQ container. LangGraph and LangSmith
+# still land later (phase-02).
+#
+# pika (blocking client), not an async client: every application service and
+# FastAPI route in this codebase is synchronous (`def`, never `async def`) —
+# testcontainers' own RabbitMqContainer test double also depends on pika, not
+# aio-pika, reinforcing this as the natural fit rather than introducing a
+# second, asyncio-based execution model alongside the SQLAlchemy Core
+# synchronous session pattern everywhere else.
 dependencies = [
     "fastapi>=0.118",
     "pydantic>=2.9",
@@ -20,6 +33,10 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
+    "pika>=1.3",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
 ]
 
 [dependency-groups]
@@ -27,7 +44,7 @@ dev = [
     "pytest>=8.3",
     "httpx>=0.28",
     "import-linter>=2.1",
-    "testcontainers[postgres]>=4.9",
+    "testcontainers[postgres,rabbitmq]>=4.9",
 ]
 
 [build-system]

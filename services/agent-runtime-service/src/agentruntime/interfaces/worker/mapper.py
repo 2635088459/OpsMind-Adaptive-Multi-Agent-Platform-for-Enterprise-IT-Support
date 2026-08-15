@@ -35,6 +35,7 @@ def to_request_tool_command(request: RequestToolRequest) -> RequestToolCommand:
     return RequestToolCommand(
         WorkflowInstanceId(request.workflow_instance_id), AgentTaskId(request.agent_task_id),
         request.checkpoint_payload, request.tool_name, request.tool_request_payload, IdempotencyKey(request.idempotency_key),
+        LeaseToken(request.claim_token), request.capability,
     )
 
 
@@ -52,4 +53,6 @@ def to_claim_ready_response(views: list[AgentTaskView]) -> ClaimReadyAgentTasksR
 
 
 def to_tool_request_response(view: ToolRequestView) -> ToolRequestResponse:
-    return ToolRequestResponse(tool_request_id=view.tool_request_id.value, status=view.status.name, updated_at=view.updated_at)
+    return ToolRequestResponse(
+        tool_request_id=view.tool_request_id.value, status=view.status.name, updated_at=view.updated_at, capability=view.capability
+    )

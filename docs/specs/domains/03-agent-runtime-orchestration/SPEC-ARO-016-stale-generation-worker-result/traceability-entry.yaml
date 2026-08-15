@@ -2,7 +2,69 @@ SPEC-ARO-016:
   domain: 03-agent-runtime-orchestration
   name: Stale Generation Worker Result
   cn_name: 旧 Generation Worker Result 防护
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    domain.enums.AgentTaskState.STALE's own docstring, written back in SPEC-ARO-007, named
+    this spec directly: "Claim generation expired or workflow version mismatched
+    (09-concurrency-and-idempotency already rejects a stale completion via
+    StalePauseGenerationException at the application layer) — persisting that outcome as
+    this state, and the path back to claimable, is SPEC-ARO-016's job." Half of that was
+    already done before this spec touched anything: AgentTaskState.is_claimable() already
+    included STALE alongside READY/CLAIMED/RUNNING, and domain.agent_task.claim() already
+    treats a non-READY state with an expired lease as reclaimable regardless of which
+    non-READY state it is — the "path back to claimable" was structurally complete. The
+    other half — "persisting that outcome as this state" — was not: when
+    CompleteAgentTaskService rejected a submission for a stale workflowVersion or
+    pauseGeneration (StaleWorkflowVersionException/StalePauseGenerationException), the
+    task record was simply left untouched, sitting in CLAIMED/RUNNING limbo with no audit
+    trail of the rejection and no way to tell it apart from a task still genuinely in
+    progress. 10-failure-handling's own crash-recovery step 5 ("对 CLAIMED/RUNNING 且
+    lease 过期的 task 做 retry 或 stale 标记") names "stale 标记" as one of the two
+    legitimate outcomes for such a task, and 02-business-invariants' domain-rules
+    ("失败路径必须保留可审计原因") demands an auditable reason for it. Closed by adding
+    domain.agent_task.mark_stale() (a new AgentTaskStaled event, reusing complete()/
+    fail()'s own _require_active_claim() guard so it is a no-op — not an overwrite — against
+    a task that already reached a terminal state or was already marked STALE by a
+    concurrent rejection) and calling it from CompleteAgentTaskService immediately before
+    each of the two staleness exceptions is raised. A second, necessary fix surfaced while
+    wiring this in: domain.agent_task.claim()'s AlreadyClaimed guard blocks reclaiming any
+    non-READY task while its lease is still unexpired — with the lease left untouched, a
+    newly-STALE task would sit unreclaimable for the *original* worker's full remaining
+    lease duration (potentially minutes), even though going stale is exactly proof that
+    worker's claim can no longer be trusted. CompleteAgentTaskService's mark-stale path now
+    also clears lease_expires_at (worker_id/claim_token are left in place as an audit trail
+    of who held the claim right before it went stale), making a STALE task immediately
+    reclaimable rather than lease-gated — genuinely completing "the path back to
+    claimable," not just the structural is_claimable() check. Deliberately out of scope: a
+    new outbox event for the STALE transition (agent_runtime.agent_task.completed/.failed
+    already exist for the two real outcomes, but neither of this spec's two mapped LLD
+    sections asks for a third one, and 06-event-contracts isn't mapped here) and
+    10-failure-handling's own crash-recovery sweep itself (its point 5 sits inside "Runtime
+    崩溃后怎么恢复," the periodic Recovery worker's own scan — RecoverWorkflowService's
+    docstring already defers "a full reconciliation sweep" to phase-08; this spec closes
+    what happens at the moment a stale result is actively rejected, not a proactive sweep
+    for abandoned claims nobody ever resubmitted). Also confirmed
+    ClaimTokenMismatchException (a third, distinct rejection — wrong worker/token, not a
+    stale generation) deliberately does not mark STALE, since it doesn't fit either
+    exception this spec's own scope names. Verified with 246 tests (217 unit/architecture,
+    up from 209 — added domain tests for mark_stale()'s CLAIMED/RUNNING->STALE transition,
+    its terminal-state guard, and its blank-reason rejection; application tests proving
+    both staleness exceptions persist STALE with lease_expires_at cleared, proving an
+    already-terminal task is never overwritten by a late stale rejection, and proving a
+    STALE task is immediately reclaimable through the real ClaimAgentTaskService; fixed
+    tests/test_app.py's full-lifecycle test, whose existing stale-workflow-version scenario
+    now correctly demonstrates the original claim can no longer complete the task
+    afterward and a fresh claim is required; plus 29 integration tests against ephemeral
+    testcontainers Postgres, unchanged and still green), lint-imports (3/3 contracts kept),
+    ruff --select F,E9 clean, and a curl walkthrough against the real docker-compose
+    Postgres covering the full journey: claim a task, bump the workflow's version out from
+    under it via a real pause+resume, submit a stale completion (rejected 409, task
+    persisted STALE), attempt a retry with the corrected version under the same claim
+    (still rejected 409 — the claim itself is void), claim the same task fresh with a new
+    worker under a long original lease (succeeds immediately, proving the lease was
+    released), and complete it normally — cross-checked directly against
+    `agent_runtime.agent_tasks`.
   lld_mapping:
     - 02-business-invariants
     - 10-failure-handling

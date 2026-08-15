@@ -12,7 +12,10 @@ stays available for a caller that already knows precisely which task it wants).
 from __future__ import annotations
 
 import dataclasses
+import logging
 from datetime import timedelta
+
+from opentelemetry import trace
 
 from agentruntime.application.commands import ClaimAgentTaskCommand, ClaimReadyAgentTasksCommand
 from agentruntime.application.exceptions import (
@@ -23,6 +26,8 @@ from agentruntime.application.exceptions import (
 )
 from agentruntime.application.ports_out import AgentTaskRepository, ClockPort, WorkflowInstanceRepository
 from agentruntime.application.records import WorkflowInstanceRecord
+from agentruntime.application.services.audit import AuditRecorder
+from agentruntime.application.telemetry import RuntimeTelemetry
 from agentruntime.application.views import AgentTaskView
 from agentruntime.domain import agent_task
 from agentruntime.domain.enums import AgentTaskState, WorkflowState
@@ -32,6 +37,9 @@ from agentruntime.domain.exceptions import (
     InvalidAgentTaskTransitionException,
 )
 from agentruntime.domain.ids import LeaseToken, WorkflowInstanceId
+
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 # SPEC-ARO-009: how many extra READY candidates find_claimable_ready_tasks() is asked
 # for beyond max_tasks, to give claim_ready() a fallback buffer when some candidates
@@ -44,13 +52,20 @@ _CANDIDATE_OVER_FETCH_FACTOR = 3
 
 class ClaimAgentTaskService:
     def __init__(
-        self, agent_task_repository: AgentTaskRepository, workflow_instance_repository: WorkflowInstanceRepository, clock: ClockPort
+        self, agent_task_repository: AgentTaskRepository, workflow_instance_repository: WorkflowInstanceRepository, clock: ClockPort,
+        telemetry: RuntimeTelemetry, audit_recorder: AuditRecorder,
     ) -> None:
         self._agent_task_repository = agent_task_repository
         self._workflow_instance_repository = workflow_instance_repository
         self._clock = clock
+        self._telemetry = telemetry
+        self._audit_recorder = audit_recorder
 
     def claim(self, command: ClaimAgentTaskCommand) -> AgentTaskView:
+        with tracer.start_as_current_span("task.claim"):
+            return self._claim_traced(command)
+
+    def _claim_traced(self, command: ClaimAgentTaskCommand) -> AgentTaskView:
         workflow = self._workflow_instance_repository.find_by_id(command.workflow_instance_id)
         if workflow is None:
             raise WorkflowInstanceNotFoundException(command.workflow_instance_id)
@@ -83,6 +98,17 @@ class ClaimAgentTaskService:
         )
         saved = self._agent_task_repository.save(updated)
 
+        logger.info(
+            "action=claim_task status=completed workflow_instance_id=%s ticket_id=%s ticket_cycle_id=%s "
+            "agent_task_id=%s worker_id=%s",
+            target.workflow_instance_id, workflow.ticket_id, workflow.ticket_cycle_id, target.id, command.worker_id,
+        )
+        self._telemetry.record_task_claimed()
+        self._audit_recorder.record(
+            "TASK_TRANSITION", "claim_task", "AgentTask", str(target.id), "SUCCESS",
+            workflow_instance_id=target.workflow_instance_id, ticket_id=workflow.ticket_id, actor_type="WORKER",
+            actor_id=command.worker_id,
+        )
         return AgentTaskView.from_record(saved, workflow_version=workflow.workflow_version)
 
     def claim_ready(self, command: ClaimReadyAgentTasksCommand) -> list[AgentTaskView]:
@@ -100,6 +126,10 @@ class ClaimAgentTaskService:
         (_CANDIDATE_OVER_FETCH_FACTOR) so a handful of lost races don't by themselves
         starve this call down to zero when the role's READY pool still has plenty left.
         """
+        with tracer.start_as_current_span("task.claim"):
+            return self._claim_ready_traced(command)
+
+    def _claim_ready_traced(self, command: ClaimReadyAgentTasksCommand) -> list[AgentTaskView]:
         candidates = self._agent_task_repository.find_claimable_ready_tasks(
             command.agent_role, command.max_tasks * _CANDIDATE_OVER_FETCH_FACTOR
         )
@@ -147,7 +177,17 @@ class ClaimAgentTaskService:
             except AgentTaskVersionConflictException:
                 continue  # another worker won this row first
             claimed.append(AgentTaskView.from_record(saved, workflow_version=workflow.workflow_version))
+            self._telemetry.record_task_claimed()
+            self._audit_recorder.record(
+                "TASK_TRANSITION", "claim_task", "AgentTask", str(saved.id), "SUCCESS",
+                workflow_instance_id=saved.workflow_instance_id, ticket_id=workflow.ticket_id, actor_type="WORKER",
+                actor_id=command.worker_id,
+            )
 
+        logger.info(
+            "action=claim_ready_tasks status=completed agent_role=%s worker_id=%s requested=%s claimed=%s",
+            command.agent_role, command.worker_id, command.max_tasks, len(claimed),
+        )
         return claimed
 
     def _is_dependency_completed(self, workflow_instance_id: WorkflowInstanceId, dependency_key: str) -> bool:

@@ -2,7 +2,49 @@ SPEC-ARO-015:
   domain: 03-agent-runtime-orchestration
   name: Resume Workflow Command
   cn_name: Resume Workflow Command
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Audited ResumeWorkflowService against every one of 04-use-cases UC-07 Resume's 7
+    steps. Steps 1/2/3/6/7 (API-triggered, idempotency dedup, validate PAUSED, transition
+    to RUNNING, workflow.resumed.v1 outbox) were already implemented since SPEC-ARO-003 —
+    step 3 in particular is enforced by domain.workflow_instance.resume() itself, which
+    requires current_state == PAUSED and raises InvalidWorkflowTransitionException
+    otherwise; 09-concurrency-and-idempotency's own "conflict" outcome for a new key
+    against an already-resumed workflow is exactly that domain guard, not a separate
+    check. Step 5 ("restore incomplete, non-cancelled tasks to READY") needed no new code:
+    an Agent Task's own state is never mutated by pause or resume in this design — a READY
+    task simply becomes claimable again the instant this service flips workflow.state back
+    to RUNNING (ClaimAgentTaskService's own RUNNING gate is what made it unclaimable in the
+    first place), and a CLAIMED/RUNNING task's staleness across a pause/resume cycle is
+    already caught by StalePauseGenerationException at completion time, an orthogonal,
+    already-tested mechanism this spec does not touch. The one genuine gap was step 4,
+    "read the PAUSED checkpoint": ResumeWorkflowService never looked at CheckpointRepository
+    at all. Closed by adding a check, once the domain call confirms the workflow really was
+    PAUSED, that a CheckpointType.PAUSE_POINT checkpoint (SPEC-ARO-012) actually exists for
+    it — raising a new PauseCheckpointNotFoundException (mapped to 500
+    PAUSE_CHECKPOINT_NOT_FOUND, not a 4xx: a PAUSED workflow with no pause checkpoint means
+    02-business-invariants §"Checkpoint Invariants" ("every recoverable waiting state must
+    include a checkpoint") was violated somewhere else, not that the caller made a bad
+    request) before any write happens, so a violated invariant blocks the whole resume
+    rather than the checkpoint read being informational only. In real operation this check
+    can never fail — PauseWorkflowService always writes the checkpoint before reaching
+    PAUSED — so it functions as a load-bearing consistency guard against
+    data loss/corruption or a future bypass of PauseWorkflowService, matching the same
+    "make an invariant-holding column earn its keep instead of being silently discarded"
+    posture this whole domain has followed since SPEC-ARO-009's agent_role. Verified with
+    238 tests (209 unit/architecture, up from 205 — added a dedicated test proving resume
+    is rejected with PauseCheckpointNotFoundException when a PAUSED row has no matching
+    checkpoint, using a hand-constructed PAUSED record rather than the real
+    PauseWorkflowService precisely because the real one can no longer produce that state;
+    plus 29 integration tests against ephemeral testcontainers Postgres, unchanged and
+    still green — the real pause/resume round trip in the full-lifecycle test already
+    exercises the new check's happy path), lint-imports (3/3 contracts kept), ruff
+    --select F,E9 clean, and a curl walkthrough against the real docker-compose Postgres
+    covering both a normal pause-then-resume round trip (succeeds, because the real
+    PAUSE_POINT checkpoint is there) and a directly-inserted PAUSED row with no checkpoint
+    behind it (resume rejected with 500 PAUSE_CHECKPOINT_NOT_FOUND, the orphaned row left
+    completely untouched — confirmed by re-querying it afterward).
   lld_mapping:
     - 04-use-cases
     - 09-concurrency-and-idempotency

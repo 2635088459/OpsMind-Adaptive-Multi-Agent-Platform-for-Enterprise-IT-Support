@@ -16,15 +16,20 @@ WorkflowDefinitionInput first.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
+
+from opentelemetry import trace
 
 from agentruntime.application.commands import StartWorkflowCommand, TaskNodeInput, WorkflowDefinitionInput
 from agentruntime.application.exceptions import DuplicateActiveWorkflowInstanceException
 from agentruntime.application.ports_out import CheckpointRepository, ClockPort, CommandIdempotencyRepository, OutboxRepository, WorkflowInstanceRepository
 from agentruntime.application.records import CheckpointRecord, OutboxRecord, WorkflowInstanceRecord
 from agentruntime.application.services import task_graph_codec
+from agentruntime.application.services.audit import AuditRecorder
 from agentruntime.application.services.coordinate_agent_tasks import CoordinateAgentTasksService
 from agentruntime.application.services.idempotency import CommandIdempotencyGuard
+from agentruntime.application.telemetry import RuntimeTelemetry
 from agentruntime.application.views import WorkflowInstanceView
 from agentruntime.domain import checkpoint, workflow_instance
 from agentruntime.domain.enums import CheckpointType, JoinPolicy
@@ -32,7 +37,14 @@ from agentruntime.domain.events import WorkflowStarted
 from agentruntime.domain.ids import CausationId, CheckpointId, CorrelationId, DefinitionVersion, WorkflowDefinitionId, WorkflowInstanceId, WorkflowType
 from agentruntime.domain.task_graph import TaskGraph, TaskNode, WorkflowDefinition
 
-_EVENT_TYPE = "agent_runtime.workflow.started"
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
+
+# SPEC-ARO-025 06-event-contracts §"workflow.started.v1": the external contract name,
+# not an internal "agent_runtime.*" prefix (SPEC-ARO-003's original naming, corrected
+# here — nothing before this spec ever published to a real broker under it, so there is
+# no compatibility concern in renaming outright rather than aliasing).
+_EVENT_TYPE = "workflow.started.v1"
 _EVENT_SCHEMA_VERSION = 1
 _CHECKPOINT_SCHEMA_VERSION = 1
 _COMMAND_TYPE = "start_workflow"
@@ -47,12 +59,16 @@ class StartWorkflowService:
         command_idempotency_repository: CommandIdempotencyRepository,
         clock: ClockPort,
         coordinate_agent_tasks_service: CoordinateAgentTasksService,
+        telemetry: RuntimeTelemetry,
+        audit_recorder: AuditRecorder,
     ) -> None:
         self._workflow_instance_repository = workflow_instance_repository
         self._checkpoint_repository = checkpoint_repository
         self._outbox_repository = outbox_repository
         self._clock = clock
         self._coordinate_agent_tasks_service = coordinate_agent_tasks_service
+        self._telemetry = telemetry
+        self._audit_recorder = audit_recorder
         self._idempotency_guard = CommandIdempotencyGuard(command_idempotency_repository, clock)
 
     def start(self, command: StartWorkflowCommand) -> WorkflowInstanceView:
@@ -75,6 +91,10 @@ class StartWorkflowService:
         )
 
     def _start(self, command: StartWorkflowCommand) -> WorkflowInstanceView:
+        with tracer.start_as_current_span("workflow.start"):
+            return self._start_traced(command)
+
+    def _start_traced(self, command: StartWorkflowCommand) -> WorkflowInstanceView:
         definition = self._to_domain_definition(command.definition)
 
         active_instance = self._workflow_instance_repository.find_active_by_ticket_cycle_and_type(
@@ -90,31 +110,51 @@ class StartWorkflowService:
             definition.id, definition.version, now,
         )
 
+        # SPEC-ARO-028: the checkpoint id is minted up front, not after saving the
+        # Workflow Instance, so current_checkpoint_id can point at it in this same
+        # save — no second write purely to record the pointer.
+        checkpoint_id = CheckpointId.new_id()
         record = WorkflowInstanceRecord(
             id=workflow_instance_id, ticket_id=command.ticket_id, ticket_cycle_id=command.ticket_cycle_id,
             workflow_type=definition.workflow_type, definition_id=definition.id, definition_version=definition.version,
-            state=event.to_state, workflow_version=event.workflow_version, pause_generation=0, created_at=now, updated_at=now,
+            state=event.to_state, workflow_version=event.workflow_version, pause_generation=0,
+            current_checkpoint_id=checkpoint_id, completed_at=None, created_at=now, updated_at=now,
         )
         saved = self._workflow_instance_repository.save(record)
 
+        correlation_id = CorrelationId.new_id()
+        causation_id = CausationId.new_id()
         self._outbox_repository.append(OutboxRecord(
             outbox_id=uuid.uuid4(), workflow_instance_id=workflow_instance_id, ticket_id=command.ticket_id,
-            correlation_id=CorrelationId.new_id(), causation_id=CausationId.new_id(), event_type=_EVENT_TYPE,
+            correlation_id=correlation_id, causation_id=causation_id, event_type=_EVENT_TYPE,
             schema_version=_EVENT_SCHEMA_VERSION, payload=self._to_payload(event), occurred_at=now,
         ))
 
         checkpoint_event = checkpoint.record(
-            CheckpointId.new_id(), workflow_instance_id, CheckpointType.STARTED,
+            checkpoint_id, workflow_instance_id, CheckpointType.STARTED,
             _CHECKPOINT_SCHEMA_VERSION, task_graph_codec.encode(definition), now,
+            workflow_version=event.workflow_version,
         )
         self._checkpoint_repository.save(CheckpointRecord(
             id=checkpoint_event.checkpoint_id, workflow_instance_id=checkpoint_event.workflow_instance_id,
             type=checkpoint_event.type, schema_version=checkpoint_event.schema_version,
             payload=checkpoint_event.payload, recorded_at=checkpoint_event.occurred_at,
+            workflow_version=checkpoint_event.workflow_version, checksum=checkpoint_event.checksum, cursor=checkpoint_event.cursor,
         ))
 
         self._coordinate_agent_tasks_service.materialize_runnable_tasks(workflow_instance_id, event.to_state, definition.task_graph, now)
 
+        logger.info(
+            "action=start_workflow status=completed workflow_instance_id=%s ticket_id=%s ticket_cycle_id=%s "
+            "correlation_id=%s causation_id=%s",
+            workflow_instance_id, command.ticket_id, command.ticket_cycle_id, correlation_id, causation_id,
+        )
+        self._telemetry.record_workflow_started(str(definition.workflow_type))
+        self._audit_recorder.record(
+            "WORKFLOW_TRANSITION", "start_workflow", "WorkflowInstance", str(workflow_instance_id), "SUCCESS",
+            workflow_instance_id=workflow_instance_id, ticket_id=command.ticket_id,
+            correlation_id=str(correlation_id), causation_id=str(causation_id),
+        )
         return WorkflowInstanceView.from_record(saved)
 
     def _to_domain_definition(self, definition_input: WorkflowDefinitionInput) -> WorkflowDefinition:

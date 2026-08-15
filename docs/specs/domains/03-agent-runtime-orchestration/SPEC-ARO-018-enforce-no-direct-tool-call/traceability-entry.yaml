@@ -2,7 +2,58 @@ SPEC-ARO-018:
   domain: 03-agent-runtime-orchestration
   name: Enforce No Direct Tool Call
   cn_name: 禁止 Agent 直连 Tool
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Audited both of this spec's mapped LLD sections against the current codebase.
+    02-business-invariants §"Tool Gateway Boundary": "因此任何 Agent SDK、Agent Worker 或
+    Task Handler 都不能持有 Tool client。只能持有 ToolGatewayPort 的请求接口，且接口实现位于
+    Runtime adapter 层" — this exact code-level boundary was already fully enforced by
+    tests/architecture/test_tool_gateway_boundary.py (an AST import scan proving only
+    RequestToolService and ports_out.py may reference ToolGatewayPort at all, mirroring
+    the Java siblings' ArchUnit rule), in place since SPEC-ARO-001. The literal "Agent
+    Worker/Task Handler must not hold a Tool client" rule is about code that lives outside
+    this repository entirely (the external Agent Worker process); nothing more to enforce
+    there from agent-runtime-service's own side. The real, concrete gap surfaced by
+    re-reading 11-security §"Authorization" against RequestToolCommand's actual shape:
+    "claim/complete task：受信 worker identity" — claim and complete both require a
+    claimToken proving the caller holds the task's own lease (ClaimTokenMismatchException),
+    but RequestToolCommand had no claim_token field at all, and RequestToolService never
+    checked one. A caller only needed to know a workflow_instance_id and agent_task_id —
+    neither secret, both visible in any ordinary claim/complete response — to dispatch a
+    tool request against a task it never claimed, undermining the exact rationale
+    02-business-invariants gives for routing everything through the Tool Gateway in the
+    first place ("Runtime 需要统一做权限检查"). Closed by adding a required claim_token to
+    RequestToolCommand/RequestToolRequest and validating it in RequestToolService against
+    the Agent Task's own lease_token — the identical mechanism and identical exception
+    (ClaimTokenMismatchException) CompleteAgentTaskService already uses, checked before the
+    checkpoint is written or ToolGatewayPort is ever touched, so a rejected, unauthorized
+    attempt leaves no side effect behind. This also required RequestToolService to gain an
+    AgentTaskRepository dependency it never had, and surfaced a companion gap while adding
+    it: an unknown agent_task_id now correctly raises AgentTaskNotFoundException (404)
+    instead of silently proceeding to write a checkpoint for a task that does not exist.
+    Deliberately out of scope: workflowVersion/pauseGeneration staleness re-validation on
+    this same path — that is SPEC-ARO-016's own, already-implemented topic
+    (09-concurrency-and-idempotency, not mapped to this spec), and duplicating its
+    mark-stale machinery a third time here was not asked for. Also deliberately out of
+    scope: checkpoint payload secret-scanning ("Checkpoint 不能保存明文 secret" —
+    01-domain-model, and domain.checkpoint's own docstring already flags this as deferred)
+    and capability-based authorization enforcement (SPEC-ARO-017 added the capability
+    field itself, but validating it against anything is explicitly SPEC-ARO-032's
+    "Runtime 安全与权限," 11-security) — both belong to phase-09's dedicated security specs
+    (SPEC-ARO-032/033), not this one. Verified with 257 tests (227 unit/architecture, up
+    from 224 — rewrote the request_tool_service test fixture around real claimed Agent
+    Task records instead of bare AgentTaskIds, and added dedicated tests for an unknown
+    agent_task_id, a wrong claim_token leaving no checkpoint/dispatch behind, and a
+    never-claimed task's absent lease_token being rejected the same way; plus 30
+    integration tests against ephemeral testcontainers Postgres with the same claim_token
+    threaded through the real-schema lifecycle test), lint-imports (3/3 contracts kept,
+    confirming the ToolGatewayPort boundary is still intact), ruff --select F,E9 clean, and
+    a curl walkthrough against the real docker-compose Postgres covering: an unknown
+    agent_task_id rejected 404; a wrong claim_token against a genuinely claimed task
+    rejected 409 CLAIM_TOKEN_MISMATCH with zero rows written to either
+    `agent_runtime.checkpoints` or `agent_runtime.tool_requests` (confirmed by direct
+    query); and the real claim holder's request dispatching normally.
   lld_mapping:
     - 02-business-invariants
     - 11-security

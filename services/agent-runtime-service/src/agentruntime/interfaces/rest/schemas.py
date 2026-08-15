@@ -47,7 +47,9 @@ class WorkflowResponse(BaseModel):
 
 
 class CheckpointResponse(BaseModel):
-    """SPEC-ARO-006 05-api-contracts "GET /workflows/{workflowInstanceId}/checkpoints/latest"."""
+    """SPEC-ARO-006 05-api-contracts "GET /workflows/{workflowInstanceId}/checkpoints/latest".
+    workflow_version/checksum/cursor are SPEC-ARO-011's Checkpoint minimal fields.
+    """
 
     checkpoint_id: UUID
     workflow_instance_id: UUID
@@ -55,3 +57,6 @@ class CheckpointResponse(BaseModel):
     schema_version: int
     payload: str
     recorded_at: datetime
+    workflow_version: int
+    checksum: str
+    cursor: str | None

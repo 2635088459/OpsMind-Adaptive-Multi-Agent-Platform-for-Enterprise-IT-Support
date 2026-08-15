@@ -2,7 +2,78 @@ SPEC-ARO-030:
   domain: 03-agent-runtime-orchestration
   name: Outbox Replay and Publisher Recovery
   cn_name: Outbox Replay 与 Publisher Recovery
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    10-failure-handling §"Runtime 崩溃后怎么恢复" step 3: "重放未发布 outbox" —
+    recover_workflow.py's own SPEC-ARO-028 docstring already named this step as
+    explicitly out of that spec's scope ("outbox replay... is phase-08"/"SPEC-ARO-029/
+    030's own job"), and SPEC-ARO-029 took the lease-expiry half (steps 4-5), leaving
+    step 3 as this spec's own real scope.
+
+    Already-built-but-unwired signal that set the concrete shape of the work:
+    domain.enums.OutboxStatus.DEAD_LETTER's own docstring already said "attempts
+    exceeded the configured maximum; requires manual/ops intervention" — but no such
+    intervention existed anywhere in the codebase. DispatchOutboxEventsService
+    (SPEC-ARO-018) already fully implements the "Outbox Publisher" half of
+    08-transaction-and-outbox (scan by available_at, retry/backoff, mark_published,
+    dead-letter after repeated failures, publish with a stable event id) — but
+    find_dispatchable() only ever scans PENDING rows, so once a row reached
+    DEAD_LETTER it had no path back at all. "Outbox Replay" is that missing path;
+    "Publisher Recovery" (the other half of this spec's own name) turned out to be
+    already structurally satisfied by the existing design and needed no new code —
+    documented and confirmed with a test instead of built: dispatch_due_events() holds
+    no in-process state of its own, so resuming after a crash is simply calling it
+    again, and RabbitMqEventPublisherAdapter (SPEC-ARO-025) already publishes
+    OutboxRecord.outbox_id as the envelope's eventId, so a row republished under the
+    same id — whether by an ordinary retry, a post-crash resume, or a dead-letter
+    replay — is safely absorbed by consumer-side processed_events dedup
+    (02-business-invariants §"Event Handling Invariants").
+
+    New OutboxRepository.find_dead_letter(limit)/requeue(outbox_id, available_at):
+    the query-and-reset pair the replay is built on — requeue() resets status to
+    PENDING, attempts to 0, and available_at/published_at, so a requeued row is
+    indistinguishable from a fresh one to dispatch_due_events()'s own cycle. Implemented
+    in both InMemoryOutboxRepository and PostgresOutboxRepository.
+
+    New DispatchOutboxEventsService.replay_dead_letter(batch_size): requeues up to
+    `batch_size` DEAD_LETTER rows, then immediately calls its own dispatch_due_events()
+    — a replay that fails again re-enters the exact same retry/backoff/dead-letter
+    cycle a fresh row would, rather than a bespoke one-shot attempt. Reuses
+    DispatchReport as its own return type (not a new view) since the outcome shape
+    after a requeue-then-dispatch pass is identical to an ordinary dispatch pass — no
+    new report semantics to express, unlike SPEC-ARO-029's LeaseRecoveryReport, whose
+    retried/staled outcome categories didn't already exist anywhere.
+
+    New POST /admin/outbox/replay-dead-letter (manual/ops trigger until a real
+    scheduler exists, mirroring /admin/outbox/dispatch and every other phase-08
+    scanner's own admin surface). No new OutboxDispatchPort implementation was needed
+    — DispatchOutboxEventsService already is the port's sole implementer; only the
+    Protocol itself gained the new method signature.
+
+    Verified with 318 unit tests total (up from 313) — new tests: 4
+    DispatchOutboxEventsService tests (crash-resume safety confirmation; replay
+    requeues and republishes a dead-lettered event; replay leaves PENDING/PUBLISHED
+    rows untouched; replay respects batch_size) and 1 tests/test_app.py HTTP-level test
+    (seeding a DEAD_LETTER row directly via the container's repository, since no HTTP
+    path can force a real publish failure against the always-succeeding
+    LoggingEventPublisherAdapter). 52 integration tests total (up from 50): 1 new
+    PostgresOutboxRepository test (find_dead_letter/requeue round-trip through a real
+    Postgres UPDATE cycle) plus 1 new tests/integration/test_app_postgres_integration.py
+    HTTP-level walk against the real migrated schema. lint-imports (3/3 contracts
+    kept), ruff --select F,E9 clean.
+
+    Real E2E against the docker-compose Postgres + RabbitMQ instance (port 8030):
+    started a workflow, forced its workflow.started.v1 outbox row into DEAD_LETTER via
+    direct SQL (RabbitMQ being genuinely reachable in this environment means no HTTP
+    path can produce a real publish failure), confirmed POST
+    /admin/outbox/replay-dead-letter requeued it (attempts reset to 0, PENDING) and
+    immediately republished it (published_at set) — verified both via the dispatch
+    report and by actually receiving the exact message (matched by its outbox_id as
+    RabbitMQ's own message_id) on a real bound queue; confirmed a second replay call
+    found nothing left in DEAD_LETTER; confirmed /admin/outbox/dispatch called twice in
+    a row is idempotent (second call scans 0), the concrete behavior "Publisher
+    Recovery" rested on.
   lld_mapping:
     - 08-transaction-and-outbox
     - 10-failure-handling

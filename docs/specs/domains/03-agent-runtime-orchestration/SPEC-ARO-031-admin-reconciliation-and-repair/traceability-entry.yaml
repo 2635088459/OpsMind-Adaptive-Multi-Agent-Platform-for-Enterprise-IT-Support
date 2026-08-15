@@ -2,7 +2,100 @@ SPEC-ARO-031:
   domain: 03-agent-runtime-orchestration
   name: Admin Reconciliation and Repair
   cn_name: Admin 对账与修复
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    05-api-contracts §"Admin API" lists four capabilities: "retry failed task", "mark
+    poison event quarantined", "replay outbox", "force recover workflow." "replay
+    outbox" was already completed in SPEC-ARO-030 (POST /admin/outbox/replay-dead-letter).
+    Unlike every prior admin-scanner spec, no docstring/column anywhere in the codebase
+    already named SPEC-ARO-031 as an owner — this spec's real scope came purely from
+    this LLD bullet list's remaining three items, cross-checked against 03-state-machine.
+
+    Genuine tension found before writing any code: 03-state-machine explicitly says
+    FAILED_FINAL is "不可重试失败" (non-retryable failure), and every Workflow State
+    transition list entry is one-way into FAILED/COMPLETED/CANCELLED (no "FAILED ->
+    RUNNING" or equivalent). "retry failed task" and "force recover workflow" could
+    each be read either as staying within that invariant (operating only on non-terminal
+    stuck states) or as an explicit admin override that reverses a terminal state.
+    Confirmed with the user (AskUserQuestion) before writing any code: terminal states
+    stay immutable — no new domain function anywhere in this spec ever un-terminals
+    FAILED_FINAL, FAILED, COMPLETED, or CANCELLED.
+
+    "retry failed task" -> LeaseRecoveryPort.retry_task() / POST
+    /admin/agent-tasks/{agentTaskId}/retry: the admin-triggered, single-task
+    counterpart to SPEC-ARO-029's RecoverExpiredLeaseTasksService.scan_and_recover().
+    Reuses domain.agent_task.retry_after_lease_expiry()/mark_stale() completely
+    unchanged (same attempt < max_attempts routing) — the only new behavior is that an
+    operator can target one already-identified CLAIMED/RUNNING task immediately,
+    without the batch scanner's own precondition that the lease has actually expired
+    (an explicit override of the *wait*, not of the CLAIMED/RUNNING precondition
+    itself, so FAILED_FINAL stays exactly as unreachable as it already was). Also
+    deliberately NOT reusing scan_and_recover()'s own tolerant _retry()/_mark_stale()
+    helpers (which silently skip a lost race, appropriate for a batch scan with no
+    single caller to report to) — retry_task() instead lets
+    InvalidAgentTaskTransitionException/AgentTaskVersionConflictException propagate as
+    a real 409, since silently no-op-ing an explicit, single-target admin request would
+    hide a real failure from the operator who asked for it. Verified end-to-end that a
+    FAILED_FINAL task correctly still returns 409, not a silent no-op or success.
+
+    "force recover workflow" -> RecoveryPort.force_recover() / POST
+    /admin/workflows/{workflowInstanceId}/force-recover: the admin-triggered,
+    single-instance counterpart to SPEC-ARO-028's
+    RecoverWorkflowService.scan_and_recover(). Reuses that method's own
+    _is_checkpoint_inconsistent()/_flag_checkpoint_inconsistent() helpers completely
+    unchanged — the same narrow, unambiguous PAUSED+PAUSE_POINT check, not a broader
+    "repair" heuristic (SPEC-ARO-028's own scope-discipline reasoning still applies
+    unchanged). "Force" means "run the batch scanner's own single-instance check right
+    now for the one instance an operator has already identified," not "reverse a
+    terminal state" — the outcome is still only ever "leave it alone" or "flag and
+    FAIL it," exactly like the batch scan.
+
+    "mark poison event quarantined" -> PoisonEventCommandPort.mark_quarantined() / POST
+    /admin/poison-events/{id}/quarantine: unlike the other two, this is a genuinely new
+    column and genuinely new write path — PoisonEventRow never had a status/triage field.
+    New quarantined_at (nullable timestamp, migration a3f7c9e1b204) on both
+    PoisonEventRecord/PoisonEventView, defaulted (not required, unlike SPEC-ARO-028's
+    current_checkpoint_id/completed_at) since every existing row's "not yet quarantined"
+    state is exactly what None already means — no silent data loss to guard against.
+    A one-way flag, not a status machine: the poison event's only other exit is replay
+    (resending the corrected event under the same eventId, unchanged from SPEC-ARO-024 —
+    an external actor's own action, not something this table tracks). Kept as its own
+    PoisonEventCommandPort Protocol, separate from the existing PoisonEventQueryPort, so
+    the pure-visibility surface stays undisturbed by the addition of a write — both are
+    implemented by the same PoisonEventQueryService class (mirroring the precedent
+    DispatchOutboxEventsService already set: one class mixing a scan-ish read with a
+    write, when both depend on nothing beyond the same single repository).
+
+    Verified with 335 unit tests total (up from 318) — new tests: 4 retry_task tests on
+    RecoverExpiredLeaseTasksService (retries even with an unexpired lease; stales when
+    the attempt budget is already exhausted; unknown id rejected; a non-CLAIMED/RUNNING
+    task's error propagates instead of being swallowed), 3 force_recover tests on
+    RecoverWorkflowService (flags an inconsistent named instance; leaves a correct one
+    alone; unknown id rejected), a new dedicated test_poison_event_query_service.py (3
+    tests: newest-first listing, mark_quarantined sets the timestamp, unknown id
+    rejected — this service had no dedicated unit test file before this spec, only
+    HTTP-level coverage), and 8 new tests/test_app.py HTTP-level tests covering all
+    three endpoints' success and error paths (including the FAILED_FINAL-stays-
+    non-retryable 409 case). 56 integration tests total (up from 52): 1 new
+    PostgresPoisonEventRepository test (find_by_id/mark_quarantined round-trip through a
+    real Postgres UPDATE — this repository had zero integration coverage before this
+    spec) plus 3 new tests/integration/test_app_postgres_integration.py HTTP-level walks
+    against the real migrated schema, one per new endpoint. lint-imports (3/3 contracts
+    kept), ruff --select F,E9 clean.
+
+    Real E2E against the docker-compose Postgres + RabbitMQ instance (port 8031),
+    migration a3f7c9e1b204 applied first: (1) force-recover on a workflow forced PAUSED
+    via direct SQL with no real PAUSE_POINT checkpoint correctly flagged and FAILED it,
+    and an unknown workflow_instance_id 404s; (2) admin-retry on a CLAIMED task whose
+    lease was deliberately still 300s from expiry succeeded anyway (attempt 1->2, READY)
+    — the concrete proof this is an override of the *wait*, not of the state
+    precondition — then the same task was driven to FAILED_FINAL and a further retry
+    attempt correctly returned 409 rather than silently succeeding or no-op-ing, and an
+    unknown agent_task_id 404s; (3) a malformed tool.completed.v1 delivery was recorded
+    as a poison event, confirmed quarantined_at was None, quarantined via the new
+    endpoint, confirmed quarantined_at was set both in the API response and via direct
+    SQL against agent_runtime.poison_events, and an unknown poison event id 404s.
   lld_mapping:
     - 10-failure-handling
     - 05-api-contracts

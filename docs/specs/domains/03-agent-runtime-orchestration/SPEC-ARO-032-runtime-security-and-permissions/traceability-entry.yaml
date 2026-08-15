@@ -2,7 +2,87 @@ SPEC-ARO-032:
   domain: 03-agent-runtime-orchestration
   name: Runtime Security and Permissions
   cn_name: Runtime 安全与权限
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    11-security is a wide-ranging section (安全边界/Agent Identity/Tool Gateway 强制路径/
+    Authorization/Data Protection/Audit), but only one concrete gap was named anywhere
+    in the codebase as this spec's own job — repeated verbatim three times, across three
+    layers: application/commands.py's RequestToolCommand docstring ("no capability
+    taxonomy or authorization check exists for it yet — that's SPEC-ARO-032's job"),
+    domain/events.py's ToolRequested.capability docstring, and
+    interfaces/worker/schemas.py's RequestToolRequest.capability comment. All three
+    point at the same thing: SPEC-ARO-017 gave Tool Request a `capability` field that
+    was accepted and carried through end to end but never validated against anything.
+
+    Everything else 11-security lists is explicitly owned elsewhere, confirmed by
+    checking sibling specs' own lld_mapping before committing to scope (the same
+    cross-reference method SPEC-ARO-023 used for its own ticket-cycle events):
+    - "安全边界"/"Tool Gateway 强制路径"'s no-direct-Tool-access rule is already
+      structurally enforced (tests/architecture/test_tool_gateway_boundary.py, since
+      SPEC-ARO-019) — nothing new to build.
+    - "Authorization"'s claim/complete/request-tool trust boundary (claimToken) already
+      shipped in SPEC-ARO-009/018.
+    - "Data Protection" (PII minimization, reasoning redaction, no secrets in logs) is
+      SPEC-ARO-033's own explicit lld_mapping (11-security + 12-observability,
+      "Sensitive Payload Redaction").
+    - "Audit" (structured logging for every listed action) is SPEC-ARO-034's own
+      explicit lld_mapping (12-observability, "Runtime Observability") — confirmed by
+      finding 8 command services (StartWorkflowService, PauseWorkflowService,
+      ResumeWorkflowService, ClaimAgentTaskService, RequestToolService,
+      CompleteWorkflowService, FailWorkflowService, CancelWorkflowService) with zero
+      logger calls today; the one existing precedent, CompleteAgentTaskService's
+      _log_agent_task_event(), is itself attributed to SPEC-ARO-026 under
+      12-observability §"日志", not 11-security — the same section SPEC-ARO-034 owns,
+      not this spec.
+    - "Agent Identity"'s required-fields list (agentRole/workerId/claimToken/
+      workflowInstanceId/ticketId/correlationId) describes data shape already carried
+      by every relevant command/record since their own originating specs — descriptive,
+      nothing to build.
+
+    New CapabilityPolicyPort.is_authorized(agent_role, capability) + a
+    StaticCapabilityPolicyAdapter (mirrors StaticWorkflowDefinitionCatalogAdapter's own
+    honesty-over-fabrication stance: one hardcoded agent_role -> allowed-capability map
+    covering the two agent_role values already exercised elsewhere in this codebase —
+    triage_agent: {service_operations, diagnostics}, kb_agent: {knowledge_base_read} —
+    not a fabricated policy-authoring system with no 07-data-model table behind it).
+    RequestToolService now checks it immediately after the existing claimToken check
+    and before the checkpoint is ever written (the same "authorize before any side
+    effect" ordering claimToken validation already established), raising the new
+    CapabilityNotAuthorizedException (mapped to HTTP 403 — the first true
+    authenticated-but-not-authorized denial in this codebase's error taxonomy, distinct
+    from this module's other policy rejections like AutomationNotAllowedException,
+    which are state-conflict-flavored 409s).
+
+    Deliberate scope boundary, reasoned through before writing any code (no
+    AskUserQuestion needed — the reasoning was one-directional, not a genuine fork): the
+    check is a no-op pass-through, not a denial, whenever agent_role is absent.
+    SPEC-ARO-007's own "no Planner capability assigns agent_role yet" deferral is a
+    separate, still-pending gap this spec does not close — almost no live Tool Request
+    carries a role to check against today, so treating an absent role as an implicit
+    denial would block essentially every current caller for an unrelated reason, not
+    enforce anything meaningful. The check only ever activates once both agent_role and
+    capability are populated on the same request — exactly the state the taxonomy is
+    meant for once a real Planner starts assigning roles.
+
+    Verified with 341 unit tests total (up from 335) — new tests: 4 on
+    RequestToolService (authorized capability succeeds; unauthorized capability
+    rejected with nothing persisted — no checkpoint, no Tool Request; absent agent_role
+    is a pass-through; absent capability skips the check entirely) and 2 new
+    tests/test_app.py HTTP-level tests (403 with the CAPABILITY_NOT_AUTHORIZED code and
+    the task left CLAIMED, not WAITING_TOOL; a successful authorized request). 56
+    integration tests total (unchanged from SPEC-ARO-031 — this spec introduces no new
+    persisted column/query, so no new integration coverage was needed). lint-imports
+    (3/3 contracts kept), ruff --select F,E9 clean.
+
+    Real E2E against the docker-compose Postgres + RabbitMQ instance (port 8032)
+    covered all five branches through the real HTTP request-tool path: triage_agent +
+    service_operations authorized (200 PENDING); kb_agent + service_operations denied
+    (403 CAPABILITY_NOT_AUTHORIZED, task confirmed still CLAIMED afterward, not
+    WAITING_TOOL — proof nothing was persisted before the deny); kb_agent +
+    knowledge_base_read (its own authorized capability, 200); a task with no agent_role
+    assigned + a declared capability (200, the pass-through case); and a request with no
+    capability declared at all (200, the skip-entirely case).
   lld_mapping:
     - 11-security
   forbidden:

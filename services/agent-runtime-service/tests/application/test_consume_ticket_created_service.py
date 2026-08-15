@@ -8,7 +8,7 @@ import pytest
 from agentruntime.application.commands import ConsumeTicketCreatedCommand
 from agentruntime.application.exceptions import AutomationNotAllowedException
 from agentruntime.application.records import TicketSnapshot
-from agentruntime.application.services.consume_ticket_created import ConsumeTicketCreatedService
+from agentruntime.application.services.consume_ticket_created import CONSUMER_NAME, ConsumeTicketCreatedService
 from agentruntime.application.services.coordinate_agent_tasks import CoordinateAgentTasksService
 from agentruntime.application.services.start_workflow import StartWorkflowService
 from agentruntime.domain.ids import CausationId, CorrelationId, TicketCycleId, TicketId
@@ -22,6 +22,7 @@ from agentruntime.infrastructure.persistence.in_memory import (
 )
 from agentruntime.infrastructure.workflow_definition_catalog import StaticWorkflowDefinitionCatalogAdapter
 from tests.support.clock import FakeClock
+from tests.support.telemetry import build_telemetry_collaborators
 
 pytestmark = pytest.mark.unit
 
@@ -48,15 +49,16 @@ def wiring():
     command_idempotency_repository = InMemoryCommandIdempotencyRepository()
     clock = FakeClock()
     coordinate_agent_tasks_service = CoordinateAgentTasksService(agent_task_repository, checkpoint_repository)
+    telemetry, audit_recorder = build_telemetry_collaborators(clock)
     start_workflow_service = StartWorkflowService(
         workflow_instance_repository, checkpoint_repository, outbox_repository, command_idempotency_repository, clock,
-        coordinate_agent_tasks_service,
+        coordinate_agent_tasks_service, telemetry, audit_recorder,
     )
 
     def build(snapshot: TicketSnapshot | None = None) -> ConsumeTicketCreatedService:
         return ConsumeTicketCreatedService(
             processed_event_repository, StubTicketSnapshotPort(snapshot), StaticWorkflowDefinitionCatalogAdapter(),
-            start_workflow_service, clock,
+            start_workflow_service, clock, telemetry,
         )
 
     return build, workflow_instance_repository, checkpoint_repository, agent_task_repository, outbox_repository, processed_event_repository
@@ -78,15 +80,31 @@ def test_consuming_ticket_created_starts_a_workflow_and_writes_a_started_checkpo
     applied = service.consume(_command())
 
     assert applied is True
-    assert processed_event_repository.is_processed("evt-1")
+    assert processed_event_repository.is_processed("evt-1", CONSUMER_NAME)
     assert len(outbox_repository.recorded()) == 1
-    assert outbox_repository.recorded()[0].event_type == "agent_runtime.workflow.started"
+    assert outbox_repository.recorded()[0].event_type == "workflow.started.v1"
 
     [outbox_record] = outbox_repository.recorded()
     checkpoints = checkpoint_repository.find_by_workflow_instance_id(outbox_record.workflow_instance_id)
     assert [c.type.name for c in checkpoints] == ["STARTED"]
     tasks = agent_task_repository.find_by_workflow_instance_id(outbox_record.workflow_instance_id)
     assert [task.task_key for task in tasks] == ["collect"]
+
+
+def test_an_event_id_already_marked_processed_by_a_different_consumer_is_still_consumed_here(wiring) -> None:
+    """SPEC-ARO-013 09-concurrency-and-idempotency §"消费事件幂等": dedup is keyed by
+    (event_id, consumer_name) — a coincidental event_id collision with some other logical
+    consumer (e.g. ConsumeRuntimeEventService) must not block this one from processing its
+    own event.
+    """
+    build, *_rest, outbox_repository, processed_event_repository = wiring
+    processed_event_repository.mark_processed("evt-shared", "some_other_consumer", datetime(2026, 1, 1, tzinfo=UTC))
+    service = build()
+
+    applied = service.consume(_command("evt-shared"))
+
+    assert applied is True
+    assert len(outbox_repository.recorded()) == 1
 
 
 def test_a_duplicate_event_id_is_not_reprocessed(wiring) -> None:
@@ -126,7 +144,7 @@ def test_a_terminal_ticket_status_blocks_automation_and_still_marks_the_event_pr
     with pytest.raises(AutomationNotAllowedException):
         service.consume(_command("evt-blocked"))
 
-    assert processed_event_repository.is_processed("evt-blocked")
+    assert processed_event_repository.is_processed("evt-blocked", CONSUMER_NAME)
     assert len(outbox_repository.recorded()) == 0
 
 

@@ -2,7 +2,96 @@ SPEC-ARO-028:
   domain: 03-agent-runtime-orchestration
   name: Recovery Scanner and Checkpoint Restore
   cn_name: Recovery Scanner 与 Checkpoint Restore
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    10-failure-handling §"Runtime 崩溃后怎么恢复" lists a 7-step recovery worker: "1. 读取
+    最新 checkpoint. 2. 检查 workflow state 与 checkpoint 是否一致. 3. 重放未发布 outbox. 4.
+    释放过期 task lease. 5. 对 CLAIMED/RUNNING 且 lease 过期的 task 做 retry 或 stale 标记. 6.
+    重建等待中的 Tool/Approval/Verification correlation. 7. 如果发现无法判断的副作用窗口，进入
+    FAILED 或 WAITING_FOR_INPUT，并发布审计事件." Steps 3 and 4-5 are explicitly
+    SPEC-ARO-030/029's own jobs per the phase's own spec split; RecoverWorkflowService's
+    own pre-existing docstring already said as much ("A full reconciliation sweep (lease
+    expiry requeue, outbox redelivery) is phase-08"). This spec's own real scope, given
+    its own name ("Recovery Scanner *and Checkpoint Restore*"), is steps 1-2 — turning the
+    existing single-instance RecoverWorkflowService into a genuine periodic-scan
+    capability, and giving it something to actually DO with what it reads.
+
+    Two concrete, already-built-but-unwired signals — confirmed with the user
+    (AskUserQuestion) before committing to the scope, given how many files touching
+    WorkflowInstanceRecord this would ripple through:
+    - `WorkflowInstanceRow.current_checkpoint_id` (07-data-model, 01-domain-model's own
+      "currentCheckpointId：最近一次稳定 checkpoint"): its own migration comment explicitly
+      named "SPEC-ARO-012 (checkpoints around pause/resume/external waits)... the natural
+      owner" — SPEC-ARO-012 shipped in this session without ever wiring it.
+    - `WorkflowInstanceRow.completed_at`: its own comment said "no application service
+      reaches a terminal workflow state yet (SPEC-ARO-001 never wired a
+      CompleteWorkflowService)" — stale by the time this spec started; Complete/Fail/
+      CancelWorkflowService have existed since SPEC-ARO-004/023.
+
+    Wired both onto application.records.WorkflowInstanceRecord as *required* fields (no
+    default) — a deliberate choice: every one of the 8 application-service call sites
+    that construct a WorkflowInstanceRecord must now make an explicit decision about
+    these two fields (carry the existing pointer forward, or advance it to a checkpoint
+    just written in the same save) rather than silently losing previously-recorded state
+    to an unset default. start_workflow.py/pause_workflow.py/consume_approval.py's own
+    _approve() mint the checkpoint id *before* constructing the WorkflowInstanceRecord
+    (not after, as each previously did) so current_checkpoint_id can point at it in the
+    very same save — no second write purely to record the pointer, honoring the original
+    deferral comment's own CAS-conflict concern exactly. resume_workflow.py/
+    consume_verification.py's own _pass() write no checkpoint of their own, so both
+    simply carry the existing pointer forward unchanged. CompleteWorkflowService/
+    FailWorkflowService/CancelWorkflowService gained a new CheckpointRepository
+    dependency (a read, not a write — find_latest_by_workflow_instance_id() — costing
+    nothing beyond the query) to advance current_checkpoint_id to whatever the task-level
+    AFTER_TASK checkpoint (or any other) most recently wrote, and set completed_at=now.
+
+    New WorkflowInstanceRepository.find_non_terminal(limit) (oldest updated_at first) is
+    what "Recovery worker 周期性扫描非终态 Workflow Instance" is built on.
+    RecoverWorkflowService.scan_and_recover(batch_size) is the scanner itself: for every
+    instance found, applies the one state/checkpoint-type pairing this domain's own
+    checkpoint types make genuinely unambiguous — a PAUSED workflow's own latest
+    checkpoint must be the PAUSE_POINT SPEC-ARO-012's Pause Transaction writes (the exact
+    same pairing ResumeWorkflowService already requires before letting a resume proceed,
+    via PauseCheckpointNotFoundException — this scanner catches the same inconsistency
+    proactively instead of waiting for the next resume attempt). Deliberately narrow, not
+    a general-purpose heuristic: no other state/checkpoint-type combination in this
+    domain has a single unambiguous expected type to check against, and guessing one
+    would be exactly the kind of unfounded speculation this session's scope discipline
+    has consistently avoided. Step 7's "进入 FAILED... 并发布审计事件" reuses the existing
+    FailWorkflowService (already idempotent via a deterministic
+    `recovery-scan-inconsistent:{workflowInstanceId}` key, already outbox-publishing —
+    the publish itself is the audit event) rather than a bespoke transition.
+
+    New POST /admin/workflows/recovery-scan (manual/ops trigger until a real scheduler
+    exists, mirroring /admin/outbox/dispatch and /admin/tool-requests/dispatch).
+
+    Verified with 348 tests total (up from 341): the required-field addition rippled
+    through every WorkflowInstanceRecord construction site in the test suite (22 sites
+    across 15 files) plus 3 application services' new CheckpointRepository dependency
+    (CompleteWorkflowService/FailWorkflowService/CancelWorkflowService, and by extension
+    every test fixture constructing them directly) — all repaired to explicitly pass
+    current_checkpoint_id/completed_at (mostly None, matching prior behavior) and the new
+    checkpoint_repository dependency. 302 unit/architecture — three new tests in
+    test_recover_workflow_service.py (a scan counts a plain RUNNING instance and flags
+    nothing; a PAUSED instance with no PAUSE_POINT checkpoint at all is flagged and
+    failed; a correctly-paused instance with a real PAUSE_POINT is left alone), plus two
+    new tests/test_app.py HTTP-level tests exercising the new admin endpoint end to end;
+    46 integration tests against ephemeral testcontainers Postgres, mirroring both
+    round-trip tests (confirming the current_checkpoint_id/completed_at columns — already
+    present in the schema since SPEC-ARO-002 — genuinely round-trip through the real
+    migrated database, not just the in-memory adapter). lint-imports (3/3 contracts
+    kept), ruff --select F,E9 clean, and a curl walkthrough against the real
+    docker-compose Postgres (plus RabbitMQ, reused unchanged from SPEC-ARO-025)
+    confirming: current_checkpoint_id correctly points at the STARTED checkpoint right
+    after start, re-points at PAUSE_POINT after pause, and re-points at AFTER_TASK once
+    the task completes and the workflow auto-settles to COMPLETED (completed_at set); a
+    second workflow forced PAUSED via direct SQL without a real PAUSE_POINT checkpoint
+    was flagged and failed by the scan with the expected auditable reason. The scan also
+    organically found and correctly remediated a genuinely orphaned PAUSED workflow
+    instance left over from an earlier spec's own E2E run still sitting in this session's
+    persistent docker-compose database — an unplanned but exactly-on-target real-world
+    validation of what this mechanism exists to catch.
   lld_mapping:
     - 10-failure-handling
     - 01-domain-model

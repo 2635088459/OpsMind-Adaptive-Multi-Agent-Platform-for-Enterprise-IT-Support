@@ -2,7 +2,84 @@ SPEC-ARO-023:
   domain: 03-agent-runtime-orchestration
   name: Consume Ticket Cycle Events
   cn_name: 消费 Ticket Cycle Events
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Unlike every prior spec in this domain, domain 03's own mapped 06-event-contracts
+    names no "ticket cycle" event at all — its "消费事件" list only documents
+    ticket.created.v1, approval.granted.v1, tool.completed.v1, verification.completed.v1.
+    Confirmed with the user (AskUserQuestion) before implementing: the sibling domain
+    02-ticket-workflow's own 06-event-contracts is the authoritative source for what
+    "Ticket Cycle Events" means here — PUB-014 "ticket.cancelled.v1" (Consumers: "Agent
+    Runtime 取消 Workflow") and PUB-015 "ticket.reopened.v1" (Consumers explicitly list
+    Agent Runtime, payload carries previousResolutionCycleId/newResolutionCycleId). Two
+    more concrete signals confirmed this was the right scope before ever asking:
+    CancelWorkflowCommand's own docstring already stated "Triggering a cancel from an
+    upstream ticket-cycle cancellation event is owned by SPEC-ARO-023
+    (consume-ticket-cycle-events)," and a CancelWorkflowService already existed,
+    fully built, but reachable only through the admin REST surface — never triggered by
+    any event. PUB-012 "ticket.resolved.v1"/PUB-013 "ticket.closed.v1" do not name Agent
+    Runtime as a consumer (neither starts a new cycle nor needs a Runtime reaction) and
+    were correctly left out of scope.
+
+    No new domain logic was needed at all: domain.workflow_instance.cancel() already
+    accepts any non-terminal source state and already requires a non-blank reason — this
+    spec is purely an application+interface wiring exercise reusing 100% pre-existing
+    domain machinery.
+
+    Both events carry no workflowInstanceId (Ticket Workflow has no knowledge of this
+    Runtime's own internal id, only ticketId + ticketCycleId) — the same structural gap
+    ticket.created.v1 already solved via a dedicated route/schema/port
+    (TicketCreatedConsumerPort) rather than forcing it through RuntimeEventEnvelope's
+    required workflow_instance_id field. Mirrored that shape exactly: two new commands
+    (ConsumeTicketCancelledCommand, ConsumeTicketReopenedCommand), one new port
+    (TicketCycleConsumerPort, two methods since both events share the same underlying
+    "resolve active workflow(s) for a ticket cycle, then cancel" logic), one new service
+    (ConsumeTicketCycleEventService), two new dedicated schemas/routes (POST
+    /events/ticket-cancelled, POST /events/ticket-reopened) — bypassing
+    ConsumeRuntimeEventService entirely, the same way ticket.created.v1 does.
+
+    "At most one active instance per ticketId+ticketCycleId+workflowType"
+    (02-business-invariants) is a *per-type* invariant, not a per-ticket-cycle one — more
+    than one distinct workflow_type could in principle be active for the same ticket
+    cycle. Rather than adding a narrower repository query, both handlers reuse the
+    existing WorkflowInstanceRepository.find_by_ticket_id() (SPEC-ARO-006's own query),
+    filter client-side for the matching ticketCycleId and non-terminal state, and cancel
+    every match found — 0, 1, or more — each through CancelWorkflowService with its own
+    deterministic `ticket-cancelled:{workflowInstanceId}` /
+    `ticket-reopened:{workflowInstanceId}` idempotency key (a lost race against a
+    concurrent terminal transition is caught and swallowed, mirroring the same
+    race-tolerance pattern SPEC-ARO-020/021/022 already established). A ticket-cancelled/
+    reopened delivery for a ticket cycle with no matching active Workflow Instance at all
+    is a harmless no-op (applied=true, nothing to cancel) — not an error, since Runtime's
+    own automation may have already finished on its own before Ticket Workflow processed
+    the cancellation.
+
+    ticket.reopened.v1's own newResolutionCycleId is carried through the command only for
+    audit — this spec does not start anything for the new cycle; that remains
+    ticket.created.v1's own job (SPEC-ARO-005, unchanged) once a fresh ticket.created.v1
+    delivery arrives for the new cycle.
+
+    10-failure-handling §"Poison Event": mark_processed happens in `finally` regardless of
+    whether downstream cancellation succeeds, mirroring ConsumeTicketCreatedService's own
+    shape exactly.
+
+    Verified with 330 tests total (up from 318): 290 unit/architecture — a new
+    tests/application/test_consume_ticket_cycle_event_service.py covering a single active
+    workflow being cancelled, multiple active workflow_types for the same ticket cycle
+    all being cancelled, a different ticket cycle's workflow being left alone, a harmless
+    no-op when nothing is active, per-event-id idempotency, the previous cycle's workflow
+    being cancelled on reopen, an already-terminal workflow being left alone on reopen,
+    and cancelled/reopened sharing one dedup record under a coincidentally-shared
+    event_id; plus two new tests/test_app.py HTTP-level tests against the two new
+    dedicated routes (cancel with a duplicate-delivery no-op; reopen cancelling the
+    previous cycle's workflow); 40 integration tests against ephemeral testcontainers
+    Postgres, mirroring both round-trip tests. lint-imports (3/3 contracts kept —
+    ConsumeTicketCycleEventService is a normal application service), ruff --select F,E9
+    clean, and a curl walkthrough against the real docker-compose Postgres covering both
+    event types plus the harmless-no-op case end-to-end — cross-checked directly against
+    `agent_runtime.workflow_instances`, plus confirming `agent_runtime.workflow.cancelled`
+    reaches POST /admin/outbox/dispatch.
   lld_mapping:
     - 06-event-contracts
     - 10-failure-handling

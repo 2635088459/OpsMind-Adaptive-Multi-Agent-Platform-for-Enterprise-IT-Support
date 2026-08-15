@@ -2,7 +2,35 @@ SPEC-ARO-014:
   domain: 03-agent-runtime-orchestration
   name: Pause Workflow Command
   cn_name: Pause Workflow Command
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Audited PauseWorkflowService against every one of 04-use-cases UC-06 Pause's 7 steps
+    and found all of them already genuinely satisfied, closing this spec without a new
+    code change of its own: step 1 (API-triggered) — the REST pause endpoint (SPEC-ARO-003);
+    step 2 (idempotency key dedup) — CommandIdempotencyGuard; step 3 (Workflow enters
+    PAUSING) — this codebase's established, pre-existing decision to compress the
+    transient PAUSING step into the single atomic RUNNING->PAUSED domain call rather than
+    persist a separate row write for it (documented since SPEC-ARO-003, unaffected by
+    this audit); step 4 (stop new task claim) — ClaimAgentTaskService already rejects any
+    claim attempt once workflow.state is not RUNNING, so a paused workflow is
+    unconditionally unclaimable without pause needing to touch any Agent Task row; step 5
+    (write PAUSED checkpoint and increment pauseGeneration) — pauseGeneration increment
+    was already part of the original domain.workflow_instance.pause() event, and the
+    checkpoint write itself was the one genuine gap this whole use case had, closed by
+    SPEC-ARO-012 (CheckpointType.PAUSE_POINT, reusing SPEC-ARO-011's workflow_version/
+    checksum machinery); steps 6-7 (PAUSED transition, workflow.paused.v1 outbox) — both
+    already present since SPEC-ARO-003. 09-concurrency-and-idempotency §"How Pause /
+    Resume Is Idempotent"'s Pause-specific leniency ("if already PAUSED without the same
+    idempotency key, return current paused state, do not publish another event") was also
+    already correctly implemented and is proven not to double-write a checkpoint either
+    (SPEC-ARO-012's own test suite covers this). This spec's contribution is the audit
+    itself plus the traceability closure — SPEC-ARO-015 (Resume Workflow Command) is where
+    the one real remaining code gap in this pair (UC-07 Resume step 4, reading the PAUSED
+    checkpoint) actually lived and was fixed. Verified with the full 238-test suite (see
+    SPEC-ARO-015's own entry for the itemized count), lint-imports (3/3 contracts kept),
+    ruff --select F,E9 clean, and a curl walkthrough against the real docker-compose
+    Postgres confirming a full pause->resume round trip succeeds end to end.
   lld_mapping:
     - 04-use-cases
     - 09-concurrency-and-idempotency

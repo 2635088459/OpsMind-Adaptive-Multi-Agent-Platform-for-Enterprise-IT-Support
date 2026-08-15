@@ -2,7 +2,147 @@ SPEC-ARO-034:
   domain: 03-agent-runtime-orchestration
   name: Runtime Observability
   cn_name: Runtime 可观测性
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    12-observability is the largest single-spec scope in this domain's roadmap so
+    far: 日志 field completion, Metrics, Tracing, persisted Audit Events, and Alerts.
+    Confirmed with the user (AskUserQuestion) before writing any code, given the
+    depth this could reasonably reach and given docs/low-level-design/shared/
+    technology-baseline §10 "System Observability" freezes OpenTelemetry + Prometheus
+    + Grafana + Loki (and lists "OpenTelemetry Python" directly in Runtime's own
+    frozen dependency stack) while this repo's own docker-compose has no live OTel
+    Collector/Prometheus/Grafana/Loki container yet (only postgres and rabbitmq): real
+    OpenTelemetry Python SDK instrumentation (traces + metrics), console-exported by
+    default (settings.otel_exporter, mirroring event_publisher_adapter's own
+    "logging"-by-default honesty), plus completing the logging gap across the 8
+    previously-silent command services, plus a new persisted AuditRecordPort/
+    audit_events table (interfaces/admin/router.py's own module docstring already
+    named this exact gap: "A dedicated audit-record port/table (mirroring the sibling
+    Ticket Workflow service's AuditRecordPort) is deferred"). Alerts stayed
+    deliberately out of scope: alerting rules consume the metrics this spec emits, but
+    rule authoring belongs to ops/infra config outside this service's own code — the
+    same boundary every other "downstream infra consumes what we produce" deferral in
+    this codebase already draws.
+
+    Cross-domain precedent check (mirroring SPEC-ARO-023's own methodology) before
+    designing anything: the sibling ticket-workflow-service's own TicketTelemetry.java
+    (application/observability) and AuditRecordPort/AuditRecordEntry/
+    AuditPersistenceAdapter were read in full. Two concrete design rules carried over
+    unchanged: (1) one centralized telemetry class holding every instrument, injected
+    wherever needed, rather than instruments scattered ad hoc across service files —
+    RuntimeTelemetry mirrors TicketTelemetry's own shape exactly, scaled down to the
+    dozen-ish metric names 12-observability's own README actually lists (a short,
+    fixed list, unlike Ticket Workflow's own "one counter+timer pair per command"
+    sprawl). (2) low-cardinality labels only — never an id (workflowInstanceId,
+    ticketId, agentTaskId, correlationId) as a label value, only fixed small-
+    vocabulary strings (workflow_type, event_type, outcome) — the same explicit rule
+    TicketTelemetry.java's own docstring states. AuditRecordEntry mirrors the Java
+    sibling's own generic "one durable row per audited action" shape, with field names
+    adapted to this domain's own established vocabulary (workflow_instance_id/
+    ticket_id/correlation_id/causation_id, already used everywhere else in this
+    codebase) rather than that service's own ticket-specific fields (ticketStatusBefore/
+    After, displayId, viewType). One deliberate divergence, stated explicitly: the Java
+    AuditRecordPort.append() must propagate failures so the caller's transaction rolls
+    back; this codebase has no cross-repository transaction to roll back into in the
+    first place (every repository already opens its own short-lived session per call),
+    so AuditRecorder instead logs and swallows an append failure rather than failing
+    the primary operation it describes.
+
+    OpenTelemetry API used directly in application services (`trace.get_tracer(__name__)`/
+    `metrics.get_meter(__name__)`), not wrapped in a custom Port — the same "safe to
+    import anywhere, real behavior wired once at the composition root" shape this
+    codebase already uses for the stdlib `logging` module (`logger =
+    logging.getLogger(__name__)` in every service file; the real handler/level
+    configured once in main.py). infrastructure/observability.py's own
+    configure_observability(), called once from main.create_app() (mirroring
+    _configure_logging()'s own SPEC-ARO-026 shape), is the only place a real
+    TracerProvider/MeterProvider gets constructed — import-linter's "Application must
+    not depend on infrastructure" contract stayed intact and was verified kept (3/3),
+    since the OpenTelemetry API package is a third-party library every layer can use,
+    not this codebase's own agentruntime.infrastructure package.
+
+    Wired into the 8 previously-silent command services (StartWorkflowService,
+    PauseWorkflowService, ResumeWorkflowService, ClaimAgentTaskService,
+    RequestToolService, CompleteWorkflowService, FailWorkflowService,
+    CancelWorkflowService — confirmed via the same grep sweep that first surfaced
+    them while scoping SPEC-ARO-032) plus CompleteAgentTaskService (extending its own
+    existing SPEC-ARO-026 logging), RecoverWorkflowService, RecoverExpiredLeaseTasksService,
+    ConsumeRuntimeEventService, ConsumeTicketCreatedService, and
+    DispatchOutboxEventsService: a tracer span per operation, the exact named metrics
+    12-observability's own README lists (agent_runtime_workflow_started_total/
+    _completed_total/_failed_total/_paused_total/_recovered_total/_duration_seconds,
+    agent_runtime_task_claimed_total/_completed_total/_failed_total/_retry_total/
+    _lease_expired_total/_duration_seconds, agent_runtime_event_consumed_total/
+    _duplicate_total, agent_runtime_outbox_pending — a true async Observable Gauge,
+    not a counter, reading back whatever DispatchOutboxEventsService last cached —
+    _publish_failed_total), structured log lines carrying workflowInstanceId/
+    ticketId/correlationId/causationId/workerId as applicable, and an AuditRecorder
+    call at every workflow transition/task transition/tool-request-created/external-
+    event-consumed/recovery-decision/admin-intervention point those services already
+    own. Free-text fields threaded into an audit entry's own `detail` (failure_reason,
+    cancel reason) are passed through redact_payload() (SPEC-ARO-033) as a defensive,
+    consistent measure, even though none of them are payload-shaped in the way that
+    spec's own two original targets were. Deliberately NOT wired with the same
+    exhaustive depth into every remaining service in the codebase (e.g.
+    ConsumeTicketCycleEventService, DispatchToolRequestsService, consume_tool_result.py's
+    own module beyond what CompleteWorkflowService/FailWorkflowService already carry
+    through it) — stated as an honest, bounded scope rather than a claim of
+    exhaustive coverage, consistent with this session's own established scope-
+    discipline precedent.
+
+    New GET /admin/audit-events (mirrors GET /admin/poison-events' own established
+    shape exactly) — a persisted-but-inaccessible audit trail is of limited
+    operational value, the same reasoning PoisonEventQueryPort's own docstring already
+    states.
+
+    A known, documented, cosmetic-only limitation: OpenTelemetry Python's global
+    MeterProvider/TracerProvider can only be installed once per process (a second
+    `set_meter_provider()`/`set_tracer_provider()` call is a no-op by the SDK's own
+    design) — combined with pytest running the whole suite in one process, this means
+    (a) a background metrics-export thread can attempt one final flush after pytest's
+    own captured stdout has already closed at interpreter shutdown, printing a
+    harmless "I/O operation on closed file" traceback with no effect on any test's
+    pass/fail status or the suite's own exit code (verified: exit code 0 with this
+    traceback present), and (b) tests/application/test_telemetry.py deliberately
+    smoke-tests only ("every method completes without raising"), not exact exported
+    values, since a real InMemoryMetricReader installed by one test cannot reliably
+    intercept RuntimeTelemetry's own output once an earlier test (e.g.
+    tests/test_app.py's own create_app()) has already installed the real
+    console-exporting provider first.
+
+    Verified with 380 unit tests total (up from 368 pre-spec) — new tests: 4
+    RuntimeTelemetry smoke tests, 3 AuditRecorder tests (fields round-trip; SYSTEM/
+    empty-object defaults; a failing repository does not propagate), 2
+    AuditRecordQueryService tests (newest-first, limit respected), and 3 new
+    tests/test_app.py HTTP-level tests for GET /admin/audit-events (a workflow
+    transition is recorded; a task claim and an admin intervention are both recorded
+    with the correct actor_type; the limit parameter is respected) — plus every
+    existing application-service test file whose service gained a new required
+    telemetry/audit_recorder constructor parameter was updated via a new shared
+    tests/support/telemetry.py helper (17 files). 57 integration tests total
+    (unchanged in count from pre-spec once the one broken fixture — ClaimAgentTaskService's
+    own concurrent-claim stress test — was fixed) plus 2 new PostgresAuditRecordRepository
+    tests (every field round-trips through a real INSERT, including the optional
+    workflow_instance_id/ticket_id/correlation_id/causation_id; limit respected) and 1
+    new tests/integration/test_app_postgres_integration.py HTTP-level walk confirming
+    the real migrated audit_events table (migration f1a2b3c4d5e6) is genuinely
+    load-bearing. lint-imports (3/3 contracts kept — confirms the OTel API dependency
+    did not violate the domain/application/infrastructure layering), ruff --select
+    F,E9 clean.
+
+    Real E2E against the docker-compose Postgres + RabbitMQ instance (port 8034),
+    migration f1a2b3c4d5e6 applied first: started a workflow, claimed and completed
+    its task; confirmed real OpenTelemetry spans (workflow.start/task.claim/
+    task.completion) were actually exported to the console (not just constructed and
+    discarded); confirmed structured log lines carry workflow_instance_id and the
+    expected action= fields; confirmed GET /admin/audit-events returns both the
+    workflow-transition and task-claim rows with the correct audit_type/actor_type,
+    cross-checked directly against agent_runtime.audit_events via SQL; waited past the
+    metric reader's own 5-second export interval and confirmed
+    agent_runtime_workflow_started_total/agent_runtime_task_claimed_total/
+    agent_runtime_task_completed_total were all genuinely exported to the console, not
+    merely recorded in memory.
   lld_mapping:
     - 12-observability
   forbidden:

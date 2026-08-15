@@ -48,6 +48,14 @@ class RequestToolRequest(BaseModel):
     tool_name: str = Field(min_length=1)
     tool_request_payload: str = Field(min_length=1)
     idempotency_key: str = Field(min_length=1)
+    # SPEC-ARO-018 11-security §"Authorization": proves the caller actually holds this
+    # task's claim — the same claimToken claim/complete already require.
+    claim_token: UUID
+    # SPEC-ARO-017 01-domain-model: one of Tool Request's own minimal fields, alongside
+    # tool_name. Still optional — skips authorization entirely when absent; when
+    # present, checked against the claiming Agent Task's own agent_role
+    # (SPEC-ARO-032 11-security §"Tool Gateway 强制路径").
+    capability: str | None = None
 
 
 class AgentTaskResponse(BaseModel):
@@ -73,3 +81,4 @@ class ToolRequestResponse(BaseModel):
     tool_request_id: UUID
     status: str
     updated_at: datetime
+    capability: str | None = None

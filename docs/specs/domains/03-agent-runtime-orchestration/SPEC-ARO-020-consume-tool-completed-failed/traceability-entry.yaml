@@ -2,7 +2,89 @@ SPEC-ARO-020:
   domain: 03-agent-runtime-orchestration
   name: Consume tool.completed and tool.failed
   cn_name: 消费 tool.completed 与 tool.failed
-  status: planned
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    SPEC-ARO-019 deliberately left the WAITING_TOOL/WAITING_FOR_TOOL wait a one-way trip
+    ("waking WAITING_TOOL/WAITING_FOR_TOOL back up is explicitly out of scope... named the
+    WAITING_FOR_* wake-ups as SPEC-ARO-020/021/022's job"); this spec closes that trip for
+    the tool case. 04-use-cases UC-04 "消费 tool.completed" lists six steps: "1. Consumer 收
+    到 tool.completed" (already the generic gate ConsumeRuntimeEventService owns per
+    SPEC-ARO-001/013); "2. 根据 gatewayCorrelationId 或 toolRequestId 找到 Tool Request"; "3.
+    校验 Tool Request 状态仍等待结果"; "4. 保存 tool result 到 Tool Request 和 checkpoint"; "5.
+    更新对应 Agent Task"; "6. 发布 agent.task.completed 或创建后续 task." None of these were
+    implemented — ConsumeRuntimeEventService only ever ran the dedup/staleness gate and
+    returned, never dispatching to any type-specific consumer.
+
+    Added domain.workflow_instance.wake_from_tool_wait() (WAITING_FOR_TOOL -> RUNNING only,
+    the exact counterpart to SPEC-ARO-019's wait_for_tool(), bumps workflow_version) and two
+    new narrow-guard agent_task functions, complete_from_tool_result()/
+    fail_from_tool_result() (WAITING_TOOL -> COMPLETED/FAILED_FINAL). These deliberately do
+    NOT reuse _require_active_claim() (CLAIMED/RUNNING) — SPEC-ARO-019's own invariant that
+    a normal worker cannot self-complete a task once it has handed off to a tool
+    (02-business-invariants: "Tool result 必须通过 tool.completed 或 tool.failed 回到
+    Runtime") must still hold; only a tool result may cross WAITING_TOOL's boundary.
+
+    06-event-contracts documents exactly one contract, tool.completed.v1, with a `status`
+    field (COMPLETED/FAILED) — no separate tool.failed.v1 exists, so this spec resolved to a
+    single-event-type-with-status-discriminator design rather than inventing a second event
+    type the LLD itself never asks for. A new ConsumeToolResultService (application layer)
+    implements steps 2-6: looks the Tool Request up by toolRequestId, treats an
+    already-COMPLETED/FAILED Tool Request as an idempotent no-op (a duplicate delivery under
+    a different eventId, past the processed_events dedup, must not re-apply an outcome that
+    already landed — step 3's own guard), saves the result onto the Tool Request row, wakes
+    the Workflow Instance, transitions the Agent Task to its outcome, and mirrors
+    CompleteAgentTaskService's own after-task machinery exactly: writes a checkpoint,
+    unlocks downstream tasks via CoordinateAgentTasksService, and auto-settles the workflow
+    via the same determine_settlement()/CompleteWorkflowService/FailWorkflowService path,
+    including the identical race-tolerant swallow of
+    WorkflowInstanceVersionConflictException/InvalidWorkflowStateException a concurrent
+    settlement trigger can lose to. The checkpoint reuses CheckpointType.AFTER_TASK rather
+    than inventing a new type: 03-state-machine's own checkpoint-type list has no distinct
+    "after tool result" type, and by the time this runs the Agent Task has genuinely reached
+    its terminal outcome for this attempt — the same semantic AFTER_TASK already carries.
+
+    Step 6's "创建后续 task" (spawning a follow-up task from a tool result, as distinct from
+    the tool result simply completing the task outright) is deliberately not implemented:
+    nothing in this codebase decides *when* a follow-up task should exist versus a plain
+    completion, and inventing that policy now would be speculative design neither
+    04-use-cases nor 06-event-contracts asks for.
+
+    ConsumeRuntimeEventService was extended with a single dispatch: when
+    event_type == "tool.completed.v1", it calls ConsumeToolResultService.apply(payload)
+    after the dedup/staleness gate passes, wrapped so `mark_processed` always runs in
+    `finally` regardless of whether the type-specific consumer raises (10-failure-handling
+    §"Poison Event": a malformed/unprocessable event must not be retried forever). This
+    keeps the generic gate's own scope exactly as narrow as it was before — dispatch is a
+    single `if`, not a growing chain of type checks — matching the pattern
+    SPEC-ARO-021/022's own approval/verification consumers will extend later.
+
+    Verified with 294 tests total (up from 272: 260 unit/architecture — new domain tests for
+    wait_for_tool()'s counterpart and both complete/fail_from_tool_result() narrow-guard
+    transitions, a new tests/application/test_consume_tool_result_service.py covering
+    success, failure, the idempotent-already-resolved no-op, unknown-toolRequestId, and an
+    orphaned-Tool-Request defensive case, plus a new
+    tests/application/test_consume_runtime_event_service.py test proving the dispatch itself
+    fires under the literal "tool.completed.v1" event_type (the file's original 5 tests
+    deliberately use the non-matching "tool.completed" string to exercise the generic gate
+    in isolation and were left untouched), and two new tests/test_app.py HTTP-level
+    round-trip tests (success: claim -> request-tool -> dispatch -> POST tool.completed.v1 ->
+    task COMPLETED / workflow auto-settles COMPLETED / duplicate delivery is a no-op; and
+    failure: the same path with status=FAILED -> task FAILED_FINAL / workflow auto-settles
+    FAILED); 34 integration tests against ephemeral testcontainers Postgres, including the
+    same two round-trip tests mirrored against the real migrated schema), lint-imports (3/3
+    contracts kept — ConsumeToolResultService is a normal application service, no new
+    cross-layer boundary introduced), ruff --select F,E9 clean, and a curl walkthrough
+    against the real docker-compose Postgres covering both the success and failure paths
+    end-to-end: claim -> request-tool -> dispatch -> POST tool.completed.v1 wakes the task to
+    COMPLETED and the workflow to RUNNING then auto-settled COMPLETED (only task in the
+    graph), a duplicate delivery under the same event_id returns applied=false, and a second
+    workflow's tool.completed.v1 with status=FAILED drives the task to FAILED_FINAL and the
+    workflow to auto-settled FAILED — all cross-checked directly against
+    `agent_runtime.tool_requests`, `agent_runtime.agent_tasks`, `agent_runtime.
+    workflow_instances`, and `agent_runtime.checkpoints` (STARTED -> PRE_TOOL_CALL ->
+    AFTER_TASK, the expected checkpoint sequence for a request-tool then tool-result
+    lifecycle).
   lld_mapping:
     - 04-use-cases
     - 06-event-contracts
