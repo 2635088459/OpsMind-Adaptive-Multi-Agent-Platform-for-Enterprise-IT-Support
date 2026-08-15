@@ -14,6 +14,7 @@ Before retrieval, the service computes access scope and applies it to:
 
 - Memory classification;
 - Knowledge Document ACL;
+- Graph node / edge classification;
 - source ticket visibility;
 - role capability such as `knowledge_base_read`.
 
@@ -51,7 +52,15 @@ Knowledge documents and memories are untrusted input:
 - Results returned to Agents must be labeled with source type.
 - Document content cannot override system/developer/runtime instructions.
 - Retrieval result cannot trigger tool execution.
+- Graph paths cannot be interpreted as instruction chains or automatic execution plans.
 - Agents must consume retrieved content through Runtime's context builder.
+
+## Graph Security
+
+- Graph traversal must filter node/edge visibility before expanding adjacency.
+- If any node or edge in a path is not visible, the whole path is not returned.
+- High-sensitivity nodes must not leak names through low-sensitivity neighbors.
+- Organizational relationships such as `OWNED_BY` / `POLICY_RULE` are returned only to authorized roles by default.
 
 ## Audit
 

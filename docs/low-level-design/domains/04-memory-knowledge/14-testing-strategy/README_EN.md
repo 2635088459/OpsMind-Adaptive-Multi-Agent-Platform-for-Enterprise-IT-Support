@@ -7,6 +7,9 @@
 - Redaction rules.
 - SourceRef validation.
 - Retrieval score composition.
+- Graph node stable key normalization.
+- Graph edge evidence validation.
+- Bounded graph expansion.
 - Conflict detection.
 - Retention visibility.
 
@@ -14,6 +17,7 @@
 
 - update working memory success / version conflict.
 - search returns provenance.
+- search returns graph path explanation.
 - candidate extraction is idempotent.
 - duplicate candidate does not create a new Memory.
 - conflicting candidate enters review.
@@ -25,6 +29,7 @@
 - PostgreSQL schema migration.
 - pgvector nearest-neighbor search.
 - full-text + vector hybrid retrieval.
+- graph node / edge persistence and bounded traversal.
 - RabbitMQ outbox publish/replay.
 - document ingestion partial recovery.
 - embedding provider fake adapter.
@@ -47,6 +52,7 @@ Published events:
 - `memory.superseded.v1`
 - `memory.deleted.v1`
 - `knowledge.document.indexed.v1`
+- `knowledge.graph.updated.v1`
 
 ## Security Tests
 
@@ -65,6 +71,8 @@ MVP uses a small deterministic fixture:
 - expired/deprecated memory should not be returned.
 - source trust affects ranking.
 - human-validated memory ranks higher.
+- graph path explains similar ticket, symptom, and action clearly.
+- graph expansion does not cross ACL / classification boundaries.
 
 ## Recovery Tests
 
@@ -73,6 +81,7 @@ MVP uses a small deterministic fixture:
 - document ingestion crash after chunking.
 - outbox dead-letter replay.
 - retention partial failure resume.
+- graph upsert retry after ingestion crash.
 
 ## Completion Standard
 

@@ -5,6 +5,8 @@
 - Event consumer：`eventId + consumerName`。
 - Candidate extraction：`sourceHash + memoryType`。
 - Document ingestion：`sourceSystem + externalId + version`。
+- Graph node upsert：`nodeType + stableKey`。
+- Graph edge upsert：`fromNodeId + toNodeId + edgeType + sourceHash`。
 - Working memory update：`workingMemoryId + expectedVersion`。
 - Memory publish：`candidateId`。
 - Deletion request：`requestId`。
@@ -45,6 +47,15 @@ WorkingMemory 使用 optimistic locking：
 - Search 无状态，结果基于当前 visible index。
 - RetrievalLog append-only。
 - index 更新期间允许返回旧 active version，但必须带 index version。
+- graph expansion 基于当前 visible graph snapshot。
+- graph edge 更新期间允许返回旧 path，但 retrieval log 必须记录 graph index version。
+
+## Graph 并发
+
+- node upsert 必须使用唯一键防重复。
+- edge upsert 必须使用 sourceHash 防重复。
+- 删除/隐藏 graph node 时，不物理删除 edge；edge visibility 通过 status 和 source visibility 共同决定。
+- traversal 必须设置 max depth 和 max nodes，避免并发更新造成超大结果集。
 
 ## Outbox 幂等
 

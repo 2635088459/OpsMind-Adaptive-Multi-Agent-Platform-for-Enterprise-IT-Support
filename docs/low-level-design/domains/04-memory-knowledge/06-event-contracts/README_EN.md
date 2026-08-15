@@ -66,6 +66,19 @@ Published after a memory or document becomes deleted / non-retrievable.
 
 Published after document ingestion completes and becomes searchable.
 
+### `knowledge.graph.updated.v1`
+
+Published after graph nodes / edges are updated by ingestion or memory publication. This event is for evaluation / observability and must not drive Ticket or Workflow state.
+
+Key fields:
+
+- `graphUpdateId`
+- `sourceType`
+- `sourceId`
+- `nodeCount`
+- `edgeCount`
+- `indexVersion`
+
 ## Envelope
 
 All events use the shared envelope:

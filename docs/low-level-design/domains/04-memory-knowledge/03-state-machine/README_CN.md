@@ -81,6 +81,24 @@ Working Memory 不需要复杂状态机，使用 `ACTIVE / ARCHIVED / DELETED`�
 - reopen 新 cycle 时创建新的 WorkingMemory。
 - deletion request 可把 body 清空并保留 tombstone。
 
+## Graph Index 状态
+
+Graph node / edge 本身保持轻量状态：
+
+```text
+VISIBLE -> HIDDEN
+VISIBLE -> TOMBSTONED
+HIDDEN -> VISIBLE
+```
+
+规则：
+
+- `VISIBLE`：可参与 search expansion。
+- `HIDDEN`：保留但不参与默认检索，例如来源 document 被 deprecated。
+- `TOMBSTONED`：删除或 retention 后不可恢复检索，只保留 audit 所需 metadata。
+- MemoryVersion superseded 时，相关 `SUPERSEDES` 边新增，旧 version 节点默认 `HIDDEN`。
+- Document reingestion 时，新 version 创建新 chunk 节点；旧 version 不原地更新。
+
 ## Deletion 状态机
 
 ```text

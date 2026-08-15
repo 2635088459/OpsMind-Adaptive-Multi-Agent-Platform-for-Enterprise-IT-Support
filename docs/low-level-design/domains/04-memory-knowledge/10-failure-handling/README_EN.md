@@ -6,6 +6,8 @@
 - `POISON_DOCUMENT`: unsupported format, empty content, excessive size, or unredactable secret.
 - `EMBEDDING_FAILED`: embedding provider call failed.
 - `INDEX_WRITE_FAILED`: vector or full-text index write failed.
+- `GRAPH_EXTRACTION_FAILED`: entity / relation extraction failed.
+- `GRAPH_UPSERT_FAILED`: graph node / edge write failed.
 - `VALIDATION_FAILED`: source evidence is insufficient or untrusted.
 - `CONFLICT_DETECTED`: candidate conflicts with active memory.
 - `RETRIEVAL_DEGRADED`: retrieval timed out or part of the index is unavailable.
@@ -54,12 +56,20 @@ Conflict is not an exception:
 - A `memory_conflicts` record is created.
 - Admin may reject, supersede, or create a separate memory.
 
+## Graph Failure
+
+- If entity extraction fails, the document / candidate does not enter searchable active state.
+- If graph upsert fails, keep the ingestion / publish checkpoint so a worker can retry.
+- If graph expansion query fails, Search API may return vector/keyword results and mark `graphDegraded=true`.
+- Results with `graphDegraded=true` must be down-ranked and recorded in RetrievalLog.
+
 ## Recovery Workers
 
 - ingestion recovery: scans stuck documents.
 - embedding recovery: scans pending / retryable failed jobs.
 - outbox replay: scans unpublished events.
 - retention recovery: scans partially applied deletions.
+- graph recovery: scans graph extraction/upsert failed jobs.
 
 ## Forbidden Recovery
 

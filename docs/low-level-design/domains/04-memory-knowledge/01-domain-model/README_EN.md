@@ -125,6 +125,70 @@ Fields:
 - `contentHash`
 - `embeddingRef`
 
+### KnowledgeGraph
+
+Memory Knowledge maintains a lightweight graph that connects entities and evidence across sources. Graph is a retrieval index and explanation layer; it does not own Ticket / Workflow / Tool state.
+
+Core node types:
+
+- `TICKET`
+- `WORKFLOW`
+- `MEMORY`
+- `MEMORY_VERSION`
+- `DOCUMENT`
+- `DOCUMENT_CHUNK`
+- `SERVICE`
+- `APPLICATION`
+- `SYMPTOM`
+- `ROOT_CAUSE`
+- `ACTION`
+- `OWNER`
+- `TOOL_EVIDENCE`
+- `POLICY_RULE`
+- `VERIFICATION_OUTCOME`
+
+Core edge types:
+
+- `MENTIONS`: a document / memory mentions an entity.
+- `SUPPORTED_BY`: a root cause / action is supported by evidence.
+- `RESOLVED_BY`: a symptom / failure mode was resolved by an action.
+- `AFFECTS`: a symptom affects an application / service.
+- `OWNED_BY`: a service / application belongs to an owner.
+- `SIMILAR_TO`: a memory / ticket is similar to another one.
+- `DERIVED_FROM`: a memory version derives from a ticket / workflow / document chunk.
+- `CONFLICTS_WITH`: a memory conflicts with another memory or document chunk.
+- `SUPERSEDES`: a memory version replaces an older version.
+
+### GraphNode
+
+Fields:
+
+- `nodeId`
+- `nodeType`
+- `stableKey`
+- `displayName`
+- `properties`
+- `classification`
+- `sourceRefs`
+- `createdAt`
+
+`stableKey` prevents duplicate entities, for example `service:vpn-auth` or `symptom:mfa-loop-after-reset`.
+
+### GraphEdge
+
+Fields:
+
+- `edgeId`
+- `edgeType`
+- `fromNodeId`
+- `toNodeId`
+- `confidence`
+- `evidenceRefs`
+- `properties`
+- `createdAt`
+
+GraphEdge must have evidenceRefs; relationships cannot be created without evidence.
+
 ### RetrievalLog
 
 Auditable record of every retrieval.
@@ -139,6 +203,7 @@ Fields:
 - `queryHash`
 - `filters`
 - `resultRefs`
+- `graphPaths`
 - `latencyMs`
 - `createdAt`
 
@@ -149,7 +214,11 @@ Fields:
 - `RetrievalScore`: semantic, keyword, recency, trust, success, and human-validation components.
 - `RedactionReport`: redacted fields, secret patterns, and policy rule ids.
 - `AccessScope`: tenant, application, queue, role, and classification.
+- `GraphPath`: `nodeIds + edgeIds + pathScore + explanation`.
+- `EntityKey`: `nodeType + normalizedName + namespace`.
 
 ## Domain Boundary
 
 Memory Knowledge may store references and summaries, but it must never become the system of record for ticket state, workflow state, policy decisions, or tool execution.
+
+Edges in the graph are not final truth by themselves. They are evidence-backed explainable indexes; executing actions, closing tickets, or approving policy must go back to the owning domain.

@@ -66,6 +66,19 @@ memory 或 document 被删除/不可检索后发布。
 
 document ingestion 完成并可检索后发布。
 
+### `knowledge.graph.updated.v1`
+
+graph nodes / edges 被 ingestion 或 memory publish 更新后发布。该事件用于 evaluation / observability，不用于驱动 Ticket 或 Workflow 状态。
+
+关键字段：
+
+- `graphUpdateId`
+- `sourceType`
+- `sourceId`
+- `nodeCount`
+- `edgeCount`
+- `indexVersion`
+
 ## Envelope
 
 所有事件使用共享 envelope：

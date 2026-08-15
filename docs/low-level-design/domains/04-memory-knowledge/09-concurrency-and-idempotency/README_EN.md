@@ -5,6 +5,8 @@
 - Event consumer: `eventId + consumerName`.
 - Candidate extraction: `sourceHash + memoryType`.
 - Document ingestion: `sourceSystem + externalId + version`.
+- Graph node upsert: `nodeType + stableKey`.
+- Graph edge upsert: `fromNodeId + toNodeId + edgeType + sourceHash`.
 - Working memory update: `workingMemoryId + expectedVersion`.
 - Memory publication: `candidateId`.
 - Deletion request: `requestId`.
@@ -45,6 +47,15 @@ A Memory can have only one active version:
 - Search is stateless and uses the currently visible index.
 - RetrievalLog is append-only.
 - During index updates, returning an old active version is allowed but must include index version.
+- Graph expansion uses the currently visible graph snapshot.
+- During graph edge updates, returning an old path is allowed, but retrieval log must record graph index version.
+
+## Graph Concurrency
+
+- Node upsert must use unique keys to avoid duplicates.
+- Edge upsert must use sourceHash to avoid duplicates.
+- When hiding/deleting a graph node, do not physically delete edges; edge visibility is determined by both edge status and source visibility.
+- Traversal must set max depth and max nodes to avoid oversized result sets during concurrent updates.
 
 ## Outbox Idempotency
 

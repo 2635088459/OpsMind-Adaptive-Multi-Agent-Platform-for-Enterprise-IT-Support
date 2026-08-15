@@ -22,10 +22,19 @@
 
 1. 接收 query、ticket context、filters、access scope。
 2. 对 query 做 secret 检测和 normalization。
-3. 执行 hybrid retrieval：vector + keyword + metadata filters。
-4. 根据 recency、source trust、resolution success、human validation rerank。
-5. 返回 redacted snippets 和 provenance。
-6. 写 RetrievalLog。
+3. 执行 hybrid retrieval：vector + keyword + metadata filters，得到 seed results。
+4. 对 seed results 做 bounded graph expansion，找出相邻 service、symptom、runbook step、historical ticket 和 supporting evidence。
+5. 根据 recency、source trust、resolution success、human validation、edge confidence rerank。
+6. 返回 redacted snippets、graph paths 和 provenance。
+7. 写 RetrievalLog。
+
+Graph 使用方式：
+
+- vector / keyword 用来找 seed；
+- graph 用来解释 seed 为什么与当前 ticket 相关；
+- graph expansion 默认深度 2；
+- graph path 必须遵守 ACL 和 classification；
+- graph path 不能单独触发 Tool 或 Ticket 状态变化。
 
 ## UC-03 导入 Knowledge Document
 
@@ -39,8 +48,9 @@
 4. chunk。
 5. redaction scan。
 6. embedding。
-7. index。
-8. 发布 `knowledge.document.indexed.v1`。
+7. 抽取 graph entities 和 graph edges。
+8. index。
+9. 发布 `knowledge.document.indexed.v1`。
 
 ## UC-04 从已解决 Ticket 抽取 Memory Candidate
 
@@ -55,7 +65,8 @@
 5. 去重。
 6. 冲突检测。
 7. 打分。
-8. 自动批准低风险高置信候选，或进入 review。
+8. 抽取 graph nodes / edges，例如 symptom、root cause、action、service、evidence。
+9. 自动批准低风险高置信候选，或进入 review。
 
 ## UC-05 发布 Active Memory
 
@@ -68,7 +79,8 @@
 3. 生成 embedding。
 4. 标记 previous active version 为 superseded。
 5. 标记 candidate 为 published。
-6. 写 outbox `memory.published.v1`。
+6. upsert graph nodes / edges，并为新版本建立 `DERIVED_FROM` / `SUPPORTED_BY` / `RESOLVED_BY` 关系。
+7. 写 outbox `memory.published.v1`。
 
 ## UC-06 删除或保留策略执行
 

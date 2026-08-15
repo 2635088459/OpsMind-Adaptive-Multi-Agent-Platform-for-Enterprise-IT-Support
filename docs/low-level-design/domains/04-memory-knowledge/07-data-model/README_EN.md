@@ -111,6 +111,58 @@ Unique key: `document_id, chunk_index`.
 
 Index: `ivfflat` or `hnsw` vector index, selected according to MVP data size.
 
+### `memory.graph_nodes`
+
+- `id uuid pk`
+- `node_type text not null`
+- `stable_key text not null`
+- `display_name text not null`
+- `properties jsonb not null`
+- `classification text not null`
+- `source_refs jsonb not null`
+- `status text not null`
+- `created_at timestamptz not null`
+- `updated_at timestamptz not null`
+
+Unique key: `node_type, stable_key`.
+
+Indexes:
+
+- `node_type, status`
+- `stable_key`
+- `classification, status`
+- `properties gin`
+
+### `memory.graph_edges`
+
+- `id uuid pk`
+- `edge_type text not null`
+- `from_node_id uuid not null`
+- `to_node_id uuid not null`
+- `confidence numeric not null`
+- `evidence_refs jsonb not null`
+- `source_hash text not null`
+- `properties jsonb not null`
+- `status text not null`
+- `created_at timestamptz not null`
+- `updated_at timestamptz not null`
+
+Unique key: `from_node_id, to_node_id, edge_type, source_hash`.
+
+Indexes:
+
+- `from_node_id, edge_type, status`
+- `to_node_id, edge_type, status`
+- `edge_type, status`
+- `confidence`
+
+Design reason:
+
+- Avoid introducing a standalone graph database and its operations surface.
+- PostgreSQL row locks, transactions, audit, and retention cover graph updates.
+- Graph traversal is bounded; MVP does not need a distributed graph engine.
+- Vector / full-text retrieval finds seeds, and graph tables perform bounded expansion with clear responsibility.
+
 ### `memory.retrieval_logs`
 
 - `id uuid pk`
@@ -121,6 +173,7 @@ Index: `ivfflat` or `hnsw` vector index, selected according to MVP data size.
 - `query_hash text not null`
 - `filters jsonb not null`
 - `result_refs jsonb not null`
+- `graph_paths jsonb not null default '[]'`
 - `degraded boolean not null`
 - `latency_ms int not null`
 - `created_at timestamptz not null`

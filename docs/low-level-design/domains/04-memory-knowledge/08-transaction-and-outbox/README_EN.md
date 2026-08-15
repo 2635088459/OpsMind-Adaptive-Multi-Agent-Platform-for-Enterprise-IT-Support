@@ -34,8 +34,10 @@
 4. Mark the new version as `ACTIVE`.
 5. Update Memory current version.
 6. Mark candidate as `PUBLISHED`.
-7. Write outbox `memory.published.v1` and optional `memory.superseded.v1`.
-8. Commit.
+7. Upsert graph nodes / edges.
+8. Write a `SUPERSEDES` edge for superseded versions and hide the old version from default retrieval.
+9. Write outbox `memory.published.v1` and optional `memory.superseded.v1`.
+10. Commit.
 
 Embedding may be completed as a required step before publication, or an unembedded version may be published and completed through an async `embedding.pending` path. MVP should generate embeddings synchronously outside the short transaction, then enter the publish transaction after success.
 
@@ -47,10 +49,30 @@ Each phase uses its own transaction:
 - parse result;
 - batch insert chunks;
 - update embedding refs;
+- upsert graph nodes / edges;
 - activate index;
 - publish outbox.
 
 This allows partial ingestion recovery without replaying the whole pipeline.
+
+## Graph Upsert Transaction
+
+Graph upsert is a sub-step of ingestion / publish; it does not decide business success by itself:
+
+1. Extract entity candidates from redacted content.
+2. Normalize to `nodeType + stableKey`.
+3. Upsert `graph_nodes`.
+4. Generate edges from relation candidates.
+5. Every edge must carry sourceHash and evidenceRefs.
+6. Upsert `graph_edges`.
+7. Write graph node/edge ids back to retrieval metadata or version metadata.
+
+If graph upsert fails:
+
+- document ingestion does not enter `ACTIVE`;
+- memory publication does not enter `PUBLISHED`;
+- worker may retry;
+- active memory without provenance graph is forbidden unless a spec explicitly allows sparse-only degraded mode.
 
 ## Outbox Publisher
 

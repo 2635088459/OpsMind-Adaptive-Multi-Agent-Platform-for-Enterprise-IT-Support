@@ -21,6 +21,7 @@ memoryknowledge/
     memory.py
     memory_candidate.py
     knowledge_document.py
+    knowledge_graph.py
     retrieval.py
     events.py
   application/
@@ -31,6 +32,7 @@ memoryknowledge/
     services/
       update_working_memory.py
       search_memory.py
+      expand_knowledge_graph.py
       ingest_document.py
       extract_memory_candidate.py
       validate_memory_candidate.py
@@ -43,6 +45,7 @@ memoryknowledge/
       in_memory.py
     embedding/
     retrieval/
+    graph/
     event_publisher_rabbitmq.py
     redaction.py
     document_parser.py
@@ -67,6 +70,7 @@ Input ports：
 - `ValidateMemoryCandidateUseCase`
 - `PublishMemoryUseCase`
 - `ExecuteRetentionUseCase`
+- `ExpandKnowledgeGraphUseCase`
 
 Output ports：
 
@@ -76,6 +80,8 @@ Output ports：
 - `KnowledgeDocumentRepository`
 - `EmbeddingRepository`
 - `RetrievalLogRepository`
+- `GraphNodeRepository`
+- `GraphEdgeRepository`
 - `ProcessedEventRepository`
 - `OutboxRepository`
 - `EmbeddingProvider`
@@ -84,6 +90,8 @@ Output ports：
 - `TicketSnapshotPort`
 - `WorkflowTracePort`
 - `EventPublisherPort`
+- `EntityExtractorPort`
+- `GraphRerankerPort`
 
 ## 类设计原则
 
@@ -92,6 +100,8 @@ Output ports：
 - Infrastructure adapter 处理外部系统和数据库细节。
 - Interface mapper 负责 wire shape 与 command 的转换。
 - Retrieval scorer 与 redactor 可单测。
+- Graph expander 必须是 bounded traversal，不允许 repository 返回无限邻接节点。
+- Entity extractor 只能基于 redacted content 和 evidenceRefs 建图。
 
 ## 与 03 的调用关系
 

@@ -28,6 +28,10 @@ Logs must not include raw query, raw document, raw memory content, secrets, or f
 - `memory_candidate_approved_total`
 - `memory_candidate_rejected_total`
 - `memory_conflict_detected_total`
+- `memory_graph_nodes_total`
+- `memory_graph_edges_total`
+- `memory_graph_expansion_latency_ms`
+- `memory_graph_path_returned_total`
 - `knowledge_document_ingestion_latency_ms`
 - `knowledge_embedding_failure_total`
 - `memory_outbox_backlog`
@@ -42,6 +46,7 @@ Search trace spans:
 - vector search;
 - keyword search;
 - rerank;
+- graph expansion;
 - redaction;
 - retrieval log write.
 
@@ -51,6 +56,7 @@ Ingestion trace spans:
 - chunk;
 - redaction scan;
 - embedding;
+- graph extraction;
 - index write;
 - outbox write.
 
@@ -79,6 +85,7 @@ MVP dashboard:
 - embedding failure rate;
 - retrieval empty-result rate;
 - accepted/rejected candidate ratio.
+- graph expansion latency and path count.
 
 ## Alerting
 

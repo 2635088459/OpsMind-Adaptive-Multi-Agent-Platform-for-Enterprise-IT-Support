@@ -34,8 +34,10 @@
 4. 将新 version 标记为 `ACTIVE`。
 5. 更新 Memory current version。
 6. 标记 candidate 为 `PUBLISHED`。
-7. 写 outbox `memory.published.v1` 和可选 `memory.superseded.v1`。
-8. commit。
+7. upsert graph nodes / edges。
+8. 对 superseded version 写 `SUPERSEDES` edge，并隐藏旧 version 的默认检索 visibility。
+9. 写 outbox `memory.published.v1` 和可选 `memory.superseded.v1`。
+10. commit。
 
 Embedding 可以在 publish 前作为 required step 完成，也可以先发布无向量版本，再通过 `embedding.pending` 异步补齐；MVP 推荐同步生成 embedding 但放在短事务外，成功后再进入 publish transaction。
 
@@ -47,10 +49,30 @@ Embedding 可以在 publish 前作为 required step 完成，也可以先发布�
 - parse result；
 - chunks batch insert；
 - embedding refs update；
+- graph nodes / edges upsert；
 - index active；
 - outbox publish。
 
 这样可以恢复 partial ingestion，不需要重跑整个 pipeline。
+
+## Graph Upsert Transaction
+
+Graph upsert 是 ingestion / publish 的子步骤，不单独决定业务成功：
+
+1. 根据 redacted content 抽取 entity candidates。
+2. normalize 成 `nodeType + stableKey`。
+3. upsert `graph_nodes`。
+4. 根据 relation candidates 生成 edges。
+5. 每条 edge 必须带 sourceHash 和 evidenceRefs。
+6. upsert `graph_edges`。
+7. 将 graph node/edge ids 写回 retrieval metadata 或 version metadata。
+
+如果 graph upsert 失败：
+
+- document ingestion 不进入 `ACTIVE`；
+- memory publish 不进入 `PUBLISHED`；
+- worker 可重试；
+- 不允许发布没有 provenance graph 的 active memory，除非 spec 明确允许 sparse-only degraded mode。
 
 ## Outbox Publisher
 

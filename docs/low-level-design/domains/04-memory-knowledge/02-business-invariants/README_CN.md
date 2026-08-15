@@ -21,6 +21,9 @@
 - 检索结果必须带 provenance。
 - 检索必须应用 tenant、role、classification 和 document ACL 过滤。
 - Retrieval score 不能只依赖 embedding similarity。
+- Graph expansion 不能绕过 ACL / classification filter。
+- Graph edge 必须有 evidenceRefs 和 confidence，不能保存无来源关系。
+- Graph path 返回给 Runtime 时必须能解释为什么相关。
 - 已过期、已删除、已 superseded 且不可见的版本不能被返回。
 - Agent 看到的是 redacted content，不是 raw source。
 
@@ -38,6 +41,15 @@
 - Document chunk 必须可追溯到 document version。
 - reingestion 不能原地修改旧 chunks，必须创建新 document version。
 - embedding model 或 chunking policy 变化必须记录 index version。
+- document reingestion 产生的新 entity / edge 必须带 document version，不覆盖旧 version 的 graph provenance。
+
+## Graph 不变量
+
+- `stableKey + nodeType` 唯一，防止同一 service / symptom 被重复建点。
+- `fromNodeId + toNodeId + edgeType + sourceHash` 唯一，防止同一证据重复建边。
+- 删除 memory / document 时，相关 graph nodes / edges 必须同步变为不可检索或被 tombstone。
+- `CONFLICTS_WITH` 边不能自动决定胜负，只能触发 candidate conflict 流程。
+- graph traversal depth MVP 默认不超过 2，除非 admin/research API 明确提升。
 
 ## 安全不变量
 

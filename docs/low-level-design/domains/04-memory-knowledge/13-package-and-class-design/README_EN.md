@@ -21,6 +21,7 @@ memoryknowledge/
     memory.py
     memory_candidate.py
     knowledge_document.py
+    knowledge_graph.py
     retrieval.py
     events.py
   application/
@@ -31,6 +32,7 @@ memoryknowledge/
     services/
       update_working_memory.py
       search_memory.py
+      expand_knowledge_graph.py
       ingest_document.py
       extract_memory_candidate.py
       validate_memory_candidate.py
@@ -43,6 +45,7 @@ memoryknowledge/
       in_memory.py
     embedding/
     retrieval/
+    graph/
     event_publisher_rabbitmq.py
     redaction.py
     document_parser.py
@@ -67,6 +70,7 @@ Input ports:
 - `ValidateMemoryCandidateUseCase`
 - `PublishMemoryUseCase`
 - `ExecuteRetentionUseCase`
+- `ExpandKnowledgeGraphUseCase`
 
 Output ports:
 
@@ -76,6 +80,8 @@ Output ports:
 - `KnowledgeDocumentRepository`
 - `EmbeddingRepository`
 - `RetrievalLogRepository`
+- `GraphNodeRepository`
+- `GraphEdgeRepository`
 - `ProcessedEventRepository`
 - `OutboxRepository`
 - `EmbeddingProvider`
@@ -84,6 +90,8 @@ Output ports:
 - `TicketSnapshotPort`
 - `WorkflowTracePort`
 - `EventPublisherPort`
+- `EntityExtractorPort`
+- `GraphRerankerPort`
 
 ## Class Design Principles
 
@@ -92,6 +100,8 @@ Output ports:
 - Infrastructure adapters handle external systems and database details.
 - Interface mappers convert wire shapes into commands.
 - Retrieval scorer and redactor must be unit-testable.
+- Graph expander must use bounded traversal; repositories must not return unbounded adjacency.
+- Entity extractor may build graph only from redacted content and evidenceRefs.
 
 ## Relationship With 03
 

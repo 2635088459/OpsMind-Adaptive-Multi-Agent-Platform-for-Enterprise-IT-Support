@@ -22,10 +22,19 @@ Flow:
 
 1. Receive query, ticket context, filters, and access scope.
 2. Run secret detection and normalization on the query.
-3. Execute hybrid retrieval: vector + keyword + metadata filters.
-4. Rerank by recency, source trust, resolution success, and human validation.
-5. Return redacted snippets and provenance.
-6. Write RetrievalLog.
+3. Execute hybrid retrieval: vector + keyword + metadata filters, producing seed results.
+4. Run bounded graph expansion from seed results to find adjacent services, symptoms, runbook steps, historical tickets, and supporting evidence.
+5. Rerank by recency, source trust, resolution success, human validation, and edge confidence.
+6. Return redacted snippets, graph paths, and provenance.
+7. Write RetrievalLog.
+
+How graph is used:
+
+- vector / keyword retrieval finds seeds;
+- graph explains why seeds are relevant to the current ticket;
+- graph expansion defaults to depth 2;
+- graph paths must obey ACL and classification;
+- graph paths cannot trigger Tool execution or Ticket state changes by themselves.
 
 ## UC-03 Ingest Knowledge Document
 
@@ -39,8 +48,9 @@ Flow:
 4. Chunk.
 5. Run redaction scan.
 6. Embed.
-7. Index.
-8. Publish `knowledge.document.indexed.v1`.
+7. Extract graph entities and graph edges.
+8. Index.
+9. Publish `knowledge.document.indexed.v1`.
 
 ## UC-04 Extract Memory Candidate From Resolved Ticket
 
@@ -55,7 +65,8 @@ Flow:
 5. Deduplicate.
 6. Detect conflicts.
 7. Score.
-8. Auto-approve low-risk high-confidence candidates or send to review.
+8. Extract graph nodes / edges such as symptom, root cause, action, service, and evidence.
+9. Auto-approve low-risk high-confidence candidates or send to review.
 
 ## UC-05 Publish Active Memory
 
@@ -68,7 +79,8 @@ Flow:
 3. Generate embedding.
 4. Mark previous active version as superseded.
 5. Mark candidate as published.
-6. Write outbox `memory.published.v1`.
+6. Upsert graph nodes / edges and link the new version through `DERIVED_FROM`, `SUPPORTED_BY`, and `RESOLVED_BY`.
+7. Write outbox `memory.published.v1`.
 
 ## UC-06 Execute Deletion or Retention
 

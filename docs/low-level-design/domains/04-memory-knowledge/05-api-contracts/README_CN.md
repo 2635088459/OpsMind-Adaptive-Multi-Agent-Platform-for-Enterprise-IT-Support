@@ -16,7 +16,9 @@
   "filters": {
     "applicationCode": "VPN",
     "memoryTypes": ["EPISODIC", "PROCEDURAL"],
-    "maxResults": 8
+    "maxResults": 8,
+    "includeGraphPaths": true,
+    "maxGraphDepth": 2
   },
   "correlationId": "uuid"
 }
@@ -39,11 +41,26 @@
         "sourceType": "ticket",
         "sourceRef": "ticket:uuid",
         "redacted": true
-      }
+      },
+      "graphPaths": [
+        {
+          "pathScore": 0.76,
+          "explanation": "Historical VPN incident shared symptom and resolving action.",
+          "nodes": [
+            {"nodeId": "uuid", "nodeType": "SYMPTOM", "displayName": "MFA loop after reset"},
+            {"nodeId": "uuid", "nodeType": "ACTION", "displayName": "Reset stale device binding"}
+          ],
+          "edges": [
+            {"edgeId": "uuid", "edgeType": "RESOLVED_BY", "confidence": 0.82}
+          ]
+        }
+      ]
     }
   ]
 }
 ```
+
+Graph path 字段是解释和 rerank input，不是业务 action。Runtime 可以把它放进 Agent context，但不能据此绕过 Policy / Tool Gateway / Verification。
 
 ### `PATCH /internal/memory/v1/working-memory/{workingMemoryId}`
 
@@ -54,6 +71,11 @@
 ### `POST /internal/memory/v1/admin/documents`
 
 导入 knowledge document。仅 admin / ingestion worker 可调用。
+
+可选字段：
+
+- `extractGraph`: 是否从文档中抽取 service / symptom / action 等 graph entities。
+- `graphNamespace`: 文档来源命名空间，避免不同系统里的同名 entity 冲突。
 
 ### `POST /internal/memory/v1/admin/candidates/{candidateId}/approve`
 
@@ -70,6 +92,10 @@
 ### `POST /internal/memory/v1/admin/deletion-requests`
 
 创建删除请求。执行前必须通过 policy / authorization。
+
+### `GET /internal/memory/v1/admin/graph/nodes/{nodeId}`
+
+查询 graph node、相邻边和来源。仅 admin/debug 使用，默认不暴露给 Agent。
 
 ## 错误码
 

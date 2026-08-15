@@ -16,7 +16,9 @@ Request:
   "filters": {
     "applicationCode": "VPN",
     "memoryTypes": ["EPISODIC", "PROCEDURAL"],
-    "maxResults": 8
+    "maxResults": 8,
+    "includeGraphPaths": true,
+    "maxGraphDepth": 2
   },
   "correlationId": "uuid"
 }
@@ -39,11 +41,26 @@ Response:
         "sourceType": "ticket",
         "sourceRef": "ticket:uuid",
         "redacted": true
-      }
+      },
+      "graphPaths": [
+        {
+          "pathScore": 0.76,
+          "explanation": "Historical VPN incident shared symptom and resolving action.",
+          "nodes": [
+            {"nodeId": "uuid", "nodeType": "SYMPTOM", "displayName": "MFA loop after reset"},
+            {"nodeId": "uuid", "nodeType": "ACTION", "displayName": "Reset stale device binding"}
+          ],
+          "edges": [
+            {"edgeId": "uuid", "edgeType": "RESOLVED_BY", "confidence": 0.82}
+          ]
+        }
+      ]
     }
   ]
 }
 ```
+
+Graph paths are explanation and rerank input, not business actions. Runtime may include them in Agent context, but cannot use them to bypass Policy / Tool Gateway / Verification.
 
 ### `PATCH /internal/memory/v1/working-memory/{workingMemoryId}`
 
@@ -54,6 +71,11 @@ Used by Runtime to update Working Memory. Requires `expectedVersion`.
 ### `POST /internal/memory/v1/admin/documents`
 
 Ingest a knowledge document. Only admin / ingestion worker callers may use it.
+
+Optional fields:
+
+- `extractGraph`: whether to extract service / symptom / action graph entities from the document.
+- `graphNamespace`: source namespace to avoid collisions between same-named entities from different systems.
 
 ### `POST /internal/memory/v1/admin/candidates/{candidateId}/approve`
 
@@ -70,6 +92,10 @@ Mark an active memory as deprecated so it is excluded from default Agent retriev
 ### `POST /internal/memory/v1/admin/deletion-requests`
 
 Create a deletion request. Execution requires policy / authorization.
+
+### `GET /internal/memory/v1/admin/graph/nodes/{nodeId}`
+
+Query a graph node, adjacent edges, and sources. Admin/debug only; not exposed to Agents by default.
 
 ## Error Codes
 

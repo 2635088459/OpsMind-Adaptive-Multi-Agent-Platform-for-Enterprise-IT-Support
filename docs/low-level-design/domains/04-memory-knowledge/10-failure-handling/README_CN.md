@@ -6,6 +6,8 @@
 - `POISON_DOCUMENT`：文档格式不支持、内容为空、超过限制或含不可脱敏 secret。
 - `EMBEDDING_FAILED`：embedding provider 调用失败。
 - `INDEX_WRITE_FAILED`：向量或全文索引写入失败。
+- `GRAPH_EXTRACTION_FAILED`：entity / relation 抽取失败。
+- `GRAPH_UPSERT_FAILED`：graph node / edge 写入失败。
 - `VALIDATION_FAILED`：source evidence 不足或不可信。
 - `CONFLICT_DETECTED`：候选与 active memory 冲突。
 - `RETRIEVAL_DEGRADED`：检索超时或部分索引不可用。
@@ -54,12 +56,20 @@ Runtime 继续执行，但 trace 必须记录 memory unavailable。
 - 创建 `memory_conflicts` 记录。
 - 可由 admin 选择 reject、supersede 或 create separate memory。
 
+## Graph Failure
+
+- entity extraction 失败时，document / candidate 不进入 searchable active 状态。
+- graph upsert 失败时，保留 ingestion / publish checkpoint，worker 可重试。
+- graph expansion 查询失败时，Search API 可返回 vector/keyword results，并标记 `graphDegraded=true`。
+- `graphDegraded=true` 的结果必须降低排序权重，并在 RetrievalLog 中记录。
+
 ## Recovery Workers
 
 - ingestion recovery：扫描 stuck document。
 - embedding recovery：扫描 pending / failed retryable job。
 - outbox replay：扫描 unpublished events。
 - retention recovery：扫描 partially applied deletion。
+- graph recovery：扫描 graph extraction/upsert failed jobs。
 
 ## 不允许的恢复
 

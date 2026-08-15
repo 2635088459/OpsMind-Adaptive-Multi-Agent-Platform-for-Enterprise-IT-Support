@@ -81,6 +81,24 @@ Working Memory uses only `ACTIVE / ARCHIVED / DELETED`.
 - A reopened ticket cycle creates a new WorkingMemory.
 - A deletion request may clear the body while retaining a tombstone.
 
+## Graph Index States
+
+Graph nodes / edges keep a lightweight state:
+
+```text
+VISIBLE -> HIDDEN
+VISIBLE -> TOMBSTONED
+HIDDEN -> VISIBLE
+```
+
+Rules:
+
+- `VISIBLE`: participates in search expansion.
+- `HIDDEN`: retained but excluded from default retrieval, for example when its source document is deprecated.
+- `TOMBSTONED`: no longer retrievable after deletion or retention; only audit metadata remains.
+- When a MemoryVersion is superseded, a `SUPERSEDES` edge is added and the old version node becomes `HIDDEN` by default.
+- Document reingestion creates new chunk nodes for the new version; old versions are not updated in place.
+
 ## Deletion State Machine
 
 ```text

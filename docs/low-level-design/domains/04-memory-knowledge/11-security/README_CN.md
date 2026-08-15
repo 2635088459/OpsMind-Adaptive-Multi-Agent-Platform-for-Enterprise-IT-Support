@@ -14,6 +14,7 @@ Search 请求必须携带：
 
 - Memory classification；
 - Knowledge Document ACL；
+- Graph node / edge classification；
 - source ticket visibility；
 - role capability，例如 `knowledge_base_read`。
 
@@ -51,7 +52,15 @@ Knowledge documents 和 memories 都是不可信输入：
 - 返回给 Agent 时必须标记 source type。
 - 不允许 document content 覆盖 system/developer/runtime 指令。
 - 不允许 retrieval result 触发 tool execution。
+- 不允许 graph path 被解释为指令链或自动执行计划。
 - Agent 使用检索内容前必须经过 Runtime 的 context builder。
+
+## Graph Security
+
+- graph traversal 必须先过滤 node/edge visibility，再扩展邻接节点。
+- 如果 path 中任一节点或边不可见，整个 path 不返回。
+- high sensitivity node 不能通过低敏 neighbor 泄漏名称。
+- `OWNED_BY` / `POLICY_RULE` 等组织关系默认只对 authorized role 返回。
 
 ## Audit
 
