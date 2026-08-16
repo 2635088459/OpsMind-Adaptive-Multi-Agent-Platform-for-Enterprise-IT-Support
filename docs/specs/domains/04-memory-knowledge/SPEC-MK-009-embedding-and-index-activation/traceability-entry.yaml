@@ -1,0 +1,17 @@
+SPEC-MK-009:
+  domain: 04-memory-knowledge
+  name: Embedding And Index Activation
+  cn_name: Embedding 与 index activation
+  status: planned
+  service: memory-knowledge-service
+  phase: 02
+  lld_mapping:
+    - 07-data-model
+    - 08-transaction-and-outbox
+    - 10-failure-handling
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

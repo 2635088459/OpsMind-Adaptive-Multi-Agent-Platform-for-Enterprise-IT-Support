@@ -1,0 +1,15 @@
+SPEC-MK-021:
+  domain: 04-memory-knowledge
+  name: Ticket Workflow Consumed Contracts
+  cn_name: Ticket Workflow consumed contracts
+  status: planned
+  service: memory-knowledge-service
+  phase: 06
+  lld_mapping:
+    - 06-event-contracts
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

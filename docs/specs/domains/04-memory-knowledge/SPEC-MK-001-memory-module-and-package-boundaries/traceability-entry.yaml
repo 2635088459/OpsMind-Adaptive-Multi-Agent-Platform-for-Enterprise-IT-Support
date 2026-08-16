@@ -1,0 +1,51 @@
+SPEC-MK-001:
+  domain: 04-memory-knowledge
+  name: Memory Module and Package Boundaries
+  cn_name: Memory 模块与包边界
+  status: implemented
+  service: memory-knowledge-service
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline; Memory Knowledge is in the Python agents/LLMs/RAG/memory family, not Java)"
+  implementation_notes: >
+    Domain/application/infrastructure/interfaces package skeleton delivered under
+    services/memory-knowledge-service (Python package memoryknowledge), matching the
+    frozen Python baseline (FastAPI, Pydantic, uv, pytest). Layer boundaries enforced via
+    import-linter contracts (pyproject.toml [tool.importlinter]) plus an AST-based
+    pytest check under tests/architecture, mirroring agent-runtime-service's own
+    SPEC-ARO-001 precedent. All 8 named input-port use cases (UpdateWorkingMemory,
+    SearchMemory, ExpandKnowledgeGraph, IngestKnowledgeDocument, ExtractMemoryCandidate,
+    ValidateMemoryCandidate, PublishMemory, ExecuteRetention) plus the operational
+    DispatchOutboxEvents service and all 18 named output ports (plus
+    CommandIdempotencyRepository and DocumentParserPort, added the same way
+    agent-runtime-service extended its own LLD-listed port set) are implemented with
+    real, working logic against SPEC-MK-001-scoped in-memory adapters — not stubs:
+    working memory optimistic-version updates, the full memory-candidate state machine
+    (EXTRACTED -> REDACTED -> VALIDATED -> {DUPLICATE|CONFLICTING} -> APPROVED ->
+    PUBLISHED) with real regex-based PII/secret redaction (infrastructure/redaction.py),
+    a real markdown/paragraph document chunker (infrastructure/document_parser.py), a
+    deterministic (explicitly non-semantic, honestly labeled) hash-based embedding
+    placeholder (infrastructure/embedding/), a marker-syntax entity extractor
+    (infrastructure/graph/entity_extractor.py), a token-overlap retrieval scorer
+    (domain/retrieval.py, pure/unit-testable per 13-package-and-class-design's own
+    "Retrieval scorer ... 可单测"), bounded (depth<=2 by default) graph BFS expansion
+    with ACL/classification filtering, and an outbox dispatch loop with
+    backoff/dead-letter. Postgres/Alembic (07-data-model), the real RabbitMQ publisher
+    (08-transaction-and-outbox), and event-driven candidate extraction from
+    ticket.resolved.v1/workflow.completed.v1 (06-event-contracts) are intentionally
+    deferred to SPEC-MK-002 (schema baseline), SPEC-MK-003 (outbox/idempotency/audit
+    baseline), and phase-03 (memory-candidate-pipeline) respectively — see each
+    module's own docstring for the specific deferral and why.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 02-business-invariants
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - memory_direct_tool_execution
+    - unvalidated_active_memory_write
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/memory-knowledge-service/tests/domain
+    application: services/memory-knowledge-service/tests/application
+    architecture: services/memory-knowledge-service/tests/architecture
+    end_to_end: services/memory-knowledge-service/tests/test_app.py
+    result: "80 passed (pytest), 3 import-linter contracts kept, 0 pyflakes warnings"

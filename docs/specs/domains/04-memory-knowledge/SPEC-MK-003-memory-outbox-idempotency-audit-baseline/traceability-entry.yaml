@@ -1,0 +1,17 @@
+SPEC-MK-003:
+  domain: 04-memory-knowledge
+  name: Outbox Idempotency Audit Baseline
+  cn_name: Outbox、幂等与审计 baseline
+  status: planned
+  service: memory-knowledge-service
+  phase: 00
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+    - 12-observability
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

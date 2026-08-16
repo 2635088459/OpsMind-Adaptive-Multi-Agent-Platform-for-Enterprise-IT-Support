@@ -1,0 +1,16 @@
+SPEC-MK-004:
+  domain: 04-memory-knowledge
+  name: Working Memory Aggregate
+  cn_name: Working Memory 聚合
+  status: planned
+  service: memory-knowledge-service
+  phase: 01
+  lld_mapping:
+    - 01-domain-model
+    - 02-business-invariants
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

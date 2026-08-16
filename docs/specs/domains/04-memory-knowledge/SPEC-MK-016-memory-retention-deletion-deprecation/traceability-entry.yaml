@@ -1,0 +1,16 @@
+SPEC-MK-016:
+  domain: 04-memory-knowledge
+  name: Memory Retention Deletion Deprecation
+  cn_name: Memory retention、delete 与 deprecate
+  status: planned
+  service: memory-knowledge-service
+  phase: 04
+  lld_mapping:
+    - 03-state-machine
+    - 11-security
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

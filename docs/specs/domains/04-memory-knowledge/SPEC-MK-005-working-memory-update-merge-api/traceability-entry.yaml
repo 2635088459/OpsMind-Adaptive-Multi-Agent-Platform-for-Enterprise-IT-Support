@@ -1,0 +1,17 @@
+SPEC-MK-005:
+  domain: 04-memory-knowledge
+  name: Working Memory Update Merge API
+  cn_name: Working Memory 更新与 merge API
+  status: planned
+  service: memory-knowledge-service
+  phase: 01
+  lld_mapping:
+    - 04-use-cases
+    - 05-api-contracts
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

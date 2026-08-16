@@ -1,0 +1,16 @@
+SPEC-MK-008:
+  domain: 04-memory-knowledge
+  name: Document Parse Chunk Redaction
+  cn_name: Document parse、chunk 与 redaction
+  status: planned
+  service: memory-knowledge-service
+  phase: 02
+  lld_mapping:
+    - 04-use-cases
+    - 11-security
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

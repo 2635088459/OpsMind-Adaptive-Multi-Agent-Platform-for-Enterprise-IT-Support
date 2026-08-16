@@ -1,0 +1,16 @@
+SPEC-MK-027:
+  domain: 04-memory-knowledge
+  name: Prompt Injection And Graph Traversal Guard
+  cn_name: Prompt injection 与 graph traversal guard
+  status: planned
+  service: memory-knowledge-service
+  phase: 07
+  lld_mapping:
+    - 11-security
+    - 04-use-cases
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

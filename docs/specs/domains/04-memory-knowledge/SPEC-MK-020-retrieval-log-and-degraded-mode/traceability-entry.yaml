@@ -1,0 +1,16 @@
+SPEC-MK-020:
+  domain: 04-memory-knowledge
+  name: Retrieval Log And Degraded Mode
+  cn_name: Retrieval log 与 degraded mode
+  status: planned
+  service: memory-knowledge-service
+  phase: 05
+  lld_mapping:
+    - 10-failure-handling
+    - 12-observability
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

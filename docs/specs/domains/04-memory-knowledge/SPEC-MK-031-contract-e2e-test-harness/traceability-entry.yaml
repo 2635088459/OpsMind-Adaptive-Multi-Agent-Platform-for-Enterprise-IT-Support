@@ -1,0 +1,15 @@
+SPEC-MK-031:
+  domain: 04-memory-knowledge
+  name: Contract And E2E Test Harness
+  cn_name: Contract 与 E2E test harness
+  status: planned
+  service: memory-knowledge-service
+  phase: 09
+  lld_mapping:
+    - 14-testing-strategy
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction

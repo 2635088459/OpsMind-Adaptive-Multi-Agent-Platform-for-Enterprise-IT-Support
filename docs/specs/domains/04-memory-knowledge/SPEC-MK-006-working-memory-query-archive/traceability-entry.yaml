@@ -1,0 +1,16 @@
+SPEC-MK-006:
+  domain: 04-memory-knowledge
+  name: Working Memory Query Archive
+  cn_name: Working Memory 查询与归档
+  status: planned
+  service: memory-knowledge-service
+  phase: 01
+  lld_mapping:
+    - 05-api-contracts
+    - 03-state-machine
+  forbidden:
+    - memory_direct_ticket_state_write
+    - memory_direct_workflow_state_write
+    - agent_direct_active_memory_write
+    - graph_traversal_bypasses_acl
+    - cross_domain_distributed_transaction
