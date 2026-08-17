@@ -2,9 +2,40 @@ SPEC-MK-008:
   domain: 04-memory-knowledge
   name: Document Parse Chunk Redaction
   cn_name: Document parse、chunk 与 redaction
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 02
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    04-use-cases UC-03 steps 3-5 ("parse / normalize", "chunk", "redaction scan") and
+    11-security §"Redaction Pipeline" audit: this spec's own scope was already fully
+    built as part of phase-00's SPEC-MK-001/002 scaffolding, and this audit found no
+    gap requiring a code change. infrastructure.document_parser.SimpleDocumentParserAdapter
+    is a real, deterministic markdown/plain-text chunker (splits on blank lines and
+    `#`-headings, tracks heading_path, sized for the runbook/SOP/FAQ document types
+    01-domain-model names) — not a placeholder. IngestKnowledgeDocumentService redacts
+    every chunk's content via RedactionPolicyPort before it is ever persisted
+    (11-security §"Redaction Pipeline" step 1 "Pattern redaction" + a named-rule-id
+    form of step 3 "Policy rule redaction" — see infrastructure.redaction's own
+    _PATTERNS table for email/credit-card/SSN/bearer-token/key-value-secret/high-
+    entropy-blob coverage) and recomputes each chunk's content_hash from the
+    already-redacted text, never the raw text (so content_hash can never leak into a
+    correlatable fingerprint of un-redacted content). Chunk-level RedactionReport
+    persistence (11-security step 5) is correctly *not* wired for document chunks:
+    07-data-model's own `memory.document_chunks` table has no redaction_report
+    column (unlike memory_candidates/memory_versions, which do) — the report is
+    computed but deliberately discarded per-chunk, matching the data model as
+    designed, not a gap. "Structured field redaction" (step 2) and "human review for
+    high-risk candidate" (step 4) are MemoryCandidate-review concerns
+    (phase-03 SPEC-MK-013), not knowledge-document ingestion. The one real gap this
+    audit did find and close sits at the chunk-count boundary right after step 4
+    ("chunk"), and is attributed to SPEC-MK-009 (10-failure-handling §"Poison
+    Document") instead, since it is a failure-classification concern, not a
+    parse/chunk/redaction algorithm concern — see that spec's own traceability entry.
+    No persistence/migration change. Verified with 106 unit/architecture tests (the
+    existing test_secrets_in_raw_content_are_redacted_before_chunk_storage and
+    test_extract_graph_creates_nodes_and_edges_from_markers already cover this
+    spec's own pipeline steps end-to-end), lint-imports (3/3 contracts kept), 0
+    pyflakes warnings.
   lld_mapping:
     - 04-use-cases
     - 11-security
@@ -14,3 +45,7 @@ SPEC-MK-008:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (106, no new tests required — audit confirmed existing coverage of parse/chunk/redaction is already sufficient; see SPEC-MK-009's traceability entry for the two new failure-handling tests this audit surfaced instead)"
+    integration: "services/memory-knowledge-service/tests/integration (20)"
+    result: "126 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

@@ -2,7 +2,15 @@ name: opsmind-local-platform
 
 services:
   postgres:
-    image: postgres:18.4
+    # SPEC-MK-002 (04-memory-knowledge, 07-data-model): "使用 PostgreSQL + pgvector" —
+    # memory-knowledge-service's `memory.embeddings` table needs the pgvector
+    # extension. pgvector/pgvector:pg18 is the official postgres:18 image plus that
+    # extension pre-installed — a drop-in replacement (same Postgres major version,
+    # same data format) for ticket-workflow-service's and agent-runtime-service's own
+    # schemas in this same shared instance; nothing about their tables changes.
+    # Recreate the running container to pick this up: `docker compose -f
+    # infrastructure/docker-compose/local-platform.yml up -d --force-recreate postgres`.
+    image: pgvector/pgvector:pg18
     container_name: opsmind-postgres
     environment:
       POSTGRES_DB: ${DB_NAME:-ticket_workflow}

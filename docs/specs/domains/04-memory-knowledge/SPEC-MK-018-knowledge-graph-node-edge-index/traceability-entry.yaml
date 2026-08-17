@@ -2,9 +2,46 @@ SPEC-MK-018:
   domain: 04-memory-knowledge
   name: Knowledge Graph Node Edge Index
   cn_name: Knowledge Graph node/edge index
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 05
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    01-domain-model §"GraphNode"/"GraphEdge" / 07-data-model / 08-transaction-and-outbox
+    audit: the domain objects, VISIBLE/HIDDEN/TOMBSTONED state machine
+    (03-state-machine §"Graph Index 状态"), repositories (find_by_stable_key/
+    find_by_natural_key uniqueness, find_adjacent bounded-scan), and document-ingestion's
+    own entity-extraction graph upsert (SPEC-MK-007/008/009) were all already correct
+    from earlier phases. This spec's own real gap, flagged explicitly by SPEC-MK-015's
+    own traceability entry as deferred here: PublishMemoryService never created any
+    graph node/edge at all, so UC-05 step 6 ("upsert graph nodes / edges，并为新版本建立
+    ... 关系") and 08-transaction-and-outbox §"Publish Memory Transaction" steps 7-8
+    ("upsert graph nodes / edges", "对 superseded version 写 SUPERSEDES edge，并隐藏旧
+    version 的默认检索 visibility") were entirely unbuilt — leaving
+    ExecuteRetentionService's own graph-tombstone-on-delete logic (which looks up a
+    `memory:{memoryId}` node) permanently inert, the same "pre-planted, never wired"
+    shape SPEC-MK-011/012/015 already found in their own domains.
+
+    Fixed: PublishMemoryService now upserts a `MEMORY` node (stable_key
+    `memory:{memoryId}`, created once, reused across every version of that Memory) and
+    a `MEMORY_VERSION` node (stable_key `memory_version:{memoryVersionId}`, one per
+    published version) on every publish. When superseding an existing active version
+    (SPEC-MK-015's own new memory_id path), it also writes a `SUPERSEDES` edge from the
+    new version's node to the old one's and hides the old version's node — exactly
+    matching 03-state-machine's own "MemoryVersion superseded 时，相关 SUPERSEDES 边新增，
+    旧 version 节点默认 HIDDEN." No LLD section specifies an entity/relation-extraction
+    algorithm for Memory content the way documents have one (EntityExtractorPort) — this
+    stays a structural node/edge upsert, not a fabricated extraction; DERIVED_FROM/
+    SUPPORTED_BY/RESOLVED_BY edges to ticket/evidence entities (UC-05 step 6's fuller
+    description) stay unbuilt for the same honest reason — no TICKET/SYMPTOM/etc. graph
+    nodes exist anywhere yet for a Memory to link to.
+
+    Also found and closed: 06-event-contracts `knowledge.graph.updated.v1` ("图 nodes /
+    edges 被 ingestion 或 memory publish 更新后发布") explicitly names memory publish as a
+    second publisher of this event alongside document ingestion's own — the event/
+    domain class already existed (used only by ingestion) but publish never fired it.
+    PublishMemoryService now publishes it whenever its graph upsert actually creates a
+    node or edge, carrying `index_version = memory_version.version` (mirroring
+    IngestKnowledgeDocumentService's own `index_version = document.version` convention).
   lld_mapping:
     - 01-domain-model
     - 07-data-model
@@ -15,3 +52,7 @@ SPEC-MK-018:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (126, includes 3 new: publish creates memory and version graph nodes plus publishes knowledge.graph.updated.v1, supersede writes a SUPERSEDES edge and hides the old version's node)"
+    integration: "services/memory-knowledge-service/tests/integration (23, includes 1 new: publish creates real graph_nodes rows against a real migrated Postgres schema)"
+    result: "149 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

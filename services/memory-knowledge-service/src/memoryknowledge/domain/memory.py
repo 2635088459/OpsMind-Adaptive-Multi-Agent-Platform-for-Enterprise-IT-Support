@@ -20,15 +20,20 @@ _DELETABLE_STATUSES = frozenset({MemoryVersionStatus.ACTIVE, MemoryVersionStatus
 
 @dataclass(frozen=True, slots=True)
 class Memory:
-    """01-domain-model: "长期记忆的逻辑身份。当前有效内容由 MemoryVersion 表达."""
+    """01-domain-model: "长期记忆的逻辑身份。当前有效内容由 MemoryVersion 表达." 07-data-model
+    `memory.memories` §"classification text not null" — 02-business-invariants:
+    "高敏 classification 的 memory 默认不可跨 queue / role 检索"; 11-security §"检索前必须
+    计算 access scope，并应用到：Memory classification."
+    """
 
     memory_id: MemoryId
     memory_type: MemoryType
+    classification: str
     created_at: datetime
 
     @staticmethod
-    def create(memory_id: MemoryId, memory_type: MemoryType, created_at: datetime) -> "Memory":
-        return Memory(memory_id=memory_id, memory_type=memory_type, created_at=created_at)
+    def create(memory_id: MemoryId, memory_type: MemoryType, created_at: datetime, classification: str = "INTERNAL") -> "Memory":
+        return Memory(memory_id=memory_id, memory_type=memory_type, classification=classification, created_at=created_at)
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,10 +101,15 @@ class MemoryVersion:
 
     def delete(self) -> "MemoryVersion":
         """03-state-machine: "ACTIVE/SUPERSEDED/DEPRECATED -> DELETED"; "DELETED 不可检索，
-        但保留 audit metadata" — content/summary are intentionally left intact here (unlike
-        WorkingMemory.delete()'s tombstone-and-clear), the repository/retrieval layer is
-        what must stop returning a DELETED version, not this method scrubbing content.
+        但保留 audit metadata". 11-security §"删除和保留": "删除成功后，默认保留 tombstone、
+        audit、source hash，不保留可恢复原文" — content/summary are scrubbed here, mirroring
+        WorkingMemory.delete()'s own tombstone-and-clear shape; source_refs/source_hash/
+        confidence_score/source_trust_score/created_by/created_at are kept intact as the
+        tombstone/audit trail that same line requires. Leaving content/summary readable in
+        storage and relying only on the retrieval layer to filter DELETED status would
+        keep a fully recoverable original text sitting in the row, which this line
+        explicitly forbids.
         """
         if self.status not in _DELETABLE_STATUSES:
             raise InvalidMemoryVersionTransitionException(self.status, _DELETABLE_STATUSES)
-        return dataclasses.replace(self, status=MemoryVersionStatus.DELETED)
+        return dataclasses.replace(self, status=MemoryVersionStatus.DELETED, content="", summary="")

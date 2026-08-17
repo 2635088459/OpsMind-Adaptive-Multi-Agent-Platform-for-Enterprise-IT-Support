@@ -2,9 +2,44 @@ SPEC-MK-009:
   domain: 04-memory-knowledge
   name: Embedding And Index Activation
   cn_name: Embedding 与 index activation
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 02
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    07-data-model / 08-transaction-and-outbox / 10-failure-handling audit against
+    IngestKnowledgeDocumentService's own embedding/index/activation tail (already
+    built in phase-00): the embedding step itself (per-chunk EmbeddingProvider.embed
+    + EmbeddingRepository.save, matching 07-data-model's `memory.embeddings` table),
+    the mark_embedded -> mark_indexed -> activate transition sequence
+    (03-state-machine), the per-step independent-transaction save pattern
+    (08-transaction-and-outbox §"Document Ingestion Transaction": "每个阶段独立事务...
+    这样可以恢复 partial ingestion"), and the `knowledge.document.indexed.v1` outbox
+    publish (06-event-contracts) were all already correct. This audit found and fixed
+    two real gaps, both in failure-boundary placement rather than the happy path:
+    (1) 08-transaction-and-outbox §"Graph Upsert Transaction": "如果 graph upsert
+    失败：document ingestion 不进入 ACTIVE" and 10-failure-handling §"Graph Failure":
+    "entity extraction 失败时，document / candidate 不进入 searchable active 状态" — the
+    optional graph-extraction/upsert step ran *after* mark_indexed/activate and after
+    the knowledge.document.indexed.v1 outbox append, entirely outside the pipeline's
+    try/except, so an entity-extractor or graph-repository failure would propagate
+    unhandled out of an already-ACTIVE, already-published document instead of
+    blocking activation. Moved the whole extract-graph block to its LLD-specified
+    position (UC-03 step 7, between embedding and index) inside the same try/except
+    boundary as parse/chunk/embed, so a graph failure now correctly falls through to
+    mark_failed() + DocumentIngestionFailedException like every other step. (2)
+    10-failure-handling §"Poison Document": "内容为空... document 状态进入 FAILED...
+    不生成 chunks / embeddings" — raw_content that is non-empty at the wire
+    (IngestDocumentRequest.raw_content requires min_length=1) but whitespace-only
+    parsed to zero DocumentChunk rows and the pipeline activated anyway, producing an
+    ACTIVE, searchable document with no retrievable content. Fixed by failing
+    ingestion immediately when parse_and_chunk() returns no chunks, going through the
+    same mark_failed() path as every other poison case. No persistence/migration
+    change. Verified with 108 tests (unit/architecture + integration), including two
+    new unit tests (graph-extraction-failure-blocks-activation, whitespace-only-
+    content-fails-instead-of-activating), lint-imports (3/3 contracts kept), 0
+    pyflakes warnings. The shared opsmind-postgres container used by sibling services
+    was not touched; integration verification used isolated ephemeral testcontainers
+    instances only.
   lld_mapping:
     - 07-data-model
     - 08-transaction-and-outbox
@@ -15,3 +50,7 @@ SPEC-MK-009:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (106, includes 2 new: graph extraction failure blocks activation instead of leaking an active document, whitespace-only content fails instead of activating an empty document)"
+    integration: "services/memory-knowledge-service/tests/integration (20)"
+    result: "126 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

@@ -1,10 +1,65 @@
 SPEC-MK-003:
   domain: 04-memory-knowledge
-  name: Outbox Idempotency Audit Baseline
+  name: Memory Outbox, Idempotency and Audit Baseline
   cn_name: Outbox、幂等与审计 baseline
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 00
+  tech_stack: "Python 3.13+ / FastAPI / SQLAlchemy 2.x / Alembic / psycopg3 (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    Command Idempotency (09-concurrency-and-idempotency §"Command Idempotency"):
+    CommandIdempotencyRecord reshaped from a bare result_ref to a real
+    request-hash-comparing shape (target_id, request_hash, response_json,
+    expires_at) and routed through one new CommandIdempotencyGuard
+    (application/services/idempotency.py) — mirrors agent-runtime-service's own
+    SPEC-ARO-003 CommandIdempotencyGuard exactly. Same key + same canonical-JSON
+    request hash replays the cached response (execute() never re-runs); same key +
+    a different hash raises IdempotencyKeyReusedException (409
+    IDEMPOTENCY_KEY_REUSED). All four idempotency-key-carrying commands
+    (ExtractMemoryCandidate, PublishMemory, DeprecateMemory — previously carried
+    a key but never checked it, a real gap this spec closes — and DeleteMemory)
+    now go through the guard uniformly. Outbox Replay
+    (08-transaction-and-outbox §"Outbox Publisher": "replay 必须幂等"):
+    OutboxRepository gained requeue() (resets a DEAD_LETTER row to PENDING,
+    attempts=0) in both the in-memory and Postgres adapters;
+    DispatchOutboxEventsService gained replay_dead_letter(), exposed via new admin
+    endpoint POST /internal/memory/v1/admin/outbox/replay-dead-letter — requeues
+    then immediately attempts redelivery in one call, reporting the real outcome.
+    Audit Trail Baseline (12-observability §"Audit Events"): new AuditRecordEntry
+    record, AuditRecordRepository port (in-memory + Postgres adapters, new
+    `memory.audit_events` table via a second hand-written Alembic migration
+    f5e0379f817f), and a small AuditRecorder collaborator (mirrors
+    agent-runtime-service's own AuditRecorder — recording never raises, a failed
+    audit append is logged and swallowed rather than failing the primary
+    operation) injected into every write path 12-observability's own "审计动作"
+    list names: ingest_document, extract_candidate (an addition beyond that list,
+    justified the same way this spec's own admin endpoint for it is — the
+    pipeline's own entry point), reject_candidate (RejectMemoryCandidateCommand
+    gained a required actor_id field it was missing — another real gap this spec
+    closes, since 05-api-contracts requires "Admin API 必须携带 actor id"),
+    approve_candidate + publish_memory (both recorded, since this spec's own
+    admin API combines what 12-observability names as two separate actions into
+    one call), deprecate_memory, and delete_memory (including a DENIED outcome
+    row on authorization failure, before the exception is raised). New
+    AuditRecordQueryPort/AuditRecordQueryService/GET
+    /internal/memory/v1/admin/audit-events visibility endpoint, mirroring
+    PoisonEventQueryPort-style read-only surfaces. Real RabbitMQ publisher wiring
+    stays deferred past this spec too (mirrors agent-runtime-service's own
+    SPEC-ARO-003 precedent, which shipped only the logging placeholder and
+    deferred the real broker to a later phase) — this spec's own LLD mapping
+    (08-transaction-and-outbox, 09-concurrency-and-idempotency, 12-observability)
+    is satisfied independent of which EventPublisherPort adapter is wired.
+    Poison-event tables/handling are explicitly out of scope (10-failure-handling
+    is not in this spec's LLD mapping; owned by a later phase-08 spec) —
+    consistent with agent-runtime-service's own SPEC-ARO-003 not building poison
+    events either (that domain's equivalent came at a separate later spec).
+    Verified with 102 tests (84 unit/architecture + 18 integration against a real
+    ephemeral testcontainers Postgres, including the CommandIdempotencyGuard and
+    audit/requeue round trips run against real Postgres, not just the in-memory
+    adapters), lint-imports (3/3 contracts kept), 0 pyflakes warnings, and a full
+    HTTP-driven walkthrough (tests/test_app.py) covering: idempotent replay vs.
+    IDEMPOTENCY_KEY_REUSED conflict on a changed payload, every named audit
+    action appearing in GET /admin/audit-events, and a seeded DEAD_LETTER outbox
+    row successfully republished via POST /admin/outbox/replay-dead-letter.
   lld_mapping:
     - 08-transaction-and-outbox
     - 09-concurrency-and-idempotency
@@ -12,6 +67,10 @@ SPEC-MK-003:
   forbidden:
     - memory_direct_ticket_state_write
     - memory_direct_workflow_state_write
-    - agent_direct_active_memory_write
-    - graph_traversal_bypasses_acl
+    - memory_direct_tool_execution
+    - unvalidated_active_memory_write
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (84, includes 4 new admin-endpoint walkthroughs)"
+    integration: "services/memory-knowledge-service/tests/integration (18, includes 4 new: guard replay/conflict, audit round-trip, outbox requeue)"
+    result: "102 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

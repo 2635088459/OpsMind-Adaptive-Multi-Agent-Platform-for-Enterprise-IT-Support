@@ -2,9 +2,47 @@ SPEC-MK-020:
   domain: 04-memory-knowledge
   name: Retrieval Log And Degraded Mode
   cn_name: Retrieval log 与 degraded mode
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 05
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    10-failure-handling §"Retrieval Degraded"/"Graph Failure" / 12-observability audit:
+    RetrievalLog itself (append-only, written on every search including degraded ones,
+    never fabricating result_refs — 02-business-invariants' own "退化模式" already
+    honestly satisfied since phase-00) was already correct, as was the top-level
+    `degraded: bool` flag on repository failure. Two real gaps closed:
+
+    (1) 10-failure-handling's own example response shows `"degradedReason":
+    "VECTOR_INDEX_TIMEOUT"` alongside `degraded: true`, but no reason was ever
+    surfaced — a caller could see *that* a search degraded but not *why*.
+    SearchResultView/SearchResponse gained `degraded_reason: str | None`, set to
+    `"REPOSITORY_UNAVAILABLE"` on the existing repository-failure branch (the only
+    failure category this spec's own scope produces today; further-differentiated
+    reason codes, e.g. an actual vector-index-specific timeout, need SPEC-MK-017's own
+    still-deferred real vector search to exist before that distinction is meaningful).
+
+    (2) 10-failure-handling §"Graph Failure": "graph expansion 查询失败时，Search API 可
+    返回 vector/keyword results，并标记 graphDegraded=true" — this is *independent* of the
+    main `degraded` flag (a graph-only failure must not degrade the whole search).
+    SearchResultView/SearchResponse gained `graph_degraded: bool`, set when
+    SPEC-MK-019's own new graph-expansion call raises — the base vector/keyword
+    results are still returned in that case, matching the LLD's own explicit
+    "结果仍返回" requirement. `RetrievalLog.record()` already accepted a `graph_paths`
+    parameter (SPEC-MK-001, unused until SPEC-MK-019 started passing real ones) —
+    now populated so 07-data-model's own `retrieval_logs.graph_paths` column carries
+    real data instead of always `[]`.
+
+    12-observability's own Metrics/Traces/Dashboards/Alerting sections all require a
+    real metrics/tracing framework (Prometheus/OpenTelemetry) this codebase has never
+    wired for any spec (audit trail via AuditRecordEntry, SPEC-MK-003, remains the one
+    piece of 12-observability actually built) — building that apparatus now would be
+    scope creep from a single retrieval-log spec into all of 12-observability at once;
+    it stays phase-08's job (SPEC-MK-028, "memory-observability-audit", the coverage
+    matrix's own primary owner of that LLD section). "search_denied" (12-observability's
+    own named audit action) is likewise not implemented here: 05-api-contracts §"API
+    原则" explicitly scopes Search API to "只写 retrieval log" (never an audit entry),
+    so a denied-search audit action belongs to whichever later spec builds real
+    access-denial visibility (SPEC-MK-025, phase-07), not this one.
   lld_mapping:
     - 10-failure-handling
     - 12-observability
@@ -14,3 +52,7 @@ SPEC-MK-020:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (126, includes 1 new application test asserting degraded_reason == REPOSITORY_UNAVAILABLE, 1 new REST end-to-end test asserting degraded/degraded_reason/graph_degraded are all present and correctly null/false on a healthy search)"
+    integration: "services/memory-knowledge-service/tests/integration (23) — degraded_reason/graph_degraded response fields verified end-to-end against real migrated Postgres"
+    result: "149 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

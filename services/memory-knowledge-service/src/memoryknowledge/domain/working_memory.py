@@ -132,15 +132,33 @@ class WorkingMemory:
             updated_by=updated_by, updated_at=updated_at,
         )
 
-    def archive(self, updated_at: datetime) -> "WorkingMemory":
-        """03-state-machine: "ticket cycle 结束后可 ARCHIVED."."""
+    def archive(self, *, expected_version: int, updated_at: datetime) -> "WorkingMemory":
+        """03-state-machine: "ticket cycle 结束后可 ARCHIVED." SPEC-MK-006 domain-rules:
+        "需要写状态的命令必须具备幂等或版本保护" — takes expected_version and bumps version
+        exactly like apply_update(), so WorkingMemoryRepository.save()'s own CAS (which
+        compares the stored row's version to `new.version - 1`) works for this
+        transition too; the original SPEC-MK-001 version of this method neither checked
+        nor bumped version, which would have made every save() through this path fail
+        the CAS silently once actually wired (this method had zero callers until
+        SPEC-MK-006).
+        """
         if self.status is not WorkingMemoryStatus.ACTIVE:
             raise InvalidWorkingMemoryStateException(self.status)
-        return dataclasses.replace(self, status=WorkingMemoryStatus.ARCHIVED, updated_at=updated_at)
+        if expected_version != self.version:
+            raise WorkingMemoryVersionConflictException(expected_version, self.version)
+        return dataclasses.replace(self, version=self.version + 1, status=WorkingMemoryStatus.ARCHIVED, updated_at=updated_at)
 
-    def delete(self, updated_at: datetime) -> "WorkingMemory":
-        """03-state-machine: "deletion request 可把 body 清空并保留 tombstone."."""
+    def delete(self, *, expected_version: int, updated_at: datetime) -> "WorkingMemory":
+        """03-state-machine: "deletion request 可把 body 清空并保留 tombstone." Callable from
+        ACTIVE or ARCHIVED (not from an already-DELETED row, to avoid double-processing a
+        replayed request under a stale version) — mirrors archive()'s own version
+        protection.
+        """
+        if self.status is WorkingMemoryStatus.DELETED:
+            raise InvalidWorkingMemoryStateException(self.status)
+        if expected_version != self.version:
+            raise WorkingMemoryVersionConflictException(expected_version, self.version)
         return dataclasses.replace(
-            self, status=WorkingMemoryStatus.DELETED, facts=(), hypotheses=(), tool_evidence_refs=(),
+            self, version=self.version + 1, status=WorkingMemoryStatus.DELETED, facts=(), hypotheses=(), tool_evidence_refs=(),
             context_summary="", updated_at=updated_at,
         )

@@ -11,7 +11,15 @@ import hashlib
 from memoryknowledge.application.commands import RejectMemoryCandidateCommand, ValidateMemoryCandidateCommand
 from memoryknowledge.application.exceptions import MemoryCandidateNotFoundException
 from memoryknowledge.application.outbox_codec import build_outbox_record
-from memoryknowledge.application.ports_out import ClockPort, MemoryCandidateRepository, MemoryRepository, OutboxRepository, RedactionPolicyPort
+from memoryknowledge.application.ports_out import (
+    AuditRecordRepository,
+    ClockPort,
+    MemoryCandidateRepository,
+    MemoryRepository,
+    OutboxRepository,
+    RedactionPolicyPort,
+)
+from memoryknowledge.application.services.audit import AuditRecorder
 from memoryknowledge.application.views import MemoryCandidateView
 from memoryknowledge.domain.events import MemoryCandidateRejected
 
@@ -19,13 +27,15 @@ from memoryknowledge.domain.events import MemoryCandidateRejected
 class ValidateMemoryCandidateService:
     def __init__(
         self, memory_candidate_repository: MemoryCandidateRepository, memory_repository: MemoryRepository,
-        redaction_policy_port: RedactionPolicyPort, outbox_repository: OutboxRepository, clock: ClockPort,
+        redaction_policy_port: RedactionPolicyPort, outbox_repository: OutboxRepository,
+        audit_record_repository: AuditRecordRepository, clock: ClockPort,
     ) -> None:
         self._memory_candidate_repository = memory_candidate_repository
         self._memory_repository = memory_repository
         self._redaction_policy_port = redaction_policy_port
         self._outbox_repository = outbox_repository
         self._clock = clock
+        self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
     def validate(self, command: ValidateMemoryCandidateCommand) -> MemoryCandidateView:
         candidate = self._memory_candidate_repository.find_by_id(command.candidate_id)
@@ -80,4 +90,8 @@ class ValidateMemoryCandidateService:
             MemoryCandidateRejected(candidate_id=candidate.candidate_id, reason=command.reason, occurred_at=now),
             "memory.candidate.rejected.v1", aggregate_id=str(candidate.candidate_id), occurred_at=now,
         ))
+        self._audit_recorder.record(
+            audit_type="MEMORY", action="reject_candidate", resource_type="MEMORY_CANDIDATE", resource_id=str(candidate.candidate_id),
+            outcome="SUCCESS", actor_id=command.actor_id, detail=f'{{"reason": "{command.reason}"}}',
+        )
         return MemoryCandidateView.from_domain(candidate)

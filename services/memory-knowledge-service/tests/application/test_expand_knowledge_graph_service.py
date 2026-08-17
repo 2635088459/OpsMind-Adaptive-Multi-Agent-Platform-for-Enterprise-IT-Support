@@ -99,3 +99,67 @@ def test_expand_skips_nodes_the_requester_is_not_authorized_for() -> None:
     ))
 
     assert result.paths == ()
+
+
+def test_expand_hides_owned_by_edges_from_a_non_restricted_role_regardless_of_classification() -> None:
+    """SPEC-MK-027 11-security §"Graph Security": "OWNED_BY / POLICY_RULE 等组织关系
+    默认只对 authorized role 返回" — a floor independent of classification: both nodes
+    below are "INTERNAL" (normally visible to any role), but the OWNED_BY edge
+    connecting them must still be hidden from a plain "agent" role.
+    """
+    node_repository, edge_repository = InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository()
+    service_node = GraphNode.create(
+        GraphNodeId.new_id(), GraphNodeType.SERVICE, "service:vpn-auth", "vpn-auth", "INTERNAL", (SourceRef("ticket", "T-1"),), _now(),
+    )
+    owner_node = GraphNode.create(
+        GraphNodeId.new_id(), GraphNodeType.OWNER, "owner:platform-team", "platform-team", "INTERNAL", (SourceRef("ticket", "T-1"),), _now(),
+    )
+    node_repository.save(service_node)
+    node_repository.save(owner_node)
+    edge_repository.save(GraphEdge.create(
+        GraphEdgeId.new_id(), GraphEdgeType.OWNED_BY, service_node.node_id, owner_node.node_id, 0.9,
+        (SourceRef("ticket", "T-1"),), "owned-by-hash-1", _now(),
+    ))
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+
+    agent_result = service.expand(ExpandKnowledgeGraphCommand(
+        seed_node_ids=(service_node.node_id,), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),
+        requester_type="agent", requester_id="agent-1", max_depth=2,
+    ))
+    assert agent_result.paths == ()
+
+    admin_result = service.expand(ExpandKnowledgeGraphCommand(
+        seed_node_ids=(service_node.node_id,), access_scope=AccessScope(tenant="acme", role="admin", classification="INTERNAL"),
+        requester_type="admin", requester_id="admin-1", max_depth=2,
+    ))
+    assert len(admin_result.paths) == 1
+
+
+def test_expand_hides_policy_rule_nodes_from_a_non_restricted_role_regardless_of_classification() -> None:
+    node_repository, edge_repository = InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository()
+    action_node = GraphNode.create(
+        GraphNodeId.new_id(), GraphNodeType.ACTION, "action:reset-mfa", "reset-mfa", "INTERNAL", (SourceRef("ticket", "T-1"),), _now(),
+    )
+    policy_node = GraphNode.create(
+        GraphNodeId.new_id(), GraphNodeType.POLICY_RULE, "policy:mfa-reset-requires-approval", "mfa-reset-requires-approval",
+        "INTERNAL", (SourceRef("ticket", "T-1"),), _now(),
+    )
+    node_repository.save(action_node)
+    node_repository.save(policy_node)
+    edge_repository.save(GraphEdge.create(
+        GraphEdgeId.new_id(), GraphEdgeType.SUPPORTED_BY, action_node.node_id, policy_node.node_id, 0.9,
+        (SourceRef("ticket", "T-1"),), "policy-edge-hash-1", _now(),
+    ))
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+
+    agent_result = service.expand(ExpandKnowledgeGraphCommand(
+        seed_node_ids=(action_node.node_id,), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),
+        requester_type="agent", requester_id="agent-1", max_depth=2,
+    ))
+    assert agent_result.paths == ()
+
+    admin_result = service.expand(ExpandKnowledgeGraphCommand(
+        seed_node_ids=(action_node.node_id,), access_scope=AccessScope(tenant="acme", role="admin", classification="INTERNAL"),
+        requester_type="admin", requester_id="admin-1", max_depth=2,
+    ))
+    assert len(admin_result.paths) == 1

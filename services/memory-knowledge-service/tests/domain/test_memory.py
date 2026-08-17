@@ -56,3 +56,21 @@ def test_delete_from_deleted_is_rejected() -> None:
     deleted = _active_version().delete()
     with pytest.raises(InvalidMemoryVersionTransitionException):
         deleted.delete()
+
+
+def test_delete_scrubs_content_and_summary_but_keeps_the_tombstone_and_audit_trail() -> None:
+    """11-security §"删除和保留": "删除成功后，默认保留 tombstone、audit、source hash，不
+    保留可恢复原文."
+    """
+    version = _active_version()
+
+    deleted = version.delete()
+
+    assert deleted.content == ""
+    assert deleted.summary == ""
+    assert deleted.status.name == "DELETED"
+    assert deleted.memory_version_id == version.memory_version_id
+    assert deleted.source_hash == version.source_hash
+    assert deleted.source_refs == version.source_refs
+    assert deleted.created_by == version.created_by
+    assert deleted.created_at == version.created_at

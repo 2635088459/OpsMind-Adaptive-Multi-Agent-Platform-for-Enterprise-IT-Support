@@ -2,9 +2,40 @@ SPEC-MK-014:
   domain: 04-memory-knowledge
   name: Memory And Version Aggregate
   cn_name: Memory 与 Version 聚合
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 04
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    01-domain-model §"Memory"/"MemoryVersion" / 03-state-machine §"Memory Version 状态机"
+    audit: the aggregate (domain.memory.Memory/MemoryVersion, every field 01-domain-model
+    lists), the DRAFT->ACTIVE->{SUPERSEDED,DEPRECATED,DELETED} state machine
+    (MemoryVersionStatus, transition guards on supersede()/deprecate()/delete()), and
+    07-data-model's own persistence shape (`memories`/`memory_versions` tables,
+    including the partial unique index enforcing "同一个 memoryId 同时只能有一个 ACTIVE
+    version") were all already correctly built in phase-00 — this spec's own audit
+    against 01-domain-model + 03-state-machine found no missing field, transition, or
+    invariant at the aggregate level itself. `create_active()` collapses the state
+    machine's own DRAFT->ACTIVE transition into one atomic factory call rather than
+    persisting a transient DRAFT row — a deliberate simplification, not a gap:
+    08-transaction-and-outbox §"Publish Memory Transaction" already frames MemoryVersion
+    creation and activation as steps within a single transaction/commit, so collapsing
+    them preserves the same atomicity the LLD asks for without a real intermediate
+    checkpoint any use case reads.
+
+    This spec's own audit against 11-security §"删除和保留" ("删除成功后，默认保留
+    tombstone、audit、source hash，不保留可恢复原文") did find one real, aggregate-level
+    gap and closed it here (attributed to this spec rather than SPEC-MK-016 since it's
+    a domain-object invariant, not a retention-workflow concern): `MemoryVersion.
+    delete()` previously left `content`/`summary` fully intact on a DELETED row — a
+    deliberate-looking prior design explicitly documented as "the repository/retrieval
+    layer is what must stop returning a DELETED version, not this method scrubbing
+    content." That design kept a fully recoverable original text sitting in storage,
+    which 11-security's own line explicitly forbids. Fixed by scrubbing content/summary
+    on delete() (mirroring WorkingMemory.delete()'s own tombstone-and-clear shape),
+    while keeping source_refs/source_hash/confidence_score/source_trust_score/
+    created_by/created_at intact as the tombstone/audit trail that same line requires.
+    No migration needed — MemoryVersionRow.content/summary were already nullable-
+    compatible `Text` columns accepting an empty string.
   lld_mapping:
     - 01-domain-model
     - 03-state-machine
@@ -14,3 +45,7 @@ SPEC-MK-014:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (121, includes 1 new domain test: delete scrubs content and summary but keeps the tombstone and audit trail; existing supersede/deprecate/delete transition tests unaffected)"
+    integration: "services/memory-knowledge-service/tests/integration (22) — content scrubbing verified against a real migrated Postgres schema via SPEC-MK-016's own integration test"
+    result: "143 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

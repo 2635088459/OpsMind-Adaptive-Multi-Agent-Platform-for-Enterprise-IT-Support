@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 
 from memoryknowledge.application.exceptions import OptimisticConcurrencyConflictException, WorkingMemoryScopeConflictException
-from memoryknowledge.application.records import CommandIdempotencyRecord, OutboxRecord
+from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord
 from memoryknowledge.domain.enums import GraphNodeStatus, MemoryVersionStatus, OutboxStatus
 from memoryknowledge.domain.exceptions import WorkingMemoryVersionConflictException
 from memoryknowledge.domain.ids import (
@@ -80,6 +80,12 @@ class InMemoryMemoryCandidateRepository:
 
     def find_by_id(self, candidate_id: MemoryCandidateId) -> MemoryCandidate | None:
         return self._by_id.get(candidate_id)
+
+    def find_by_source_hash(self, source_hash: str, memory_type) -> MemoryCandidate | None:
+        for candidate in self._by_id.values():
+            if candidate.source_hash == source_hash and candidate.memory_type == memory_type:
+                return candidate
+        return None
 
     def save(self, candidate: MemoryCandidate, expected_status) -> MemoryCandidate:
         stored = self._by_id.get(candidate.candidate_id)
@@ -304,7 +310,7 @@ class InMemoryOutboxRepository:
 
     def mark_published(self, outbox_id: uuid.UUID, published_at: datetime) -> None:
         record = self._records[outbox_id]
-        self._records[outbox_id] = dataclasses.replace(record, status=OutboxStatus.PUBLISHED)
+        self._records[outbox_id] = dataclasses.replace(record, status=OutboxStatus.PUBLISHED, published_at=published_at)
 
     def mark_failed(self, outbox_id: uuid.UUID, next_available_at: datetime, attempts: int) -> None:
         record = self._records[outbox_id]
@@ -316,6 +322,12 @@ class InMemoryOutboxRepository:
 
     def find_dead_letter(self, limit: int) -> list[OutboxRecord]:
         return [r for r in self._records.values() if r.status is OutboxStatus.DEAD_LETTER][:limit]
+
+    def requeue(self, outbox_id: uuid.UUID, available_at: datetime) -> None:
+        record = self._records[outbox_id]
+        self._records[outbox_id] = dataclasses.replace(
+            record, status=OutboxStatus.PENDING, attempts=0, available_at=available_at, published_at=None,
+        )
 
     def recorded(self) -> list[OutboxRecord]:
         """Test-only helper (mirrors agent-runtime-service's own
@@ -332,5 +344,19 @@ class InMemoryCommandIdempotencyRepository:
         return self._by_key.get(idempotency_key.value)
 
     def save(self, record: CommandIdempotencyRecord) -> CommandIdempotencyRecord:
-        self._by_key[record.idempotency_key.value] = record
-        return record
+        # First writer wins — a concurrent caller that already inserted this exact key
+        # must not have its cached response clobbered (mirrors the Postgres adapter's
+        # own IntegrityError-swallowing insert).
+        self._by_key.setdefault(record.idempotency_key.value, record)
+        return self._by_key[record.idempotency_key.value]
+
+
+class InMemoryAuditRecordRepository:
+    def __init__(self) -> None:
+        self._entries: list[AuditRecordEntry] = []
+
+    def append(self, entry: AuditRecordEntry) -> None:
+        self._entries.append(entry)
+
+    def find_recent(self, limit: int) -> list[AuditRecordEntry]:
+        return list(reversed(self._entries[-limit:]))

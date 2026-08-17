@@ -7,7 +7,9 @@ from __future__ import annotations
 from uuid import UUID
 
 from memoryknowledge.application.commands import (
+    ArchiveWorkingMemoryCommand,
     DeleteMemoryCommand,
+    DeleteWorkingMemoryCommand,
     DeprecateMemoryCommand,
     ExpandKnowledgeGraphCommand,
     ExtractMemoryCandidateCommand,
@@ -16,6 +18,7 @@ from memoryknowledge.application.commands import (
     RejectMemoryCandidateCommand,
     ValidateMemoryCandidateCommand,
 )
+from memoryknowledge.application.records import AuditRecordEntry
 from memoryknowledge.application.views import (
     DeletionReport,
     DispatchReport,
@@ -25,10 +28,13 @@ from memoryknowledge.application.views import (
     MemoryVersionView,
 )
 from memoryknowledge.domain.enums import MemoryType
-from memoryknowledge.domain.ids import GraphNodeId, IdempotencyKey, MemoryCandidateId, MemoryId
+from memoryknowledge.domain.ids import CorrelationId, GraphNodeId, IdempotencyKey, MemoryCandidateId, MemoryId, WorkingMemoryId
 from memoryknowledge.domain.values import AccessScope, SourceRef
 from memoryknowledge.interfaces.admin.schemas import (
     ApproveCandidateRequest,
+    ArchiveWorkingMemoryRequest,
+    AuditEventResponse,
+    DeleteWorkingMemoryRequest,
     DeletionReportResponse,
     DeletionRequestRequest,
     DeprecateMemoryRequest,
@@ -49,8 +55,9 @@ def to_ingest_command(request: IngestDocumentRequest) -> IngestKnowledgeDocument
     return IngestKnowledgeDocumentCommand(
         source_system=request.source_system, external_id=request.external_id, title=request.title,
         document_type=request.document_type, version=request.version, raw_content=request.raw_content,
-        ingested_by=request.ingested_by, acl=tuple(request.acl), effective_from=request.effective_from,
-        expires_at=request.expires_at, extract_graph=request.extract_graph, graph_namespace=request.graph_namespace,
+        ingested_by=request.ingested_by, acl=tuple(request.acl), classification=request.classification,
+        effective_from=request.effective_from, expires_at=request.expires_at, extract_graph=request.extract_graph,
+        graph_namespace=request.graph_namespace,
     )
 
 
@@ -76,8 +83,8 @@ def to_validate_command(candidate_id: UUID, request: ValidateCandidateRequest) -
     )
 
 
-def to_reject_command(candidate_id: UUID, request: RejectCandidateRequest) -> RejectMemoryCandidateCommand:
-    return RejectMemoryCandidateCommand(candidate_id=MemoryCandidateId(candidate_id), reason=request.reason)
+def to_reject_command(candidate_id: UUID, request: RejectCandidateRequest, actor_id: str) -> RejectMemoryCandidateCommand:
+    return RejectMemoryCandidateCommand(candidate_id=MemoryCandidateId(candidate_id), reason=request.reason, actor_id=actor_id)
 
 
 def to_publish_command(candidate_id: UUID, request: ApproveCandidateRequest) -> PublishMemoryCommand:
@@ -85,6 +92,8 @@ def to_publish_command(candidate_id: UUID, request: ApproveCandidateRequest) -> 
         candidate_id=MemoryCandidateId(candidate_id), usefulness_score=request.usefulness_score,
         published_by=request.published_by, idempotency_key=IdempotencyKey(request.idempotency_key),
         content=request.content, summary=request.summary, source_trust_score=request.source_trust_score,
+        memory_id=MemoryId(request.memory_id) if request.memory_id is not None else None,
+        classification=request.classification,
     )
 
 
@@ -140,3 +149,30 @@ def to_expansion_response(view: GraphExpansionView) -> GraphExpansionResponse:
 
 def to_dispatch_response(report: DispatchReport) -> DispatchReportResponse:
     return DispatchReportResponse(scanned=report.scanned, published=report.published, failed=report.failed, dead_lettered=report.dead_lettered)
+
+
+def to_archive_working_memory_command(
+    working_memory_id: UUID, request: ArchiveWorkingMemoryRequest, actor_id: str
+) -> ArchiveWorkingMemoryCommand:
+    return ArchiveWorkingMemoryCommand(
+        working_memory_id=WorkingMemoryId(working_memory_id), expected_version=request.expected_version,
+        actor_id=actor_id, correlation_id=CorrelationId(request.correlation_id),
+    )
+
+
+def to_delete_working_memory_command(
+    working_memory_id: UUID, request: DeleteWorkingMemoryRequest, actor_id: str
+) -> DeleteWorkingMemoryCommand:
+    return DeleteWorkingMemoryCommand(
+        working_memory_id=WorkingMemoryId(working_memory_id), expected_version=request.expected_version,
+        actor_id=actor_id, correlation_id=CorrelationId(request.correlation_id),
+    )
+
+
+def to_audit_event_response(entry: AuditRecordEntry) -> AuditEventResponse:
+    return AuditEventResponse(
+        id=entry.id, audit_type=entry.audit_type, action=entry.action, resource_type=entry.resource_type,
+        resource_id=entry.resource_id, ticket_id=entry.ticket_id, actor_type=entry.actor_type, actor_id=entry.actor_id,
+        outcome=entry.outcome, correlation_id=entry.correlation_id, causation_id=entry.causation_id, detail=entry.detail,
+        occurred_at=entry.occurred_at,
+    )

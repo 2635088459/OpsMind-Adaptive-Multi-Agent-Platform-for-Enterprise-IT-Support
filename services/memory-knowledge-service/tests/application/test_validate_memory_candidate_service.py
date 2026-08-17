@@ -13,6 +13,7 @@ from memoryknowledge.domain.memory_candidate import MemoryCandidate
 from memoryknowledge.domain.values import RedactionReport, SourceRef
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.persistence.in_memory import (
+    InMemoryAuditRecordRepository,
     InMemoryMemoryCandidateRepository,
     InMemoryMemoryRepository,
     InMemoryOutboxRepository,
@@ -30,12 +31,15 @@ def _build_service():
     candidate_repository = InMemoryMemoryCandidateRepository()
     memory_repository = InMemoryMemoryRepository()
     outbox_repository = InMemoryOutboxRepository()
-    service = ValidateMemoryCandidateService(candidate_repository, memory_repository, RegexRedactionPolicyAdapter(), outbox_repository, SystemClockAdapter())
+    service = ValidateMemoryCandidateService(
+        candidate_repository, memory_repository, RegexRedactionPolicyAdapter(), outbox_repository,
+        InMemoryAuditRecordRepository(), SystemClockAdapter(),
+    )
     return service, candidate_repository, memory_repository, outbox_repository
 
 
 def _seed_candidate(candidate_repository: InMemoryMemoryCandidateRepository, text: str = "vpn fails after mfa reset") -> MemoryCandidateId:
-    candidate = MemoryCandidate.extract(MemoryCandidateId.new_id(), MemoryType.EPISODIC, (SourceRef("ticket", "T-1"),), text, _now())
+    candidate = MemoryCandidate.extract(MemoryCandidateId.new_id(), MemoryType.EPISODIC, (SourceRef("ticket", "T-1"),), text, "hash-1", _now())
     candidate_repository.save(candidate, expected_status=None)
     return candidate.candidate_id
 
@@ -98,7 +102,7 @@ def test_reject_publishes_candidate_rejected_event() -> None:
     service, candidate_repository, _, outbox_repository = _build_service()
     candidate_id = _seed_candidate(candidate_repository)
 
-    view = service.reject(RejectMemoryCandidateCommand(candidate_id=candidate_id, reason="no evidence"))
+    view = service.reject(RejectMemoryCandidateCommand(candidate_id=candidate_id, reason="no evidence", actor_id="agent-1"))
 
     assert view.status.name == "REJECTED"
     assert view.rejection_reason == "no evidence"

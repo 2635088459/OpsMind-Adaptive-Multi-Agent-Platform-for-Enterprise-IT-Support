@@ -2,9 +2,51 @@ SPEC-MK-011:
   domain: 04-memory-knowledge
   name: Extract And Redact Memory Candidate
   cn_name: 抽取与脱敏 Memory Candidate
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 03
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    01-domain-model §"MemoryCandidate" / 04-use-cases UC-04 steps 2-3 ("生成
+    candidate", "脱敏") audit: the MemoryCandidate aggregate, its EXTRACTED->REDACTED
+    state machine, ExtractMemoryCandidateService (creation) and
+    ValidateMemoryCandidateService's own redact() step (EXTRACTED -> REDACTED, "必须
+    生成 redaction report") were all already built in phase-00. This spec's own audit
+    found and closed one real gap, grounded directly in 07-data-model +
+    09-concurrency-and-idempotency: `memory.memory_candidates` has always declared
+    `唯一键：source_hash, memory_type`, and `MemoryCandidateRow.source_hash` existed at
+    the schema level since SPEC-MK-002 — but the column was nullable-and-always-NULL,
+    explicitly documented as a placeholder ("no SPEC-MK-001/002 service computes
+    source_hash yet"), because no service ever set it. 08-transaction-and-outbox
+    §"Candidate Extraction Transaction" step 2 ("计算 sourceHash") names exactly where
+    this belongs. Fixed: MemoryCandidate gained a `source_hash: str` field (factory
+    `.extract()` now requires it, mirroring how KnowledgeDocument.receive() already
+    requires a content_hash the caller/service computes, not the domain object
+    itself); ExtractMemoryCandidateService now computes
+    `sha256(candidate_text)` and *upserts* on it via a new
+    `MemoryCandidateRepository.find_by_source_hash(source_hash, memory_type)` —
+    09-concurrency-and-idempotency §"Candidate 并发": "sourceHash + memoryType 唯一约束
+    防重复; 重复请求返回已有 candidate" — an identical-content extraction under a
+    *different* idempotency_key (e.g. two of SPEC-MK-010's own event consumers
+    reporting the same underlying outcome) now converges on the one candidate that
+    already exists, instead of only being caught by the pre-existing
+    CommandIdempotencyGuard's own caller-supplied-key layer (which a different key
+    trivially bypasses). This is the same idempotent-replay shape SPEC-MK-007 already
+    established for document reingestion (content-hash comparison, not a hard
+    conflict). New migration a1c4e29f7d3b tightens memory_candidates.source_hash to
+    NOT NULL, now that every write path populates it — nullable-then-NOT-NULL
+    sequence, matching SPEC-MK-003's own f5e0379f817f precedent, safe since this table
+    has no production data yet.
+
+    01-domain-model's own MemoryCandidate field list does not name sourceHash (it's a
+    07-data-model persistence/uniqueness concern, computed the same way
+    KnowledgeDocument's content_hash is, not a modeled domain concept with its own
+    business methods) — the fix stays at the application/persistence boundary, no
+    further domain state-machine change.
+
+    "11-security §"Redaction Pipeline"" coverage for candidates (redacted_text +
+    RedactionReport, both persisted — unlike SPEC-MK-008's own finding that document
+    chunks deliberately do *not* persist a report) was already correct from phase-00;
+    re-confirmed, no change needed.
   lld_mapping:
     - 01-domain-model
     - 04-use-cases
@@ -15,3 +57,7 @@ SPEC-MK-011:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (116, includes 2 new: a different idempotency key with identical content converges on the same candidate via source_hash+memory_type, a different idempotency key with different content still creates a new candidate; existing extraction/redaction/state-machine tests updated for the new required source_hash constructor argument)"
+    integration: "services/memory-knowledge-service/tests/integration (21) — memory_candidates.source_hash NOT NULL migration verified against a real migrated Postgres schema"
+    result: "137 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

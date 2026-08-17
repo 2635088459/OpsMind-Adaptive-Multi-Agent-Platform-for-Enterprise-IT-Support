@@ -66,6 +66,8 @@ class SearchResponse(BaseModel):
     retrieval_id: UUID
     degraded: bool
     results: list[SearchResultItemResponse]
+    degraded_reason: str | None = None
+    graph_degraded: bool = False
 
 
 class RejectHypothesisRequest(BaseModel):
@@ -84,6 +86,7 @@ class UpdateWorkingMemoryRequest(BaseModel):
     """05-api-contracts: `PATCH /internal/memory/v1/working-memory/{workingMemoryId}`
     "必须传 expectedVersion". ticket/cycle/workflow together are this Working Memory's
     scope-derived identity — see domain.working_memory.derive_working_memory_id.
+    SPEC-MK-005 api-contract §"通用约束": "Internal API 必须携带 correlation id."
     """
 
     ticket_id: UUID
@@ -91,6 +94,7 @@ class UpdateWorkingMemoryRequest(BaseModel):
     workflow_instance_id: UUID
     expected_version: int = Field(ge=0)
     updated_by: str = Field(min_length=1)
+    correlation_id: UUID
     add_facts: list[str] = Field(default_factory=list)
     add_hypotheses: list[str] = Field(default_factory=list)
     reject_hypotheses: list[RejectHypothesisRequest] = Field(default_factory=list)
@@ -101,13 +105,29 @@ class UpdateWorkingMemoryRequest(BaseModel):
     context_summary: str | None = None
 
 
+class RejectedHypothesisResponse(BaseModel):
+    hypothesis: str
+    reason: str
+    rejected_at: datetime
+
+
+class ToolEvidenceRefResponse(BaseModel):
+    tool_request_id: str
+    summary: str
+    status: str
+    evidence_hash: str
+
+
 class WorkingMemoryResponse(BaseModel):
     working_memory_id: UUID
     version: int
     status: str
     facts: list[str]
     hypotheses: list[str]
+    rejected_hypotheses: list[RejectedHypothesisResponse]
     completed_tasks: list[str]
     pending_tasks: list[str]
+    tool_evidence_refs: list[ToolEvidenceRefResponse]
+    approval_decision_refs: list[str]
     context_summary: str
     updated_at: datetime

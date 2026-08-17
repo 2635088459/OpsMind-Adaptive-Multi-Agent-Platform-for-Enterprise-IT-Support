@@ -2,9 +2,70 @@ SPEC-MK-010:
   domain: 04-memory-knowledge
   name: Consume Ticket Memory Source Events
   cn_name: 消费 Ticket memory source events
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 03
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    06-event-contracts / 09-concurrency-and-idempotency audit: unlike phase-02, this
+    was genuinely unbuilt — ProcessedEventRepository existed since SPEC-MK-001 but had
+    zero callers ("wired ahead of its first consumer" per its own docstring), and no
+    interfaces/event package existed at all. Cross-referenced agent-runtime-service's
+    own SPEC-ARO-005/ARO-023 (ConsumeTicketCreatedService/ConsumeTicketCycleEventService
+    + interfaces/event/router.py) as the concrete precedent: a manual/ops-trigger HTTP
+    "event listener" endpoint (real RabbitMQ consumption is deferred the same way real
+    RabbitMQ *publishing* already is, per SPEC-MK-003's own precedent) backed by an
+    application service that dedups via ProcessedEventRepository(eventId, consumerName)
+    before doing any work. Built new: ConsumeTicketMemorySourceEventService
+    (consume_resolved/consume_closed), ConsumeTicketResolvedCommand/
+    ConsumeTicketClosedCommand, TicketMemorySourceEventConsumerPort, and
+    interfaces/event/{schemas,mapper,router}.py exposing `POST /internal/memory/v1/
+    events/ticket-resolved` and `.../ticket-closed`. Field names were taken from
+    02-ticket-workflow's own *real* published payload (TicketResolvedEventMapper/
+    TicketClosedEventMapper: resolutionCode/resolutionSummary/resolvedBy/resolvedAt,
+    closeReasonCode/closedBy/closedAt, both carrying resolutionCycleId), not
+    04-memory-knowledge's own 06-event-contracts illustrative sketch (which names
+    fields — resolutionSummary as a bare top-level key, verificationStatus — that
+    don't exist on the real event 02 actually publishes) — "02 remains system of
+    record" (this spec's own domain-rule) means 02's real schema wins. The request
+    schema accepts both a clean snake_case body and 02's actual raw outbox envelope
+    (camelCase, nested payload, routingKey carrying the versioned type), mirroring
+    agent-runtime-service's own TicketCreatedEventRequest normalization exactly — both
+    shapes were verified end-to-end, not just the simplified one. resolutionCycleId
+    maps to this domain's own TicketCycleId, confirmed by agent-runtime-service's own
+    SPEC-ARO-023 event schema mapping the identical field the same way.
+
+    One deliberate divergence from the agent-runtime-service precedent, justified by
+    this domain's own more specific LLD: ConsumeTicketCreatedService/
+    ConsumeTicketCycleEventService mark_processed() unconditionally in a `finally`
+    (even on failure); this service only marks processed *after* a successful
+    extraction, because 10-failure-handling §"Poison Event" explicitly states "不标记
+    processed，除非明确 quarantine" for this domain. A full poison-event quarantine
+    table + admin replay (that same section's further detail) is out of scope — deferred
+    to phase-08 (SPEC-MK-029), the same way SPEC-MK-003 deferred it before.
+
+    ticket.closed.v1's own 06-event-contracts purpose ("确认 outcome，提升或降低
+    candidate usefulness") is deliberately *not* implemented as an in-place
+    usefulness_score mutation: no LLD section defines the adjustment algorithm, and
+    `evaluation.completed.v1` is separately and explicitly named as "用途：更新 memory
+    usefulness score" — inventing a scoring formula neither section specifies would be
+    fabricating behavior, not implementing it (documented explicitly in the module's
+    own docstring rather than silently skipped). This consumer instead treats
+    ticket.closed.v1 as its own independent evidence source, producing its own
+    EPISODIC candidate (naturally deduplicated against a resolved-triggered one over
+    the same content via SPEC-MK-011's own source_hash+memory_type mechanism if the
+    text coincides).
+
+    No persistence/migration change beyond what SPEC-MK-011 already needed
+    (memory_candidates.source_hash) — processed_events required no schema change,
+    consumer_name is just a new string value at runtime. Verified with 137 tests (116
+    unit/architecture + 21 integration against a real migrated Postgres, +11 unit / +1
+    integration over the phase-02 baseline), covering: candidate extraction from both
+    event types, event-id replay dedup (both at the service layer and end-to-end
+    through the REST route, including against the real raw ticket-workflow outbox
+    envelope shape), and a failing extraction leaving the event unmarked/retryable.
+    lint-imports (3/3 contracts kept), 0 pyflakes warnings. The shared
+    opsmind-postgres container used by sibling services was not touched; integration
+    verification used isolated ephemeral testcontainers instances only.
   lld_mapping:
     - 06-event-contracts
     - 09-concurrency-and-idempotency
@@ -14,3 +75,7 @@ SPEC-MK-010:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (116, includes 5 new: consume_resolved extracts an EPISODIC candidate, consume_closed extracts its own candidate, event-id replay is deduplicated, a failing extraction leaves the event unmarked, plus 2 new REST end-to-end tests for the ticket-resolved route and its replay dedup)"
+    integration: "services/memory-knowledge-service/tests/integration (21, includes 1 new: ticket.resolved.v1 -> candidate extraction -> validate against real migrated Postgres)"
+    result: "137 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

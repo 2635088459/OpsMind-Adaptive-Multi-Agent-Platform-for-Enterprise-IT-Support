@@ -2,15 +2,48 @@ SPEC-MK-004:
   domain: 04-memory-knowledge
   name: Working Memory Aggregate
   cn_name: Working Memory 聚合
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 01
+  tech_stack: "Python 3.13+ / FastAPI / SQLAlchemy 2.x (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    Domain model completeness audit (01-domain-model / 02-business-invariants): the
+    WorkingMemory aggregate itself (fields, optimistic-version CAS, one-active-per-
+    scope uniqueness, rejected-hypothesis-reason retention, tool-evidence minimal-
+    field shape) was already fully correct as of SPEC-MK-001/002 — no domain-layer
+    change was needed here, unlike agent-runtime-service's own SPEC-ARO-004
+    precedent (which extended an incomplete WorkflowState enum). What this spec
+    closed were two real gaps found on audit: (1) 01-domain-model's own WorkingMemory
+    约束 "raw secret、完整凭据、未脱敏工具输出不能进入正文" was never enforced —
+    UpdateWorkingMemoryService took facts/hypotheses/context_summary/tool-evidence-
+    summary/rejected-hypothesis-reasons and stored them verbatim with no redaction
+    call at all, unlike the candidate/document ingestion paths SPEC-MK-001 already
+    redacts. Fixed by threading RedactionPolicyPort through
+    UpdateWorkingMemoryService (application/services/update_working_memory.py) and
+    redacting every one of those free-text fields before they reach
+    domain.working_memory.WorkingMemory.apply_update() — no redaction_report is
+    persisted (unlike MemoryCandidate/MemoryVersion, WorkingMemory has no such field
+    in 01-domain-model's own list: facts/hypotheses themselves *are* the redacted
+    content, not a raw-plus-redacted pair). (2) WorkingMemoryView
+    (application/views.py) was missing three of the aggregate's own fields —
+    rejected_hypotheses, tool_evidence_refs, approval_decision_refs — present on the
+    domain object since SPEC-MK-001 but unreachable through the read side (the PATCH
+    endpoint's own response silently dropped them). Added all three to the view, the
+    REST response schema (new RejectedHypothesisResponse/ToolEvidenceRefResponse),
+    and the mapper. Verified with 104 tests (86 unit/architecture + 18 integration,
+    unchanged from SPEC-MK-003 since this spec touched no persistence code), plus 2
+    new tests proving redaction end-to-end (facts/hypotheses/context_summary/tool-
+    evidence-summary) at both the application-service level and the full HTTP
+    response, lint-imports (3/3 contracts kept), 0 pyflakes warnings.
   lld_mapping:
     - 01-domain-model
     - 02-business-invariants
   forbidden:
     - memory_direct_ticket_state_write
     - memory_direct_workflow_state_write
-    - agent_direct_active_memory_write
-    - graph_traversal_bypasses_acl
+    - memory_direct_tool_execution
+    - unvalidated_active_memory_write
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (86, includes 2 new: redaction wiring at the service level and via HTTP)"
+    integration: "services/memory-knowledge-service/tests/integration (18, unchanged — no persistence-layer change in this spec)"
+    result: "104 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

@@ -67,13 +67,32 @@ def test_reject_hypothesis_keeps_reason_and_removes_from_active_hypotheses() -> 
     assert rejected.rejected_hypotheses[0].reason == "cable tested fine"
 
 
+def test_archive_bumps_version_and_rejects_stale_expected_version() -> None:
+    working_memory = _new_working_memory()
+
+    with pytest.raises(WorkingMemoryVersionConflictException):
+        working_memory.archive(expected_version=99, updated_at=_now())
+
+    archived = working_memory.archive(expected_version=1, updated_at=_now())
+    assert archived.status.name == "ARCHIVED"
+    assert archived.version == 2
+
+
 def test_update_after_archive_is_rejected() -> None:
     working_memory = _new_working_memory()
-    archived = working_memory.archive(_now())
+    archived = working_memory.archive(expected_version=1, updated_at=_now())
 
     assert archived.status.name == "ARCHIVED"
     with pytest.raises(InvalidWorkingMemoryStateException):
-        archived.apply_update(expected_version=1, updated_by="agent-1", updated_at=_now())
+        archived.apply_update(expected_version=2, updated_by="agent-1", updated_at=_now())
+
+
+def test_archive_requires_active_status() -> None:
+    working_memory = _new_working_memory()
+    archived = working_memory.archive(expected_version=1, updated_at=_now())
+
+    with pytest.raises(InvalidWorkingMemoryStateException):
+        archived.archive(expected_version=2, updated_at=_now())
 
 
 def test_delete_clears_content_but_keeps_tombstone_identity() -> None:
@@ -81,11 +100,30 @@ def test_delete_clears_content_but_keeps_tombstone_identity() -> None:
         expected_version=1, updated_by="agent-1", updated_at=_now(), add_facts=("secret leaked",),
     )
 
-    deleted = working_memory.delete(_now())
+    deleted = working_memory.delete(expected_version=2, updated_at=_now())
 
     assert deleted.status.name == "DELETED"
+    assert deleted.version == 3
     assert deleted.facts == ()
     assert deleted.working_memory_id == working_memory.working_memory_id
+
+
+def test_delete_is_allowed_from_archived_but_not_from_deleted() -> None:
+    working_memory = _new_working_memory()
+    archived = working_memory.archive(expected_version=1, updated_at=_now())
+
+    deleted = archived.delete(expected_version=2, updated_at=_now())
+    assert deleted.status.name == "DELETED"
+
+    with pytest.raises(InvalidWorkingMemoryStateException):
+        deleted.delete(expected_version=3, updated_at=_now())
+
+
+def test_delete_rejects_stale_expected_version() -> None:
+    working_memory = _new_working_memory()
+
+    with pytest.raises(WorkingMemoryVersionConflictException):
+        working_memory.delete(expected_version=99, updated_at=_now())
 
 
 def test_derive_working_memory_id_is_deterministic_per_scope() -> None:

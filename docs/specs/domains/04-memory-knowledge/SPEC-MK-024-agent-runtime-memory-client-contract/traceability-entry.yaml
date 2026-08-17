@@ -2,9 +2,57 @@ SPEC-MK-024:
   domain: 04-memory-knowledge
   name: Agent Runtime Memory Client Contract
   cn_name: Agent Runtime Memory Client contract
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 06
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    05-api-contracts §"Runtime API" audit: `POST /internal/memory/v1/search` and
+    `PATCH /internal/memory/v1/working-memory/{workingMemoryId}` — the two routes
+    agent-runtime-service is the intended caller of — were both already fully built.
+    05-api-contracts' own request/response JSON examples use a flatter shape
+    (`requesterRole` as one field, camelCase keys) than this service's actual,
+    already-shipping, already-consistently-used schemas (`requester_type` +
+    `requester_id` + `access_scope.role` — three fields, snake_case). Audited this
+    divergence deliberately rather than "fixing" it: `access_scope` mirrors
+    01-domain-model's own `AccessScope` value object (`tenant、application、queue、
+    role、classification`) exactly, more complete than the illustrative sample's one
+    flattened field, and snake_case is this entire service's own established REST
+    convention across every endpoint — changing this one route now would be a real,
+    unjustified breaking change for zero concrete benefit. Documented as a deliberate,
+    considered decision, not a silent gap.
+
+    Built `tests/contracts/test_runtime_client_contract.py` proving the *documented
+    behavioral* contract holds against the real routes (not re-litigating field
+    casing already decided elsewhere): correlationId is actually required on search
+    (missing -> 400), expectedVersion is actually required on the working-memory
+    PATCH (05-api-contracts: "必须传 expectedVersion"), and both response shapes
+    contain every field 05-api-contracts calls out (retrievalId/degraded/results[]/
+    provenance{sourceType/sourceRef/redacted}/graphPaths[] for search; the full
+    WorkingMemory view for the PATCH).
+
+    This audit found and fixed a real, security-relevant production bug: a test
+    asserting search "对 Runtime 返回 redacted snippet，不返回 raw document"
+    (05-api-contracts' own principle) failed against the real endpoint —
+    `PublishMemoryService` never redacted `command.content`/`command.summary` (fresh
+    text an admin supplies on the approve call itself — distinct from
+    `candidate.redacted_text`, which only ever covered the *original* extracted
+    candidate_text during validation) before persisting them as a MemoryVersion's own
+    searchable content. A snippet containing a pasted email address or API key would
+    come back from search unredacted despite `provenance.redacted` unconditionally
+    claiming `true` — a direct violation of 02-business-invariants' own "Agent 看到的
+    是 redacted content，不是 raw source" and 11-security's own data-protection list
+    (password/token/API key/email must never enter active memory content). Fixed by
+    threading `RedactionPolicyPort` through `PublishMemoryService` (it previously had
+    no redaction dependency at all) and redacting both fields before they are used
+    for storage, embedding, and source_hash computation — mirroring exactly how
+    `UpdateWorkingMemoryService`/`IngestKnowledgeDocumentService` already redact every
+    other piece of content immediately before it becomes persisted Memory content.
+    `MemoryVersion.redaction_report` now reflects what was actually redacted from the
+    actually-stored content, not the original candidate's own (potentially different)
+    extraction-time report.
+  # This bug was found via the search-side contract test (this spec's own
+  # LLD mapping, 05-api-contracts), but the fix lives in the publish path; both
+  # this entry and SPEC-MK-023's own cross-reference the same finding once.
   lld_mapping:
     - 05-api-contracts
   forbidden:
@@ -13,3 +61,7 @@ SPEC-MK-024:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (187, includes 5 new: tests/contracts/test_runtime_client_contract.py — correlationId required, search response shape, redacted-snippet enforcement (the test that caught the publish-redaction bug), expectedVersion required, working-memory response shape; plus 1 new application test on PublishMemoryService itself asserting content/summary are redacted before storage)"
+    integration: "services/memory-knowledge-service/tests/integration (23)"
+    result: "210 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

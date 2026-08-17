@@ -1,10 +1,46 @@
 SPEC-MK-016:
   domain: 04-memory-knowledge
-  name: Memory Retention Deletion Deprecation
+  name: Memory Retention Deletion And Deprecation
   cn_name: Memory retention、delete 与 deprecate
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 04
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    03-state-machine / 11-security audit: ExecuteRetentionService (already built in
+    phase-00) correctly implements deprecate() (ACTIVE -> DEPRECATED, excluded from
+    default retrieval per MemoryVersionStatus.is_default_retrievable()), delete()
+    (ACTIVE/SUPERSEDED/DEPRECATED -> DELETED for every version of a Memory, not just
+    the active one), graph node/edge tombstoning for whatever `memory:{memoryId}`
+    node exists (correctly a no-op today — see SPEC-MK-015's own traceability entry
+    for why no publish path creates that node yet, a SPEC-MK-018 deferral, not a bug
+    here), the `memory.deleted.v1` outbox publish, and — found genuinely missing and
+    fixed by SPEC-MK-003 in the prior phase-00 pass, re-confirmed correct here —
+    AuthorizationPort-gated deletion (`is_deletion_authorized`) with a `DENIED`
+    audit entry on rejection.
+
+    The Deletion 状态机 03-state-machine draws (REQUESTED -> AUTHORIZED -> APPLIED ->
+    VERIFIED, REQUESTED -> REJECTED, AUTHORIZED -> FAILED_RETRYABLE ->APPLIED) is
+    *not* built as a persisted multi-step workflow — this was already a deliberate,
+    explicitly-documented decision recorded on DeleteMemoryCommand back in
+    SPEC-MK-001 ("Deliberately synchronous (REQUESTED -> APPLIED in one call): the
+    fuller REQUESTED/AUTHORIZED/APPLIED/VERIFIED audit trail ... is phase-07
+    (security-and-governance) scope, not this boundaries spec"). This spec's own audit
+    re-examined that decision against its LLD mapping and found no reason to overturn
+    it: the coverage matrix's own 03-state-machine row lists this spec for the
+    MemoryVersion status sub-machine specifically, and phase-07's own theme
+    ("Security And Governance") is the more natural owner of a human-review-gated
+    request/authorize/verify workflow — building that now would be scope creep beyond
+    what this phase's LLD mapping actually assigns.
+
+    This spec's own real fix is the same content-scrubbing gap SPEC-MK-014's own
+    traceability entry describes in full (MemoryVersion.delete() previously left
+    content/summary fully recoverable, violating 11-security's own "不保留可恢复原文") —
+    attributed to that spec since it is a domain-object invariant, not a
+    retention-workflow concern; this entry cross-references it rather than
+    duplicating the change description. ExecuteRetentionService's own `_do_delete()`
+    needed no code change to benefit from the fix: it already calls
+    `version.delete()` for every deletable version, so the scrub applies
+    automatically.
   lld_mapping:
     - 03-state-machine
     - 11-security
@@ -14,3 +50,7 @@ SPEC-MK-016:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (121) — see SPEC-MK-014's own traceability entry for the 1 new domain test and SPEC-MK-015's for the 1 new application test (delete scrubs content from the stored version) this audit's shared finding produced"
+    integration: "services/memory-knowledge-service/tests/integration (22) — content scrubbing verified end-to-end against a real migrated Postgres schema"
+    result: "143 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

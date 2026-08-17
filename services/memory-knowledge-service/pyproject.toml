@@ -6,22 +6,23 @@ requires-python = ">=3.13"
 
 # Module Foundation.
 #
-# SPEC-MK-001 establishes module and package boundaries with in-memory
+# SPEC-MK-001 established module and package boundaries with in-memory
 # placeholder adapters (docs/low-level-design/domains/04-memory-knowledge/
-# 13-package-and-class-design). Per docs/low-level-design/shared/
-# technology-baseline, Memory Knowledge is a Python service in the same
-# family as agent-runtime-service (agents/LLMs/RAG/memory), so this
-# pyproject mirrors agent-runtime-service's own SPEC-ARO-001 scoping exactly:
-# SQLAlchemy + Alembic (real `memory` Postgres schema) land with SPEC-MK-002
-# (schema baseline); the real RabbitMQ publisher and pgvector-backed
-# embedding storage land with SPEC-MK-003 (outbox/idempotency/audit
-# baseline) and phase-02/05 respectively. Nothing here is fabricated ahead
-# of the spec that actually wires it.
+# 13-package-and-class-design). SPEC-MK-002 (schema baseline) adds the real
+# `memory` PostgreSQL schema via SQLAlchemy + Alembic, plus pgvector for
+# embedding storage (07-data-model: "使用 PostgreSQL + pgvector"; SPEC-MK-002
+# domain-rules: "pgvector-ready embedding storage"). The real RabbitMQ
+# publisher lands with SPEC-MK-003 (outbox/idempotency/audit baseline).
+# Nothing here is fabricated ahead of the spec that actually wires it.
 dependencies = [
     "fastapi>=0.118",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "pgvector>=0.3",
 ]
 
 [dependency-groups]
@@ -29,6 +30,7 @@ dev = [
     "pytest>=8.3",
     "httpx>=0.28",
     "import-linter>=2.1",
+    "testcontainers[postgres]>=4.9",
 ]
 
 [build-system]

@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from memoryknowledge.interfaces.admin.router import router as admin_router
 from memoryknowledge.interfaces.errors import register_exception_handlers
+from memoryknowledge.interfaces.event.router import router as event_router
 from memoryknowledge.interfaces.rest.router import router as memory_router
 
 
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
 
     app.include_router(memory_router)
     app.include_router(admin_router)
+    app.include_router(event_router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:

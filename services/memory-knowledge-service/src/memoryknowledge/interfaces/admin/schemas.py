@@ -31,6 +31,7 @@ class IngestDocumentRequest(BaseModel):
     ingested_by: str = Field(min_length=1)
     version: int = Field(default=1, ge=1)
     acl: list[str] = Field(default_factory=list)
+    classification: str = Field(default="INTERNAL", min_length=1)
     effective_from: datetime | None = None
     expires_at: datetime | None = None
     extract_graph: bool = False
@@ -68,7 +69,10 @@ class RejectCandidateRequest(BaseModel):
 
 class ApproveCandidateRequest(BaseModel):
     """05-api-contracts: `POST /internal/memory/v1/admin/candidates/{candidateId}/approve`
-    ("批准候选 memory 并触发 publish")."""
+    ("批准候选 memory 并触发 publish"). `memory_id` is omitted to create a brand new
+    Memory identity, or set to publish this candidate as the next version of an
+    *existing* Memory instead — see PublishMemoryCommand's own docstring for why this
+    stays a caller-supplied decision (UC-05 step 1 "创建 Memory 或定位 existing Memory")."""
 
     usefulness_score: float = Field(ge=0, le=1)
     published_by: str = Field(min_length=1)
@@ -76,6 +80,8 @@ class ApproveCandidateRequest(BaseModel):
     content: str = Field(min_length=1)
     summary: str = Field(min_length=1)
     source_trust_score: float = Field(ge=0, le=1)
+    memory_id: UUID | None = None
+    classification: str = Field(default="INTERNAL", min_length=1)
 
 
 class MemoryCandidateResponse(BaseModel):
@@ -142,3 +148,40 @@ class DispatchReportResponse(BaseModel):
     published: int
     failed: int
     dead_lettered: int
+
+
+class ArchiveWorkingMemoryRequest(BaseModel):
+    """SPEC-MK-006 05-api-contracts: `POST /internal/memory/v1/admin/working-memory/
+    {workingMemoryId}/archive`. 09-concurrency-and-idempotency's own idempotency-key
+    table entry for Working Memory is `workingMemoryId + expectedVersion` — reused
+    here instead of a separate idempotency_key field.
+    """
+
+    expected_version: int = Field(ge=0)
+    correlation_id: UUID
+
+
+class DeleteWorkingMemoryRequest(BaseModel):
+    """SPEC-MK-006 05-api-contracts: `POST /internal/memory/v1/admin/working-memory/
+    {workingMemoryId}/delete`."""
+
+    expected_version: int = Field(ge=0)
+    correlation_id: UUID
+
+
+class AuditEventResponse(BaseModel):
+    """SPEC-MK-003 12-observability §"Audit Events" visibility surface."""
+
+    id: UUID
+    audit_type: str
+    action: str
+    resource_type: str
+    resource_id: str
+    ticket_id: str | None
+    actor_type: str
+    actor_id: str | None
+    outcome: str
+    correlation_id: str | None
+    causation_id: str | None
+    detail: str
+    occurred_at: datetime

@@ -9,9 +9,9 @@ from memoryknowledge.application.commands import ExpandKnowledgeGraphCommand
 from memoryknowledge.application.exceptions import GraphTraversalDepthExceededException
 from memoryknowledge.application.ports_out import AuthorizationPort, GraphEdgeRepository, GraphNodeRepository
 from memoryknowledge.application.views import GraphExpansionView
-from memoryknowledge.domain.enums import GraphNodeStatus
+from memoryknowledge.domain.enums import GraphEdgeType, GraphNodeStatus, GraphNodeType
 from memoryknowledge.domain.ids import GraphNodeId
-from memoryknowledge.domain.values import GraphPath
+from memoryknowledge.domain.values import AccessScope, GraphPath
 
 _DEFAULT_MAX_DEPTH = 2
 _ADJACENT_SCAN_LIMIT = 25
@@ -44,7 +44,7 @@ class ExpandKnowledgeGraphService:
             seed = self._graph_node_repository.find_by_id(seed_id)
             if seed is None or seed.status is not GraphNodeStatus.VISIBLE:
                 continue
-            if not self._authorization_port.is_retrieval_authorized(command.access_scope, seed.classification):
+            if not self._node_authorized(command.access_scope, seed.classification, seed.node_type):
                 continue
             visited.add(seed_id)
 
@@ -59,13 +59,20 @@ class ExpandKnowledgeGraphService:
                     for edge in self._graph_edge_repository.find_adjacent(node_id, limit=_ADJACENT_SCAN_LIMIT):
                         if edge.status is not GraphNodeStatus.VISIBLE:
                             continue
+                        # 11-security §"Graph Security": "OWNED_BY ... 等组织关系默认只
+                        # 对 authorized role 返回" — checked before the edge is allowed
+                        # to extend any path at all, independent of either endpoint's
+                        # own classification.
+                        if edge.edge_type is GraphEdgeType.OWNED_BY:
+                            if not self._authorization_port.is_organizational_relation_authorized(command.access_scope):
+                                continue
                         neighbor_id = edge.to_node_id if edge.from_node_id == node_id else edge.from_node_id
                         if neighbor_id in visited:
                             continue
                         neighbor = self._graph_node_repository.find_by_id(neighbor_id)
                         if neighbor is None or neighbor.status is not GraphNodeStatus.VISIBLE:
                             continue
-                        if not self._authorization_port.is_retrieval_authorized(command.access_scope, neighbor.classification):
+                        if not self._node_authorized(command.access_scope, neighbor.classification, neighbor.node_type):
                             continue
                         visited.add(neighbor_id)
                         new_score = path_score * edge.confidence
@@ -87,3 +94,13 @@ class ExpandKnowledgeGraphService:
 
         paths.sort(key=lambda p: p.path_score, reverse=True)
         return GraphExpansionView(paths=tuple(paths), truncated=truncated)
+
+    def _node_authorized(self, access_scope: AccessScope, classification: str, node_type: GraphNodeType) -> bool:
+        if not self._authorization_port.is_retrieval_authorized(access_scope, classification):
+            return False
+        # 11-security §"Graph Security": "OWNED_BY / POLICY_RULE 等组织关系默认只对
+        # authorized role 返回" — a floor independent of classification, checked in
+        # addition to it, never instead of it.
+        if node_type is GraphNodeType.POLICY_RULE and not self._authorization_port.is_organizational_relation_authorized(access_scope):
+            return False
+        return True

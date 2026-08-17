@@ -19,13 +19,33 @@ def _now() -> datetime:
 
 def _extracted() -> MemoryCandidate:
     return MemoryCandidate.extract(
-        MemoryCandidateId.new_id(), MemoryType.EPISODIC, (SourceRef("ticket", "T-1"),), "vpn login fails after mfa reset", _now(),
+        MemoryCandidateId.new_id(), MemoryType.EPISODIC, (SourceRef("ticket", "T-1"),), "vpn login fails after mfa reset", "hash-1", _now(),
     )
 
 
 def test_extract_requires_at_least_one_source_ref() -> None:
     with pytest.raises(MemoryCandidateMissingSourceRefException):
-        MemoryCandidate.extract(MemoryCandidateId.new_id(), MemoryType.EPISODIC, (), "text", _now())
+        MemoryCandidate.extract(MemoryCandidateId.new_id(), MemoryType.EPISODIC, (), "text", "hash-1", _now())
+
+
+def test_redact_flags_review_required_when_the_report_shows_actual_redactions() -> None:
+    """11-security §"Redaction Pipeline" step 4 "Human review for high-risk candidate":
+    a candidate whose raw evidence actually contained secret-shaped text is exactly
+    that risk signal.
+    """
+    candidate = _extracted()
+
+    redacted = candidate.redact("api_key: ***REDACTED***", RedactionReport(secret_patterns_matched=("key_value_secret",)))
+
+    assert redacted.review_required is True
+
+
+def test_redact_leaves_review_required_false_when_nothing_was_redacted() -> None:
+    candidate = _extracted()
+
+    redacted = candidate.redact("vpn login fails after mfa reset", RedactionReport())
+
+    assert redacted.review_required is False
 
 
 def test_full_happy_path_extracted_to_published() -> None:

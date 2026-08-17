@@ -1,10 +1,44 @@
 SPEC-MK-019:
   domain: 04-memory-knowledge
-  name: Bounded Graph Expansion Rerank Provenance
+  name: Bounded Graph Expansion Rerank And Provenance
   cn_name: Bounded Graph expansion、rerank 与 provenance
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 05
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    04-use-cases UC-02 step 4 ("对 seed results 做 bounded graph expansion") /
+    05-api-contracts / 11-security audit: ExpandKnowledgeGraphService (bounded BFS,
+    max_depth/max_nodes enforcement, ACL/classification re-check per hop) and
+    SimpleGraphRerankerAdapter (boosts by matching graph-path node ids, honestly
+    returns input order unchanged when given no paths) were already fully correct —
+    both already used by the admin `GET /admin/graph/nodes/{nodeId}` route. The real
+    gap this spec's own audit found: SearchMemoryService always called the reranker
+    with an *empty* `graph_paths` tuple — UC-02 step 4 never actually ran during
+    search, only during the separate admin/debug endpoint, and provenance never
+    included a graph explanation.
+
+    Fixed: SearchMemoryService now composes with ExpandKnowledgeGraphService directly
+    (an application-service-depends-on-application-service pattern already established
+    by SPEC-MK-010's own ConsumeTicketMemorySourceEventService -> ExtractMemoryCandidateService).
+    For each MEMORY-type seed result, it looks up the `memory_version:{memoryVersionId}`
+    graph node SPEC-MK-018's own publish-time upsert now creates (seeding from the
+    *version* node, not the coarser *memory* node, since that is where a SUPERSEDES
+    edge — or any future DERIVED_FROM/SUPPORTED_BY/RESOLVED_BY evidence edge UC-05
+    step 6 names — actually originates), expands bounded paths from those seeds, feeds
+    them to the existing reranker, and attaches each result's own matching paths via
+    `RetrievalResultItem.graph_paths` (a field that already existed in the domain
+    value object and REST mapper, unused until now — the mapper's own
+    `graph_paths=[...]` comprehension was already written, just always iterating an
+    empty tuple). DOCUMENT_CHUNK results are not seeded (no per-chunk graph node
+    exists), an honest scope limit, not an oversight.
+
+    Verified the HIDDEN-node interaction is correct, not a bug: a search immediately
+    after a supersede (SPEC-MK-015) seeds from the *new* version's node, whose only
+    edge points to the now-HIDDEN old version node — ExpandKnowledgeGraphService
+    correctly excludes HIDDEN neighbors (03-state-machine: "HIDDEN: 保留但不参与默认
+    检索"), so no path surfaces there by design; an initial end-to-end test asserting
+    the opposite was written, caught this during its own first run, and was corrected
+    rather than the production code being "fixed" to satisfy a wrong expectation.
   lld_mapping:
     - 04-use-cases
     - 05-api-contracts
@@ -15,3 +49,7 @@ SPEC-MK-019:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (126, includes 1 new: search expands the graph from a memory-version seed and attaches real, non-fabricated paths to the matching result)"
+    integration: "services/memory-knowledge-service/tests/integration (23) — graph-node lookup and search wiring verified end-to-end against real migrated Postgres via SPEC-MK-018's own new integration test"
+    result: "149 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

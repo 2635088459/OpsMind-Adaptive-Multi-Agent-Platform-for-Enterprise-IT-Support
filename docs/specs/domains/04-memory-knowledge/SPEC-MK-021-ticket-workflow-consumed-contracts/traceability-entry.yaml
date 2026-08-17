@@ -2,9 +2,35 @@ SPEC-MK-021:
   domain: 04-memory-knowledge
   name: Ticket Workflow Consumed Contracts
   cn_name: Ticket Workflow consumed contracts
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 06
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    06-event-contracts audit: the *functional* consumption of `ticket.resolved.v1`/
+    `ticket.closed.v1` (this spec's own core rule: "Accept 02 outbox envelope shape
+    and deduplicate events") was already fully built by SPEC-MK-010 — event-id dedup,
+    both wire shapes (clean body + real 02-ticket-workflow raw outbox envelope)
+    accepted via `interfaces/event/schemas.py`'s own `model_validator`. This spec's
+    own job, confirmed against 14-testing-strategy §"契约测试" and
+    agent-runtime-service's own SPEC-ARO-035 precedent
+    (`tests/contracts/test_consumed_event_contracts.py`), was closing a real
+    *test-coverage* gap: no committed test previously drove the real routes with the
+    raw 02-ticket-workflow envelope shape for `ticket.closed.v1` at all (only
+    `ticket.resolved.v1` had one, and only as an ad-hoc smoke check during
+    SPEC-MK-010's own development, never committed), and neither route had a
+    parametrized "each required field's absence is rejected" test.
+
+    Added `tests/contracts/schemas.py` (TicketResolvedContract/TicketClosedContract —
+    independently-authored from `interfaces/event/schemas.py`'s own production
+    models, so a contract-vs-implementation drift shows up as a real failure, not two
+    copies of the same possibly-wrong assumption agreeing) and
+    `tests/contracts/test_consumed_event_contracts.py`, proving for both event types:
+    (1) the contract model accepts a valid example and rejects each required field's
+    absence, (2) the real, already-shipping route accepts both the clean body and the
+    real raw 02-ticket-workflow outbox envelope (camelCase, nested payload, routingKey
+    carrying the versioned type). No production code change was needed for this
+    spec's own scope — SPEC-MK-023's own audit (published-event contracts) is where a
+    real production bug was found and fixed instead.
   lld_mapping:
     - 06-event-contracts
   forbidden:
@@ -13,3 +39,7 @@ SPEC-MK-021:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (187, includes 20 new: tests/contracts/test_consumed_event_contracts.py's own ticket.resolved.v1/ticket.closed.v1 coverage — contract-model valid/missing-field cases plus real-route clean-body/raw-envelope cases)"
+    integration: "services/memory-knowledge-service/tests/integration (23)"
+    result: "210 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

@@ -10,6 +10,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from memoryknowledge.application.commands import (
+    QueryWorkingMemoryCommand,
     RejectHypothesisInput,
     SearchMemoryCommand,
     ToolEvidenceRefInput,
@@ -17,15 +18,17 @@ from memoryknowledge.application.commands import (
 )
 from memoryknowledge.application.views import SearchResultView, WorkingMemoryView
 from memoryknowledge.domain.enums import MemoryType
-from memoryknowledge.domain.ids import CorrelationId, TicketCycleId, TicketId, WorkflowInstanceId
+from memoryknowledge.domain.ids import CorrelationId, TicketCycleId, TicketId, WorkflowInstanceId, WorkingMemoryId
 from memoryknowledge.domain.values import AccessScope
 from memoryknowledge.domain.working_memory import derive_working_memory_id as _derive_working_memory_id
 from memoryknowledge.interfaces.rest.schemas import (
     GraphPathResponse,
     ProvenanceResponse,
+    RejectedHypothesisResponse,
     SearchRequest,
     SearchResponse,
     SearchResultItemResponse,
+    ToolEvidenceRefResponse,
     UpdateWorkingMemoryRequest,
     WorkingMemoryResponse,
 )
@@ -50,7 +53,8 @@ def to_search_command(request: SearchRequest) -> SearchMemoryCommand:
 
 def to_search_response(view: SearchResultView) -> SearchResponse:
     return SearchResponse(
-        retrieval_id=view.retrieval_id.value, degraded=view.degraded,
+        retrieval_id=view.retrieval_id.value, degraded=view.degraded, degraded_reason=view.degraded_reason,
+        graph_degraded=view.graph_degraded,
         results=[
             SearchResultItemResponse(
                 result_type=item.result_type, source_id=item.source_id, source_version=item.source_version,
@@ -72,7 +76,8 @@ def to_update_working_memory_command(request: UpdateWorkingMemoryRequest) -> Upd
     return UpdateWorkingMemoryCommand(
         ticket_id=TicketId(request.ticket_id), ticket_cycle_id=TicketCycleId(request.ticket_cycle_id),
         workflow_instance_id=WorkflowInstanceId(request.workflow_instance_id), expected_version=request.expected_version,
-        updated_by=request.updated_by, add_facts=tuple(request.add_facts), add_hypotheses=tuple(request.add_hypotheses),
+        updated_by=request.updated_by, correlation_id=CorrelationId(request.correlation_id),
+        add_facts=tuple(request.add_facts), add_hypotheses=tuple(request.add_hypotheses),
         reject_hypotheses=tuple(RejectHypothesisInput(h.hypothesis, h.reason) for h in request.reject_hypotheses),
         complete_tasks=tuple(request.complete_tasks), add_pending_tasks=tuple(request.add_pending_tasks),
         add_tool_evidence_refs=tuple(
@@ -85,10 +90,23 @@ def to_update_working_memory_command(request: UpdateWorkingMemoryRequest) -> Upd
 def to_working_memory_response(view: WorkingMemoryView) -> WorkingMemoryResponse:
     return WorkingMemoryResponse(
         working_memory_id=view.working_memory_id.value, version=view.version, status=view.status.name,
-        facts=list(view.facts), hypotheses=list(view.hypotheses), completed_tasks=list(view.completed_tasks),
-        pending_tasks=list(view.pending_tasks), context_summary=view.context_summary, updated_at=view.updated_at,
+        facts=list(view.facts), hypotheses=list(view.hypotheses),
+        rejected_hypotheses=[
+            RejectedHypothesisResponse(hypothesis=r.hypothesis, reason=r.reason, rejected_at=r.rejected_at) for r in view.rejected_hypotheses
+        ],
+        completed_tasks=list(view.completed_tasks), pending_tasks=list(view.pending_tasks),
+        tool_evidence_refs=[
+            ToolEvidenceRefResponse(tool_request_id=t.tool_request_id, summary=t.summary, status=t.status, evidence_hash=t.evidence_hash)
+            for t in view.tool_evidence_refs
+        ],
+        approval_decision_refs=list(view.approval_decision_refs),
+        context_summary=view.context_summary, updated_at=view.updated_at,
     )
 
 
 def derive_working_memory_id(ticket_id: UUID, ticket_cycle_id: UUID, workflow_instance_id: UUID) -> UUID:
     return _derive_working_memory_id(TicketId(ticket_id), TicketCycleId(ticket_cycle_id), WorkflowInstanceId(workflow_instance_id)).value
+
+
+def to_query_working_memory_command(working_memory_id: UUID, correlation_id: UUID) -> QueryWorkingMemoryCommand:
+    return QueryWorkingMemoryCommand(working_memory_id=WorkingMemoryId(working_memory_id), correlation_id=CorrelationId(correlation_id))

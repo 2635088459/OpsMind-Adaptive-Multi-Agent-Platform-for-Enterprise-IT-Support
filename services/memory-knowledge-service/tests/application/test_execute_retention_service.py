@@ -15,6 +15,7 @@ from memoryknowledge.domain.values import RedactionReport, SourceRef
 from memoryknowledge.infrastructure.authorization import StaticAuthorizationPolicyAdapter
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.persistence.in_memory import (
+    InMemoryAuditRecordRepository,
     InMemoryCommandIdempotencyRepository,
     InMemoryGraphEdgeRepository,
     InMemoryGraphNodeRepository,
@@ -36,7 +37,7 @@ def _build_service():
     outbox_repository = InMemoryOutboxRepository()
     service = ExecuteRetentionService(
         memory_repository, graph_node_repository, graph_edge_repository, StaticAuthorizationPolicyAdapter(),
-        InMemoryCommandIdempotencyRepository(), outbox_repository, SystemClockAdapter(),
+        InMemoryCommandIdempotencyRepository(), outbox_repository, InMemoryAuditRecordRepository(), SystemClockAdapter(),
     )
     return service, memory_repository, graph_node_repository, graph_edge_repository, outbox_repository
 
@@ -107,11 +108,30 @@ def test_delete_requires_authorization() -> None:
 
     service = ExecuteRetentionService(
         memory_repository, InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository(), DenyAllAuthorization(),
-        InMemoryCommandIdempotencyRepository(), InMemoryOutboxRepository(), SystemClockAdapter(),
+        InMemoryCommandIdempotencyRepository(), InMemoryOutboxRepository(), InMemoryAuditRecordRepository(), SystemClockAdapter(),
     )
 
     with pytest.raises(DeletionNotAuthorizedException):
         service.delete(DeleteMemoryCommand(memory_id=memory_id, reason="pii leaked", actor_id="", idempotency_key=IdempotencyKey("del-2")))
+
+
+def test_delete_scrubs_content_from_the_stored_version() -> None:
+    """11-security §"删除和保留": "删除成功后，默认保留 tombstone、audit、source hash，不
+    保留可恢复原文" — the stored row itself, not just the search-visible view, must not
+    keep a recoverable original text after deletion.
+    """
+    service, memory_repository, *_ = _build_service()
+    memory_id = _seed_published_memory(memory_repository)
+    [version_before] = memory_repository.find_versions(memory_id)
+
+    service.delete(DeleteMemoryCommand(memory_id=memory_id, reason="pii leaked", actor_id="admin-1", idempotency_key=IdempotencyKey("del-scrub-1")))
+
+    [version_after] = memory_repository.find_versions(memory_id)
+    assert version_after.status.name == "DELETED"
+    assert version_after.content == ""
+    assert version_after.summary == ""
+    assert version_after.source_hash == version_before.source_hash
+    assert version_after.source_refs == version_before.source_refs
 
 
 def test_delete_is_idempotent_under_the_same_key() -> None:

@@ -2,9 +2,40 @@ SPEC-MK-007:
   domain: 04-memory-knowledge
   name: Knowledge Document Aggregate And Ingestion API
   cn_name: Knowledge Document 聚合与导入 API
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 02
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    01-domain-model §"KnowledgeDocument"/"DocumentChunk" audit: the aggregate itself
+    (domain.knowledge_document.KnowledgeDocument/DocumentChunk, every field 01-domain-
+    model lists plus the domain-justified additions document_version/failure_reason),
+    the RECEIVED -> ... -> ACTIVE state machine (03-state-machine), the
+    source_system+external_id+version uniqueness constraint (02-business-invariants:
+    "同一个 sourceSystem + externalId + version 只能 ingestion 一次"), and the admin
+    ingestion API (`POST /internal/memory/v1/admin/documents`, 05-api-contracts,
+    including its optional extractGraph/graphNamespace fields) were already fully
+    built as part of phase-00's SPEC-MK-001/002 scaffolding — this spec's own audit
+    against 01-domain-model + 05-api-contracts found no missing field, state, or
+    route. The audit did find and close one real correctness gap in the ingestion
+    API's own duplicate-natural-key behavior: 09-concurrency-and-idempotency
+    §"Document Reingestion" states "相同 document version 重复导入是幂等成功", but
+    IngestKnowledgeDocumentService.ingest() unconditionally raised
+    DocumentAlreadyIngestedException (409) for *any* repeat of an already-seen
+    (source_system, external_id, version), including a byte-identical retry — the
+    exact case the invariant calls an idempotent success, not a conflict. Fixed by
+    comparing the incoming content_hash against the existing row's: an identical
+    hash now replays the already-ingested document's current view (mirroring
+    CommandIdempotencyGuard's own same-key-same-payload replay semantics used
+    elsewhere in this service for candidate extraction/publish/deprecate/delete); a
+    *different* hash under the same natural key still raises
+    DocumentAlreadyIngestedException, since 05-api-contracts still names that error
+    code and it is a genuine identity conflict, not a retry. No persistence/migration
+    change — find_chunks() already existed on both adapters to serve the replay
+    view's chunk_count. Verified with 108 tests (unit/architecture + integration,
+    including a new unit test for the identical-content replay path, a new unit test
+    proving different-content under the same natural key still conflicts, and a new
+    integration test against a real migrated Postgres schema), lint-imports (3/3
+    contracts kept), 0 pyflakes warnings.
   lld_mapping:
     - 01-domain-model
     - 05-api-contracts
@@ -14,3 +45,7 @@ SPEC-MK-007:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (106, includes 2 new: reingesting identical content replays the prior result, reingesting the same natural key with different content still conflicts)"
+    integration: "services/memory-knowledge-service/tests/integration (20, includes 1 new: document ingestion idempotent replay against real migrated Postgres)"
+    result: "126 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

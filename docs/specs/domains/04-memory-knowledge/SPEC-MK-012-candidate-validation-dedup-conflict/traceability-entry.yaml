@@ -1,10 +1,49 @@
 SPEC-MK-012:
   domain: 04-memory-knowledge
-  name: Candidate Validation Dedup Conflict
+  name: Candidate Validation Dedup And Conflict
   cn_name: Candidate validation、dedup 与 conflict
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 03
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    02-business-invariants §"记忆写入不变量" / 03-state-machine §"Memory Candidate 状态机"
+    audit: ValidateMemoryCandidateService (already built in phase-00) correctly drives
+    EXTRACTED -> REDACTED -> VALIDATED -> {VALIDATED | DUPLICATE | CONFLICTING} exactly
+    as 03-state-machine draws it — source-refs-trust validation
+    (REDACTED -> VALIDATED "必须校验 source refs 存在且可信"), DUPLICATE detection against
+    *existing active Memory content* via an exact-hash match
+    (`MemoryRepository.find_by_source_hash`, distinct from SPEC-MK-011's own
+    candidate-vs-candidate source_hash dedup — this one is candidate-vs-published-
+    memory), and caller-flagged CONFLICTING (`conflict_set_id`, since automatic
+    semantic conflict detection is explicitly out of this spec's scope per
+    ValidateMemoryCandidateCommand's own docstring) were all already correct — no
+    change needed to this service.
+
+    This spec's own audit against 02-business-invariants' "CONFLICTING candidate 必须
+    人工或 policy 处理，不能自动覆盖 active memory" did find one real gap, sitting in
+    PublishMemoryService (the approve/publish step) rather than in this validate/dedup
+    service itself: nothing distinguished approving a CONFLICTING candidate from
+    approving a plain VALIDATED one — both went through the identical
+    `candidate.approve()` call with no extra gate, i.e. approval was effectively
+    automatic regardless of conflict status. Confirmed this was a pre-planted, not
+    invented, gap: `MemoryCandidateConflictingException` and the
+    `MEMORY_CANDIDATE_CONFLICTING` 409 error handler both already existed
+    (05-api-contracts already names the error code) but nothing ever raised the
+    exception — the exact shape of a deliberately-deferred hook, mirroring
+    SPEC-MK-011's own source_hash-column discovery. Fixed by extending
+    AuthorizationPort with `is_conflict_resolution_authorized(actor_id, candidate_id)`
+    — mirroring the *already-established* pattern ExecuteRetentionService uses for its
+    own sensitive override (`is_deletion_authorized`) — and gating
+    PublishMemoryService: a CONFLICTING candidate now requires this check to pass
+    before `.approve()` runs; a plain VALIDATED one is unaffected.
+    StaticAuthorizationPolicyAdapter's implementation is the same honest,
+    explicitly-simple placeholder as its `is_deletion_authorized` sibling (non-blank
+    actor required; real RBAC/ABAC stays deferred to phase-07) — not a fabricated
+    policy engine, consistent with this adapter's own documented posture. The
+    CONFLICTING -> APPROVED transition 03-state-machine explicitly allows remains
+    reachable for an authorized actor; only an unauthorized attempt is now rejected,
+    which is what "不能自动覆盖" actually requires (the transition existing at all is
+    itself evidence a human/policy call is expected to reach it deliberately).
   lld_mapping:
     - 02-business-invariants
     - 03-state-machine
@@ -14,3 +53,7 @@ SPEC-MK-012:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (116, includes 2 new: publishing a CONFLICTING candidate with a blank actor is rejected with MEMORY_CANDIDATE_CONFLICTING, publishing one with a real actor still succeeds since the transition itself remains allowed; 1 new REST end-to-end test covering both branches through the admin approve endpoint)"
+    integration: "services/memory-knowledge-service/tests/integration (21)"
+    result: "137 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

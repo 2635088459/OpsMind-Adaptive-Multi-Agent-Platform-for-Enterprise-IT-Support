@@ -15,18 +15,28 @@ from memoryknowledge.domain.knowledge_document import KnowledgeDocument
 from memoryknowledge.domain.memory import MemoryVersion
 from memoryknowledge.domain.memory_candidate import MemoryCandidate
 from memoryknowledge.domain.values import GraphPath, RetrievalResultItem
-from memoryknowledge.domain.working_memory import WorkingMemory
+from memoryknowledge.domain.working_memory import RejectedHypothesis, ToolEvidenceRef, WorkingMemory
 
 
 @dataclass(frozen=True, slots=True)
 class WorkingMemoryView:
+    """SPEC-MK-004 01-domain-model §"WorkingMemory": every field the aggregate carries
+    is projected here — rejected_hypotheses/tool_evidence_refs/approval_decision_refs
+    were missing from this view since SPEC-MK-001 (present on the domain object,
+    unreachable through the read side), a real projection-completeness gap this spec
+    closes.
+    """
+
     working_memory_id: WorkingMemoryId
     version: int
     status: WorkingMemoryStatus
     facts: tuple[str, ...]
     hypotheses: tuple[str, ...]
+    rejected_hypotheses: tuple[RejectedHypothesis, ...]
     completed_tasks: tuple[str, ...]
     pending_tasks: tuple[str, ...]
+    tool_evidence_refs: tuple[ToolEvidenceRef, ...]
+    approval_decision_refs: tuple[str, ...]
     context_summary: str
     updated_at: datetime
 
@@ -35,7 +45,9 @@ class WorkingMemoryView:
         return WorkingMemoryView(
             working_memory_id=working_memory.working_memory_id, version=working_memory.version,
             status=working_memory.status, facts=working_memory.facts, hypotheses=working_memory.hypotheses,
+            rejected_hypotheses=working_memory.rejected_hypotheses,
             completed_tasks=working_memory.completed_tasks, pending_tasks=working_memory.pending_tasks,
+            tool_evidence_refs=working_memory.tool_evidence_refs, approval_decision_refs=working_memory.approval_decision_refs,
             context_summary=working_memory.context_summary, updated_at=working_memory.updated_at,
         )
 
@@ -104,11 +116,18 @@ class KnowledgeDocumentView:
 
 @dataclass(frozen=True, slots=True)
 class SearchResultView:
-    """05-api-contracts §"Runtime API" `POST /internal/memory/v1/search` response shape."""
+    """05-api-contracts §"Runtime API" `POST /internal/memory/v1/search` response shape.
+    10-failure-handling §"Retrieval Degraded": `degraded_reason` accompanies a fully
+    degraded search (e.g. "REPOSITORY_UNAVAILABLE"); §"Graph Failure": `graph_degraded`
+    is independent — the base vector/keyword results can still be non-degraded while
+    just the graph-expansion sub-step failed.
+    """
 
     retrieval_id: RetrievalId
     degraded: bool
     results: tuple[RetrievalResultItem, ...]
+    degraded_reason: str | None = None
+    graph_degraded: bool = False
 
 
 @dataclass(frozen=True, slots=True)

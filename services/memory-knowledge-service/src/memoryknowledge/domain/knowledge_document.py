@@ -56,6 +56,11 @@ class KnowledgeDocument:
     ingestion_status: DocumentIngestionStatus
     content_hash: str
     created_at: datetime
+    classification: str = "INTERNAL"
+    """07-data-model `memory.knowledge_documents` §"classification text not null" —
+    11-security §"检索前必须计算 access scope，并应用到：... Knowledge Document ACL" (ACL is
+    checked separately by SearchMemoryService; classification is this field).
+    """
     effective_from: datetime | None = None
     expires_at: datetime | None = None
     failure_reason: str | None = None
@@ -63,7 +68,7 @@ class KnowledgeDocument:
     @staticmethod
     def receive(
         document_id: KnowledgeDocumentId, source_system: str, external_id: str, title: str, document_type: str,
-        acl: tuple[str, ...], version: int, content_hash: str, created_at: datetime,
+        acl: tuple[str, ...], version: int, content_hash: str, created_at: datetime, classification: str = "INTERNAL",
         effective_from: datetime | None = None, expires_at: datetime | None = None,
     ) -> "KnowledgeDocument":
         """02-business-invariants: "同一个 sourceSystem + externalId + version 只能
@@ -73,7 +78,8 @@ class KnowledgeDocument:
         return KnowledgeDocument(
             document_id=document_id, source_system=source_system, external_id=external_id, title=title,
             document_type=document_type, acl=acl, version=version, ingestion_status=DocumentIngestionStatus.RECEIVED,
-            content_hash=content_hash, created_at=created_at, effective_from=effective_from, expires_at=expires_at,
+            content_hash=content_hash, created_at=created_at, classification=classification,
+            effective_from=effective_from, expires_at=expires_at,
         )
 
     def _require(self, expected: DocumentIngestionStatus) -> None:

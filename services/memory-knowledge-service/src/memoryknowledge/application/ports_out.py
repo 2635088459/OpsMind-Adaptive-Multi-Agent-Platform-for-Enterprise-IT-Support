@@ -11,8 +11,8 @@ from datetime import datetime
 from typing import Protocol
 
 from memoryknowledge.application.commands import GraphEntityInput, GraphRelationInput
-from memoryknowledge.application.records import CommandIdempotencyRecord, OutboxRecord, TicketSnapshot, WorkflowTrace
-from memoryknowledge.domain.enums import GraphNodeType, MemoryCandidateStatus, MemoryVersionStatus
+from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord, TicketSnapshot, WorkflowTrace
+from memoryknowledge.domain.enums import GraphNodeType, MemoryCandidateStatus, MemoryType, MemoryVersionStatus
 from memoryknowledge.domain.ids import (
     GraphEdgeId,
     GraphNodeId,
@@ -62,6 +62,10 @@ class WorkingMemoryRepository(Protocol):
 
 class MemoryCandidateRepository(Protocol):
     def find_by_id(self, candidate_id: MemoryCandidateId) -> MemoryCandidate | None: ...
+
+    def find_by_source_hash(self, source_hash: str, memory_type: MemoryType) -> MemoryCandidate | None:
+        """07-data-model `memory.memory_candidates` §"唯一键": `source_hash, memory_type`."""
+        ...
 
     def save(self, candidate: MemoryCandidate, expected_status: MemoryCandidateStatus | None) -> MemoryCandidate:
         """expected_status=None inserts a brand new candidate. Otherwise replaces an
@@ -223,9 +227,12 @@ class ProcessedEventRepository(Protocol):
 
 
 class OutboxRepository(Protocol):
-    """SPEC-MK-001 domain-rules: "事件发布必须经过 Memory outbox." Real broker wiring is
-    SPEC-MK-003; DispatchOutboxEventsService publishes through EventPublisherPort, never
-    directly.
+    """SPEC-MK-001 domain-rules: "事件发布必须经过 Memory outbox." DispatchOutboxEventsService
+    publishes through EventPublisherPort, never directly. Real broker wiring
+    (RabbitMQ) is deferred past SPEC-MK-003 too — see infrastructure.event_publisher's
+    own module docstring; this port's own job (durable outbox row lifecycle, including
+    the SPEC-MK-003 09-concurrency-and-idempotency §"Outbox 幂等": "replay 必须幂等"
+    requeue() below) is complete independent of which publisher adapter is wired.
     """
 
     def append(self, record: OutboxRecord) -> None: ...
@@ -240,13 +247,38 @@ class OutboxRepository(Protocol):
 
     def find_dead_letter(self, limit: int) -> list[OutboxRecord]: ...
 
+    def requeue(self, outbox_id: uuid.UUID, available_at: datetime) -> None:
+        """SPEC-MK-003 08-transaction-and-outbox §"Outbox Publisher": "replay 必须幂等" —
+        moves a DEAD_LETTER row back to PENDING with attempts reset to 0 and
+        available_at reset to `available_at`, so DispatchOutboxEventsService's existing
+        publish/retry/backoff cycle can pick the row back up exactly as it would a
+        fresh one. Mirrors agent-runtime-service's own OutboxRepository.requeue().
+        """
+        ...
+
 
 class CommandIdempotencyRepository(Protocol):
-    """09-concurrency-and-idempotency (deferred detail to SPEC-MK-003)."""
+    """SPEC-MK-003 09-concurrency-and-idempotency §"Command Idempotency"."""
 
     def find_by_key(self, idempotency_key: IdempotencyKey) -> CommandIdempotencyRecord | None: ...
 
     def save(self, record: CommandIdempotencyRecord) -> CommandIdempotencyRecord: ...
+
+
+class AuditRecordRepository(Protocol):
+    """SPEC-MK-003 12-observability §"Audit Events": "审计事件必须可长期保存." Append-only —
+    no mark_*/update method, mirroring PoisonEventRepository-style append-only ports in
+    agent-runtime-service (this domain has no poison-event table of its own — see
+    domain-rules for why that's out of this spec's LLD mapping).
+    """
+
+    def append(self, entry: AuditRecordEntry) -> None: ...
+
+    def find_recent(self, limit: int) -> list[AuditRecordEntry]:
+        """Newest first — the admin visibility surface, mirroring
+        RetrievalLogRepository.find_recent()'s own shape.
+        """
+        ...
 
 
 class EmbeddingProvider(Protocol):
@@ -276,6 +308,24 @@ class AuthorizationPort(Protocol):
     def is_retrieval_authorized(self, access_scope: AccessScope, classification: str) -> bool: ...
 
     def is_deletion_authorized(self, actor_id: str, memory_id: MemoryId) -> bool: ...
+
+    def is_conflict_resolution_authorized(self, actor_id: str, candidate_id: MemoryCandidateId) -> bool:
+        """02-business-invariants §"记忆写入不变量": "CONFLICTING candidate 必须人工或
+        policy 处理，不能自动覆盖 active memory" — consulted before
+        PublishMemoryService approves a CONFLICTING candidate, the same way
+        is_deletion_authorized already gates ExecuteRetentionService's own
+        sensitive override.
+        """
+        ...
+
+    def is_organizational_relation_authorized(self, access_scope: AccessScope) -> bool:
+        """11-security §"Graph Security": "OWNED_BY / POLICY_RULE 等组织关系默认只对
+        authorized role 返回" — a floor independent of whatever classification an
+        OWNED_BY edge or POLICY_RULE node happens to carry (ExpandKnowledgeGraphService
+        already checks classification separately for every node); consulted in
+        addition to that check, never instead of it.
+        """
+        ...
 
 
 class TicketSnapshotPort(Protocol):

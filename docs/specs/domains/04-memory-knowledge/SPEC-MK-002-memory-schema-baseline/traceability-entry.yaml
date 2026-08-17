@@ -1,15 +1,61 @@
 SPEC-MK-002:
   domain: 04-memory-knowledge
   name: Memory Schema Baseline
-  cn_name: Memory schema baseline
-  status: planned
+  cn_name: Memory Schema 基线
+  status: implemented
   service: memory-knowledge-service
-  phase: 00
+  tech_stack: "Python 3.13+ / FastAPI / SQLAlchemy 2.x / Alembic / psycopg3 / pgvector (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    Dedicated `memory` PostgreSQL schema (memories, memory_versions,
+    memory_candidates, working_memory, knowledge_documents, document_chunks,
+    embeddings, graph_nodes, graph_edges, retrieval_logs, processed_events,
+    outbox_events, command_idempotency — 13 tables) added via SQLAlchemy 2.x models
+    (infrastructure/persistence/postgres/models.py) and a hand-written Alembic
+    migration (migrations/versions/55e46d26b7fa_create_memory_schema.py), matching
+    07-data-model exactly including its partial-unique-index invariants ("同一个
+    scope 只能有一个 active WorkingMemory", "同一个 memoryId 同时只能有一个 ACTIVE
+    version") mirrored from agent-runtime-service's own SPEC-ARO-002
+    uq_workflow_instances_active precedent. Enables the pgvector extension and uses
+    a real `vector` column (infrastructure/persistence/postgres/models.py
+    EmbeddingRow.embedding) for SPEC-MK-002 domain-rules' "pgvector-ready embedding
+    storage" — infrastructure/docker-compose/local-platform.yml's shared Postgres
+    image was updated from postgres:18.4 to pgvector/pgvector:pg18 (a drop-in
+    replacement: same Postgres major version, same data format, ticket-workflow-
+    service's and agent-runtime-service's own schemas in that same instance are
+    unaffected) to support it; the already-running shared container was left alone
+    (needs `docker compose ... up -d --force-recreate postgres` to pick up the new
+    image — an operator action, not something this spec forces). Postgres-backed
+    repository adapters implement all 11 ports_out repository Protocols (matching
+    SPEC-MK-001's in-memory adapters' exact method contracts, including the
+    status-based compare-and-swap for MemoryCandidate/MemoryVersion/
+    KnowledgeDocument and the explicit-version CAS for WorkingMemory — see
+    infrastructure/persistence/postgres/repositories.py's own module docstring).
+    container.py selects memory vs postgres persistence via
+    Settings.memory_persistence (default postgres); tests/test_app.py was updated
+    to force "memory" explicitly so it stays hermetic. Columns 07-data-model lists
+    that no SPEC-MK-001/002 service populates yet (MemoryCandidateRow.source_hash,
+    MemoryRow.application_code/category, EmbeddingRow.owner_type/owner_id/
+    content_hash, KnowledgeDocumentRow.raw_content_ref) are created
+    nullable/defaulted, ready for the specs that own that behavior (phase-03
+    memory-candidate-pipeline, phase-05 retrieval-and-knowledge-graph, phase-07
+    security-and-governance) — no application-layer type changed to accommodate
+    them, except OutboxRecord.published_at (a purely additive, optional field with
+    a default, added for admin-visibility round-tripping, not a business rule
+    change). Verified against a real ephemeral testcontainers Postgres
+    (pgvector/pgvector:pg18; tests/integration) covering every repository's CAS/
+    uniqueness/round-trip behavior plus a full ingest -> extract -> validate ->
+    publish -> search -> deprecate -> delete app-level walk against the real
+    migrated schema (tests/integration/test_app_postgres_integration.py),
+    including a real vector round-trip through the pgvector column.
   lld_mapping:
     - 07-data-model
   forbidden:
     - memory_direct_ticket_state_write
     - memory_direct_workflow_state_write
-    - agent_direct_active_memory_write
-    - graph_traversal_bypasses_acl
+    - memory_direct_tool_execution
+    - unvalidated_active_memory_write
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/memory-knowledge-service/tests (unchanged 80, still green with memory_persistence="postgres" default)
+    integration: services/memory-knowledge-service/tests/integration
+    result: "95 passed (80 unit + 15 integration against real Postgres/pgvector), 3 import-linter contracts kept, 0 pyflakes warnings"

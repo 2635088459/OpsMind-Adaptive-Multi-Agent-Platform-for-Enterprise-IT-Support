@@ -1,16 +1,66 @@
 SPEC-MK-006:
   domain: 04-memory-knowledge
-  name: Working Memory Query Archive
+  name: Working Memory Query and Archive
   cn_name: Working Memory 查询与归档
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 01
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    03-state-machine §"Working Memory 状态" (ACTIVE -> ARCHIVED / DELETED) audit: the
+    domain state machine itself already existed since SPEC-MK-001, but
+    WorkingMemory.archive()/delete() were dead code — unreachable from any
+    application service or HTTP route, and (found during this spec's own design
+    review, before any test could exercise it in production) neither method bumped
+    `version` or accepted `expected_version`, which would have silently broken
+    WorkingMemoryRepository.save()'s CAS check the moment either was wired up.
+    Fixed both signatures to mirror apply_update()'s own expected_version contract
+    before wiring them to anything, and added the domain-level tests
+    (test_archive_bumps_version_and_rejects_stale_expected_version,
+    test_archive_requires_active_status, test_delete_is_allowed_from_archived_but_not_
+    from_deleted, test_delete_rejects_stale_expected_version) that would have caught
+    the original bug. Also closed 05-api-contracts' `GET /internal/memory/v1/working-
+    memory/{workingMemoryId}` gap (no query surface existed at all — PATCH was the
+    only route touching a Working Memory). New surface: QueryWorkingMemoryCommand/
+    ArchiveWorkingMemoryCommand/DeleteWorkingMemoryCommand (application/commands.py),
+    WorkingMemoryQueryUseCase/WorkingMemoryLifecycleUseCase ports_in Protocols,
+    find_working_memory()/archive()/delete() added directly onto
+    UpdateWorkingMemoryService (reused rather than new service classes, mirroring how
+    ExecuteRetentionService already implements deprecate()+delete() under one
+    class/port pairing), a REST GET route (correlation_id as a required query
+    parameter, since a GET has no body — 05-api-contracts §"通用约束": "Internal API
+    必须携带 correlation id"), and two admin POST routes
+    (.../working-memory/{id}/archive, .../delete) requiring X-Actor-Id, reusing the
+    existing WorkingMemoryResponse/to_working_memory_response from the rest module
+    rather than duplicating the nested response schema. Both admin routes reuse the
+    same `workingMemoryId + expectedVersion` idempotency-key convention
+    09-concurrency-and-idempotency already defines for Working Memory, rather than a
+    separate IdempotencyKey. Automatic archiving on ticket-cycle-closed (03-state-
+    machine's own "ticket cycle 结束后可 ARCHIVED" trigger condition) is deferred —
+    both lifecycle operations are admin-triggered today, mirroring
+    agent-runtime-service's own SPEC-ARO-004 WorkflowLifecyclePort precedent, where
+    automatic triggering via events was likewise deferred to a later cross-domain-
+    contracts phase. No persistence/migration change — find_by_id() and the
+    version-checked save() path already existed on both the in-memory and Postgres
+    WorkingMemoryRepository adapters since SPEC-MK-001/002. Verified with 121 tests
+    (102 unit/architecture + 19 integration, +16 unit / +1 integration over
+    SPEC-MK-005's baseline), including a full lifecycle end-to-end test against both
+    the in-memory adapters (tests/test_app.py) and a real migrated Postgres schema
+    via ephemeral testcontainers (tests/integration/test_app_postgres_integration.py)
+    covering create -> query -> archive -> stale-archive conflict -> update-after-
+    archive conflict -> archive-without-actor-header rejected -> delete -> a second
+    delete rejected. lint-imports (3/3 contracts kept), 0 pyflakes warnings. The
+    shared opsmind-postgres container used by sibling services was not touched;
+    integration verification used isolated ephemeral testcontainers instances only.
   lld_mapping:
     - 05-api-contracts
     - 03-state-machine
   forbidden:
     - memory_direct_ticket_state_write
     - memory_direct_workflow_state_write
-    - agent_direct_active_memory_write
-    - graph_traversal_bypasses_acl
+    - memory_direct_tool_execution
+    - unvalidated_active_memory_write
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (102, includes 16 new: domain archive/delete CAS + version-conflict tests, application find_working_memory/archive/delete tests including audit records and not-found cases, REST end-to-end query/archive/delete lifecycle test)"
+    integration: "services/memory-knowledge-service/tests/integration (19, includes 1 new: query/archive/delete lifecycle against real migrated Postgres)"
+    result: "121 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

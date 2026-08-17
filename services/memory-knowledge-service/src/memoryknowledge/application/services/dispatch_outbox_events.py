@@ -6,10 +6,13 @@ exactly (an operational surface, not a domain use case).
 
 from __future__ import annotations
 
-from datetime import timedelta
+import dataclasses
+from datetime import datetime, timedelta
 
 from memoryknowledge.application.ports_out import ClockPort, EventPublisherPort, OutboxRepository
+from memoryknowledge.application.records import OutboxRecord
 from memoryknowledge.application.views import DispatchReport
+from memoryknowledge.domain.enums import OutboxStatus
 
 _MAX_ATTEMPTS = 5
 _BASE_BACKOFF_SECONDS = 30
@@ -24,9 +27,29 @@ class DispatchOutboxEventsService:
     def dispatch_due_events(self, batch_size: int) -> DispatchReport:
         now = self._clock.now()
         due = self._outbox_repository.find_dispatchable(now, batch_size)
+        return self._dispatch(due, now)
+
+    def replay_dead_letter(self, batch_size: int) -> DispatchReport:
+        """SPEC-MK-003 08-transaction-and-outbox §"Outbox Publisher": "replay 必须幂等" —
+        requeues up to `batch_size` DEAD_LETTER rows (attempts reset to 0) and attempts
+        to publish them immediately, reporting the real outcome rather than just moving
+        them back to PENDING and waiting for the next dispatch_due_events() scan.
+        """
+        now = self._clock.now()
+        dead_lettered_records = self._outbox_repository.find_dead_letter(batch_size)
+        requeued: list[OutboxRecord] = []
+        for record in dead_lettered_records:
+            self._outbox_repository.requeue(record.outbox_id, now)
+            # requeue() resets attempts/status/available_at at the storage layer; mirror
+            # that locally so _dispatch()'s own backoff math starts from a clean slate,
+            # not the DEAD_LETTER row's stale attempts count.
+            requeued.append(dataclasses.replace(record, status=OutboxStatus.PENDING, attempts=0, available_at=now))
+        return self._dispatch(requeued, now)
+
+    def _dispatch(self, records: list[OutboxRecord], now: datetime) -> DispatchReport:
         published = failed = dead_lettered = 0
 
-        for record in due:
+        for record in records:
             if self._event_publisher_port.publish(record):
                 self._outbox_repository.mark_published(record.outbox_id, now)
                 published += 1
@@ -41,4 +64,4 @@ class DispatchOutboxEventsService:
                 self._outbox_repository.mark_failed(record.outbox_id, now + backoff, attempts)
                 failed += 1
 
-        return DispatchReport(scanned=len(due), published=published, failed=failed, dead_lettered=dead_lettered)
+        return DispatchReport(scanned=len(records), published=published, failed=failed, dead_lettered=dead_lettered)

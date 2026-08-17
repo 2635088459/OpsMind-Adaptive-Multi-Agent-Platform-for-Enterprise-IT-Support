@@ -2,9 +2,38 @@ SPEC-MK-013:
   domain: 04-memory-knowledge
   name: Memory Candidate Review API
   cn_name: Memory Candidate review API
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 03
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    05-api-contracts / 11-security / 12-observability audit: both named Admin API
+    routes — `POST /internal/memory/v1/admin/candidates/{candidateId}/approve`
+    ("批准候选 memory 并触发 publish") and `.../reject` — were already built in phase-00,
+    both writing audit entries (`approve_candidate`, `publish_memory`,
+    `reject_candidate` — all three names 12-observability §"审计动作" lists explicitly),
+    both correctly rejecting an already-terminal candidate via
+    InvalidMemoryCandidateTransitionException (409). `reject_candidate` already
+    requires `X-Actor-Id` per 05-api-contracts' own "Admin API 必须携带 actor id";
+    `approve_candidate`'s actor identity is `published_by` from the request body
+    instead of a header — a deliberate, pre-existing design (recorded in the audit
+    trail and on the created MemoryVersion.created_by identically either way), not an
+    inconsistency this spec introduces or needs to correct.
+
+    This spec's own core rule — "High-risk candidates require authorized review" — is
+    the same finding SPEC-MK-012's own traceability entry covers in full: the
+    AuthorizationPort gate on CONFLICTING-candidate approval is implemented once, in
+    PublishMemoryService (shared by both the admin approve route this spec owns and
+    any other future caller of PublishMemoryUseCase), and is attributed there since
+    it's a state-machine/business-invariant concern (02-business-invariants,
+    03-state-machine) rather than an API-shape concern — this entry cross-references
+    it rather than duplicating the change description.
+
+    extract_candidate and validate_candidate remain "operational additions" beyond
+    05-api-contracts' own literal endpoint list (as their own docstrings already
+    said) — necessary seams for the pipeline to be exercisable end-to-end (extract
+    now also reachable via SPEC-MK-010's own event consumers, not just this route),
+    not part of the "review" surface itself. No route, schema, or audit-wiring change
+    was needed beyond SPEC-MK-012's own AuthorizationPort fix.
   lld_mapping:
     - 05-api-contracts
     - 11-security
@@ -15,3 +44,7 @@ SPEC-MK-013:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (116) — see SPEC-MK-012's own traceability entry for the 2 new unit tests + 1 new REST end-to-end test covering the review API's own authorization gate"
+    integration: "services/memory-knowledge-service/tests/integration (21)"
+    result: "137 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

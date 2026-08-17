@@ -2,9 +2,50 @@ SPEC-MK-025:
   domain: 04-memory-knowledge
   name: Retrieval Access Control And ACL
   cn_name: Retrieval access control 与 ACL
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 07
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    11-security / 02-business-invariants audit against SearchMemoryService (already
+    built in phase-00/05): Knowledge Document ACL filtering, GraphNode/GraphEdge
+    classification filtering during bounded expansion (ExpandKnowledgeGraphService),
+    and AuthorizationPort consultation on every result were all already correct.
+    The one real gap: every Memory/MemoryVersion result was checked against a single
+    fixed `"INTERNAL"` constant (`_MEMORY_CLASSIFICATION`) regardless of what that
+    specific Memory actually was — `Memory`/`KnowledgeDocument` had no
+    `classification` field on the domain object at all, only a same-named,
+    already-reserved, always-defaulted DB column (`MemoryRow.classification`/
+    `KnowledgeDocumentRow.classification`, both `nullable=False, default="INTERNAL"`
+    since SPEC-MK-002, both explicitly commented "a future security/governance spec
+    (phase-07) is the real owner" at the time) — the same pre-planted-hook shape this
+    audit methodology has found repeatedly across every prior phase.
+
+    Fixed: added `classification: str = "INTERNAL"` to both `domain.memory.Memory`
+    and `domain.knowledge_document.KnowledgeDocument`; `PublishMemoryCommand`/
+    `ApproveCandidateRequest` and `IngestKnowledgeDocumentCommand`/
+    `IngestDocumentRequest` gained an optional `classification` field (default
+    "INTERNAL", fully backward compatible with every existing caller);
+    `PublishMemoryService`/`IngestKnowledgeDocumentService` thread it through to the
+    domain object at creation (a supersede-publish against an *existing* Memory does
+    not change that Memory's own classification — only its own creation sets it, by
+    design); both Postgres repositories now read/write the real column instead of
+    leaving it to always fall back to the schema default. `SearchMemoryService` now
+    looks up each result's own real classification (`Memory.classification` via a
+    per-result `find_memory_by_id()` call for MEMORY results — acceptable at this
+    codebase's already-established "naive linear scan, real optimization deferred"
+    MVP posture; `document.classification` directly for DOCUMENT_CHUNK results, since
+    `document` was already fetched in that same loop) instead of the fixed constant.
+
+    No LLD section specifies an automatic classification-inference algorithm (what
+    makes a memory "RESTRICTED" vs "INTERNAL"), so — consistent with how `memory_id`
+    (SPEC-MK-015) and `conflict_set_id`/`review_required` (already-existing
+    mechanisms) are all caller-supplied rather than inferred — classification stays
+    an explicit, caller-supplied decision at publish/ingest time, defaulting to the
+    same "INTERNAL" the schema always defaulted to. "Queue"-scoped cross-checking
+    (02-business-invariants: "...不可跨 queue... 检索") stays deliberately unbuilt: no
+    domain field anywhere records "which queue a Memory belongs to," and no LLD
+    section describes how one would be assigned — building that now would mean
+    inventing a queue-ownership concept from nothing, not implementing one.
   lld_mapping:
     - 11-security
     - 02-business-invariants
@@ -14,3 +55,7 @@ SPEC-MK-025:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (195, includes 1 new application test: two memories with different classification are filtered differently by the same requester, proving this is real per-object data now; 1 new REST end-to-end test: a RESTRICTED memory is hidden from a plain agent role but visible to admin)"
+    integration: "services/memory-knowledge-service/tests/integration (24, includes 1 new: classification is actually persisted to and read back from a real migrated Postgres schema, and enforced there too)"
+    result: "219 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

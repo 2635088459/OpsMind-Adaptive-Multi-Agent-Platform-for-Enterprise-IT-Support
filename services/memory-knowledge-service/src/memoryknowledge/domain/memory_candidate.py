@@ -38,6 +38,7 @@ class MemoryCandidate:
     status: MemoryCandidateStatus
     source_refs: tuple[SourceRef, ...]
     candidate_text: str
+    source_hash: str
     redacted_text: str | None
     redaction_report: RedactionReport | None
     confidence_score: float | None
@@ -51,24 +52,39 @@ class MemoryCandidate:
     @staticmethod
     def extract(
         candidate_id: MemoryCandidateId, memory_type: MemoryType, source_refs: tuple[SourceRef, ...],
-        candidate_text: str, created_at: datetime,
+        candidate_text: str, source_hash: str, created_at: datetime,
     ) -> "MemoryCandidate":
-        """02-business-invariants: "Candidate ... 都必须有 source/evidence"."""
+        """02-business-invariants: "Candidate ... 都必须有 source/evidence". 07-data-model
+        `memory.memory_candidates` §"唯一键": `source_hash, memory_type` — the application
+        service computes source_hash (08-transaction-and-outbox §"Candidate Extraction
+        Transaction" step 2: "计算 sourceHash") and the repository upserts on it, so this
+        factory only records the value, it does not compute it.
+        """
         if not source_refs:
             raise MemoryCandidateMissingSourceRefException()
         return MemoryCandidate(
             candidate_id=candidate_id, memory_type=memory_type, status=MemoryCandidateStatus.EXTRACTED,
-            source_refs=source_refs, candidate_text=candidate_text, redacted_text=None, redaction_report=None,
-            confidence_score=None, usefulness_score=None, duplicate_of_memory_id=None, conflict_set_id=None,
-            review_required=False, rejection_reason=None, created_at=created_at,
+            source_refs=source_refs, candidate_text=candidate_text, source_hash=source_hash, redacted_text=None,
+            redaction_report=None, confidence_score=None, usefulness_score=None, duplicate_of_memory_id=None,
+            conflict_set_id=None, review_required=False, rejection_reason=None, created_at=created_at,
         )
 
     def redact(self, redacted_text: str, redaction_report: RedactionReport) -> "MemoryCandidate":
-        """03-state-machine: "EXTRACTED -> REDACTED 必须生成 redaction report"."""
+        """03-state-machine: "EXTRACTED -> REDACTED 必须生成 redaction report".
+        11-security §"Redaction Pipeline" step 4 "Human review for high-risk
+        candidate": a candidate whose raw extracted evidence actually contained
+        secret-shaped text (redaction_report.had_redactions) is exactly that "high
+        risk" signal — the raw evidence stream that produced it was capable of
+        carrying a real secret, regardless of how many patterns matched or which
+        ones. review_required flips to True here the same way mark_conflicting()
+        already flips it for a different reason; PublishMemoryService gates approval
+        on this flag generally, not on CONFLICTING status specifically.
+        """
         if self.status not in _REDACTABLE:
             raise InvalidMemoryCandidateTransitionException(self.status, _REDACTABLE)
         return dataclasses.replace(
             self, status=MemoryCandidateStatus.REDACTED, redacted_text=redacted_text, redaction_report=redaction_report,
+            review_required=self.review_required or redaction_report.had_redactions,
         )
 
     def validate(self, confidence_score: float, source_refs_trusted: bool) -> "MemoryCandidate":

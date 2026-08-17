@@ -1,10 +1,36 @@
 SPEC-MK-005:
   domain: 04-memory-knowledge
-  name: Working Memory Update Merge API
+  name: Working Memory Update and Merge API
   cn_name: Working Memory 更新与 merge API
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 01
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    04-use-cases UC-01 ("更新 Working Memory") audit: the `PATCH
+    /internal/memory/v1/working-memory/{workingMemoryId}` merge-patch endpoint
+    itself — expected-version optimistic locking (no last-write-wins), additive
+    facts/hypotheses merge, pending-minus-completed task merge, rejected-hypothesis-
+    reason retention — was already fully built and correct as of SPEC-MK-001, and
+    redaction of new content (UC-01 step 4) was closed by SPEC-MK-004. This spec's
+    own audit against its LLD mapping found and closed the two remaining UC-01/
+    05-api-contracts gaps: (1) 05-api-contracts §"通用约束": "Internal API 必须携带
+    correlation id" — UpdateWorkingMemoryCommand/UpdateWorkingMemoryRequest had no
+    correlation_id field at all (unlike SearchMemoryCommand, which already carried
+    one since SPEC-MK-001); added as a required field end-to-end (request schema →
+    command → mapper). (2) UC-01 step 7 ("写 audit log") was never implemented —
+    UpdateWorkingMemoryService now records an `update_working_memory` audit entry
+    (action name is an addition beyond 12-observability's own non-exhaustive "审计
+    动作" list, justified directly by UC-01's own explicit step) via the same
+    AuditRecorder SPEC-MK-003 built, carrying actor_id (from the existing
+    `updated_by` field), ticket_id, and the new correlation_id. No merge-semantics
+    change, no new outbox event (06-event-contracts names no working-memory-specific
+    published event, and 08-transaction-and-outbox never described Working Memory
+    updates as outbox-worthy — confirmed by re-reading both before concluding this),
+    no persistence/migration change. Verified with 105 tests (87 unit/architecture +
+    18 integration, integration count unchanged since no persistence-layer change),
+    including a new test proving the audit record is written with the right
+    actor/resource/correlation id, lint-imports (3/3 contracts kept), 0 pyflakes
+    warnings.
   lld_mapping:
     - 04-use-cases
     - 05-api-contracts
@@ -12,6 +38,10 @@ SPEC-MK-005:
   forbidden:
     - memory_direct_ticket_state_write
     - memory_direct_workflow_state_write
-    - agent_direct_active_memory_write
-    - graph_traversal_bypasses_acl
+    - memory_direct_tool_execution
+    - unvalidated_active_memory_write
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (87, includes 1 new: audit record written on update)"
+    integration: "services/memory-knowledge-service/tests/integration (18, unchanged — no persistence-layer change in this spec)"
+    result: "105 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

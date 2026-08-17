@@ -20,6 +20,7 @@ from memoryknowledge.domain.ids import (
     TicketCycleId,
     TicketId,
     WorkflowInstanceId,
+    WorkingMemoryId,
 )
 from memoryknowledge.domain.values import AccessScope, SourceRef
 
@@ -43,7 +44,8 @@ class UpdateWorkingMemoryCommand:
     """05-api-contracts: `PATCH /internal/memory/v1/working-memory/{workingMemoryId}`
     "必须传 expectedVersion". expected_version == 0 with no existing row for the
     (ticket_id, ticket_cycle_id, workflow_instance_id) scope creates a new Working
-    Memory — 01-domain-model: "同一个 scope 只能有一个 active WorkingMemory".
+    Memory — 01-domain-model: "同一个 scope 只能有一个 active WorkingMemory". SPEC-MK-005
+    api-contract §"通用约束": "Internal API 必须携带 correlation id."
     """
 
     ticket_id: TicketId
@@ -51,6 +53,7 @@ class UpdateWorkingMemoryCommand:
     workflow_instance_id: WorkflowInstanceId
     expected_version: int
     updated_by: str
+    correlation_id: CorrelationId
     add_facts: tuple[str, ...] = ()
     add_hypotheses: tuple[str, ...] = ()
     reject_hypotheses: tuple[RejectHypothesisInput, ...] = ()
@@ -59,6 +62,39 @@ class UpdateWorkingMemoryCommand:
     add_tool_evidence_refs: tuple[ToolEvidenceRefInput, ...] = ()
     add_approval_decision_refs: tuple[str, ...] = ()
     context_summary: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class QueryWorkingMemoryCommand:
+    """SPEC-MK-006 05-api-contracts: `GET /internal/memory/v1/working-memory/{workingMemoryId}`."""
+
+    working_memory_id: WorkingMemoryId
+    correlation_id: CorrelationId
+
+
+@dataclass(frozen=True, slots=True)
+class ArchiveWorkingMemoryCommand:
+    """SPEC-MK-006 03-state-machine §"Working Memory 状态": "ticket cycle 结束后可
+    ARCHIVED." 09-concurrency-and-idempotency's own idempotency-key table entry for
+    Working Memory is `workingMemoryId + expectedVersion` — reused here, not a
+    separate IdempotencyKey, since this is the same version-protected aggregate
+    UpdateWorkingMemoryCommand already uses that mechanism for.
+    """
+
+    working_memory_id: WorkingMemoryId
+    expected_version: int
+    actor_id: str
+    correlation_id: CorrelationId
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteWorkingMemoryCommand:
+    """SPEC-MK-006 03-state-machine: "deletion request 可把 body 清空并保留 tombstone."."""
+
+    working_memory_id: WorkingMemoryId
+    expected_version: int
+    actor_id: str
+    correlation_id: CorrelationId
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +133,10 @@ class ExpandKnowledgeGraphCommand:
 
 @dataclass(frozen=True, slots=True)
 class IngestKnowledgeDocumentCommand:
-    """05-api-contracts: `POST /internal/memory/v1/admin/documents`."""
+    """05-api-contracts: `POST /internal/memory/v1/admin/documents`. `classification`
+    defaults to "INTERNAL" (07-data-model `memory.knowledge_documents` §"classification
+    text not null") — SPEC-MK-025's own job is making this caller-settable.
+    """
 
     source_system: str
     external_id: str
@@ -107,6 +146,7 @@ class IngestKnowledgeDocumentCommand:
     raw_content: str
     ingested_by: str
     acl: tuple[str, ...] = ()
+    classification: str = "INTERNAL"
     effective_from: datetime | None = None
     expires_at: datetime | None = None
     extract_graph: bool = False
@@ -116,10 +156,10 @@ class IngestKnowledgeDocumentCommand:
 @dataclass(frozen=True, slots=True)
 class ExtractMemoryCandidateCommand:
     """13-package-and-class-design: ExtractMemoryCandidateUseCase. Source-agnostic by
-    design at this spec's scope — event-driven extraction from ticket.resolved.v1 /
-    workflow.completed.v1 (06-event-contracts) is phase-03 (memory-candidate-pipeline);
-    this command is the pipeline entry point any future event consumer, or a direct
-    admin/evaluation caller, feeds evidence into today.
+    design — SPEC-MK-010's own ConsumeTicketMemorySourceEventService is one caller
+    (event-driven extraction from ticket.resolved.v1/ticket.closed.v1), a direct
+    admin/evaluation caller is another; workflow.completed.v1-driven extraction
+    remains a later phase's own consumer to add.
     """
 
     memory_type: MemoryType
@@ -127,6 +167,86 @@ class ExtractMemoryCandidateCommand:
     candidate_text: str
     idempotency_key: IdempotencyKey
     extracted_by: str
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeTicketResolvedCommand:
+    """SPEC-MK-010 06-event-contracts: consumed `ticket.resolved.v1`
+    (02-ticket-workflow PUB-012, Consumers: "Memory、Evaluation、Notification"). Field
+    names mirror that service's own real published payload
+    (TicketResolvedEventMapper: supportQueueId/assigneeId/resolutionCycleId/
+    previousStatus/newStatus/resolutionCode/resolutionSummary/resolvedBy/resolvedAt/
+    autoCloseDueAt), not 04-memory-knowledge's own 06-event-contracts illustrative
+    sketch (which names resolutionSummary/verificationStatus fields that don't exist
+    on the real event 02 actually publishes) — "02 remains system of record" (this
+    spec's own domain-rule) means 02's real schema wins. resolutionCycleId is the same
+    "distinguish cycles across reopen" concept 04's own aggregates call
+    ticketCycleId — confirmed by agent-runtime-service's own SPEC-ARO-023 event schema
+    mapping the identical field the same way.
+    """
+
+    event_id: str
+    ticket_id: TicketId
+    ticket_cycle_id: TicketCycleId
+    resolution_code: str
+    resolution_summary: str
+    resolved_by: str
+    resolved_at: datetime
+    correlation_id: CorrelationId
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeTicketClosedCommand:
+    """SPEC-MK-010 06-event-contracts: consumed `ticket.closed.v1` (02-ticket-workflow
+    PUB-013, Consumers: "Memory、Evaluation、Analytics")."""
+
+    event_id: str
+    ticket_id: TicketId
+    ticket_cycle_id: TicketCycleId
+    close_reason_code: str
+    close_reason: str
+    closed_by: str
+    closed_at: datetime
+    correlation_id: CorrelationId
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeWorkflowCompletedCommand:
+    """SPEC-MK-022 06-event-contracts: consumed `workflow.completed.v1`
+    (03-agent-runtime-orchestration's own real published payload —
+    CompleteWorkflowService._to_payload: workflowInstanceId/fromState/toState/
+    workflowVersion/occurredAt; envelope carries ticketId, no ticketCycleId — that
+    service's own OutboxRecord never carries one). 04-memory-knowledge's own
+    06-event-contracts sketch ("获取 automation trace、task summaries、tool evidence
+    refs") describes richer content than the real event actually carries today; "02
+    remains system of record" applies symmetrically here to 03 — this command only
+    has the fields the real event does.
+    """
+
+    event_id: str
+    workflow_instance_id: WorkflowInstanceId
+    ticket_id: TicketId
+    from_state: str | None
+    to_state: str
+    workflow_version: int
+    occurred_at: datetime
+    correlation_id: CorrelationId
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeWorkflowFailedCommand:
+    """SPEC-MK-022 06-event-contracts: consumed `workflow.failed.v1`
+    (FailWorkflowService's own real payload: adds failureReason)."""
+
+    event_id: str
+    workflow_instance_id: WorkflowInstanceId
+    ticket_id: TicketId
+    from_state: str | None
+    to_state: str
+    workflow_version: int
+    failure_reason: str
+    occurred_at: datetime
+    correlation_id: CorrelationId
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,10 +270,14 @@ class ValidateMemoryCandidateCommand:
 
 @dataclass(frozen=True, slots=True)
 class RejectMemoryCandidateCommand:
-    """05-api-contracts: `POST /internal/memory/v1/admin/candidates/{candidateId}/reject`."""
+    """05-api-contracts: `POST /internal/memory/v1/admin/candidates/{candidateId}/reject`.
+    05-api-contracts §"API 原则": "Admin API 必须写 audit" — actor_id is the X-Actor-Id
+    header, required the same way DeprecateMemoryCommand/DeleteMemoryCommand carry one.
+    """
 
     candidate_id: MemoryCandidateId
     reason: str
+    actor_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +285,19 @@ class PublishMemoryCommand:
     """05-api-contracts: `POST /internal/memory/v1/admin/candidates/{candidateId}/approve`
     ("批准候选 memory 并触发 publish") — 03-state-machine: "APPROVED -> PUBLISHED 必须在同一
     事务中创建 MemoryVersion 和 outbox event", so approve and publish are one command here,
-    not two round trips.
+    not two round trips. `memory_id` is None to create a brand new Memory identity
+    (the original default behavior); set it to publish this candidate as the next
+    version of an *existing* Memory instead — UC-05 step 1 "创建 Memory 或定位 existing
+    Memory" — which supersedes that Memory's current active version
+    (08-transaction-and-outbox §"Publish Memory Transaction" steps 3-4). No LLD
+    section describes an automatic algorithm for choosing which existing Memory a
+    candidate should supersede, so this stays a caller-supplied decision (an admin
+    reviewing the candidate), not something this command infers on its own.
+    `classification` defaults to "INTERNAL" (07-data-model `memory.memories`
+    §"classification text not null") — SPEC-MK-025's own job is making this a real,
+    caller-settable value instead of always the DB column's own default; no LLD
+    section names an automatic classification-inference algorithm, so this too
+    stays caller-supplied.
     """
 
     candidate_id: MemoryCandidateId
@@ -171,6 +307,8 @@ class PublishMemoryCommand:
     content: str
     summary: str
     source_trust_score: float
+    memory_id: MemoryId | None = None
+    classification: str = "INTERNAL"
 
 
 @dataclass(frozen=True, slots=True)

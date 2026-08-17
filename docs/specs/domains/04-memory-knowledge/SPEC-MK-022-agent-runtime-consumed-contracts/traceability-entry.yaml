@@ -2,9 +2,46 @@ SPEC-MK-022:
   domain: 04-memory-knowledge
   name: Agent Runtime Consumed Contracts
   cn_name: Agent Runtime consumed contracts
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 06
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    06-event-contracts audit: unlike SPEC-MK-021, this was genuinely unbuilt —
+    `workflow.completed.v1`/`workflow.failed.v1` had no consumer, command, or route
+    anywhere. Cross-referenced 03-agent-runtime-orchestration's own real published
+    payload (CompleteWorkflowService/FailWorkflowService._to_payload:
+    workflowInstanceId/fromState/toState/workflowVersion[/failureReason]/occurredAt,
+    wrapped by RabbitMqEventPublisherAdapter._to_envelope_json's own real envelope:
+    eventId/eventType/aggregateId/ticketId/correlationId/causationId/occurredAt/
+    payload — no eventVersion/routingKey, unlike 02-ticket-workflow's envelope shape)
+    as the concrete source of truth, not 04-memory-knowledge's own 06-event-contracts
+    illustrative sketch (which lists ticketCycleId/completedAt/taskResults — fields
+    that don't exist on the real event at all) — "03 remains workflow state owner"
+    (this spec's own domain-rule) means 03's real schema wins, the same way "02
+    remains system of record" already governed SPEC-MK-010's own field choices.
+    Notably, the real event carries no ticketCycleId at all (03's own OutboxRecord
+    never sets one) — WorkingMemory-style scope correlation is therefore not
+    possible from this event alone, which is consistent with 04's own illustrative
+    sketch overstating what evidence this event actually carries ("获取 automation
+    trace、task summaries、tool evidence refs" — none of that data exists on the real
+    payload either).
+
+    Built the same shape SPEC-MK-010 already established: `ConsumeWorkflowCompleted
+    Command`/`ConsumeWorkflowFailedCommand`, `ConsumeWorkflowMemorySourceEventService`
+    (consume_completed/consume_failed), `WorkflowMemorySourceEventConsumerPort`, and
+    `POST /internal/memory/v1/events/workflow-completed`/`.../workflow-failed`
+    (interfaces/event/schemas.py's own envelope-normalization helpers extended —
+    renamed `_is_ticket_workflow_outbox_envelope` to `_is_raw_outbox_envelope` since it
+    now also detects 03's own raw shape — and a new `_normalize_agent_runtime_
+    envelope` sibling to `_normalize_ticket_workflow_envelope`). Both new candidates
+    extract as EPISODIC, never PROCEDURAL — this codebase's own existing rule that
+    nothing auto-approves an EXTRACTED candidate already satisfies 06-event-contracts'
+    own "workflow.failed.v1 用途：记录失败经验，但默认不自动发布为 procedural memory" at the
+    "不自动发布" level; starting from EPISODIC additionally ensures a bare failure
+    signal is never even *labeled* reusable procedural knowledge before a human
+    reviews it. Same 10-failure-handling §"Poison Event" divergence from
+    agent-runtime-service's own unconditional `finally: mark_processed(...)`
+    precedent that SPEC-MK-010's own consumer already established and documents.
   lld_mapping:
     - 06-event-contracts
   forbidden:
@@ -13,3 +50,7 @@ SPEC-MK-022:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (187, includes 4 new application tests for ConsumeWorkflowMemorySourceEventService — completed/failed extraction, event-id dedup, poison-leaves-unmarked — 2 new REST end-to-end tests, and contract coverage in tests/contracts/test_consumed_event_contracts.py for both event types under both wire shapes)"
+    integration: "services/memory-knowledge-service/tests/integration (23)"
+    result: "210 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

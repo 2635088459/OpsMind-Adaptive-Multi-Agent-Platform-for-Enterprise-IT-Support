@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, status
 
 from memoryknowledge.application.ports_in import (
+    AuditRecordQueryPort,
     ExecuteRetentionUseCase,
     ExpandKnowledgeGraphUseCase,
     ExtractMemoryCandidateUseCase,
@@ -17,8 +18,10 @@ from memoryknowledge.application.ports_in import (
     OutboxDispatchPort,
     PublishMemoryUseCase,
     ValidateMemoryCandidateUseCase,
+    WorkingMemoryLifecycleUseCase,
 )
 from memoryknowledge.container import (
+    get_audit_record_query_port,
     get_execute_retention_port,
     get_expand_knowledge_graph_port,
     get_extract_memory_candidate_port,
@@ -26,10 +29,14 @@ from memoryknowledge.container import (
     get_outbox_dispatch_port,
     get_publish_memory_port,
     get_validate_memory_candidate_port,
+    get_working_memory_lifecycle_port,
 )
 from memoryknowledge.interfaces.admin.mapper import (
+    to_archive_working_memory_command,
+    to_audit_event_response,
     to_candidate_response,
     to_delete_command,
+    to_delete_working_memory_command,
     to_deletion_response,
     to_deprecate_command,
     to_dispatch_response,
@@ -45,6 +52,9 @@ from memoryknowledge.interfaces.admin.mapper import (
 )
 from memoryknowledge.interfaces.admin.schemas import (
     ApproveCandidateRequest,
+    ArchiveWorkingMemoryRequest,
+    AuditEventResponse,
+    DeleteWorkingMemoryRequest,
     DeletionReportResponse,
     DeletionRequestRequest,
     DeprecateMemoryRequest,
@@ -58,6 +68,8 @@ from memoryknowledge.interfaces.admin.schemas import (
     RejectCandidateRequest,
     ValidateCandidateRequest,
 )
+from memoryknowledge.interfaces.rest.mapper import to_working_memory_response
+from memoryknowledge.interfaces.rest.schemas import WorkingMemoryResponse
 
 router = APIRouter(prefix="/internal/memory/v1/admin", tags=["memory-admin"])
 
@@ -90,9 +102,10 @@ def validate_candidate(
 @router.post("/candidates/{candidate_id}/reject", response_model=MemoryCandidateResponse)
 def reject_candidate(
     candidate_id: UUID, request: RejectCandidateRequest, port: ValidateMemoryCandidateUseCase = Depends(get_validate_memory_candidate_port),
+    actor_id: str = Header(alias="X-Actor-Id"),
 ) -> MemoryCandidateResponse:
     """05-api-contracts: `POST /internal/memory/v1/admin/candidates/{candidateId}/reject`."""
-    return to_candidate_response(port.reject(to_reject_command(candidate_id, request)))
+    return to_candidate_response(port.reject(to_reject_command(candidate_id, request, actor_id)))
 
 
 @router.post("/candidates/{candidate_id}/approve", response_model=MemoryVersionResponse)
@@ -122,6 +135,27 @@ def create_deletion_request(
     return to_deletion_response(port.delete(to_delete_command(request, actor_id)))
 
 
+@router.post("/working-memory/{working_memory_id}/archive", response_model=WorkingMemoryResponse)
+def archive_working_memory(
+    working_memory_id: UUID, request: ArchiveWorkingMemoryRequest, port: WorkingMemoryLifecycleUseCase = Depends(get_working_memory_lifecycle_port),
+    actor_id: str = Header(alias="X-Actor-Id"),
+) -> WorkingMemoryResponse:
+    """SPEC-MK-006 05-api-contracts: `POST /internal/memory/v1/admin/working-memory/
+    {workingMemoryId}/archive`. 03-state-machine: "ticket cycle 结束后可 ARCHIVED" —
+    admin-triggered today (see WorkingMemoryLifecycleUseCase's own docstring).
+    """
+    return to_working_memory_response(port.archive(to_archive_working_memory_command(working_memory_id, request, actor_id)))
+
+
+@router.post("/working-memory/{working_memory_id}/delete", response_model=WorkingMemoryResponse)
+def delete_working_memory(
+    working_memory_id: UUID, request: DeleteWorkingMemoryRequest, port: WorkingMemoryLifecycleUseCase = Depends(get_working_memory_lifecycle_port),
+    actor_id: str = Header(alias="X-Actor-Id"),
+) -> WorkingMemoryResponse:
+    """SPEC-MK-006 03-state-machine: "deletion request 可把 body 清空并保留 tombstone."."""
+    return to_working_memory_response(port.delete(to_delete_working_memory_command(working_memory_id, request, actor_id)))
+
+
 @router.get("/graph/nodes/{node_id}", response_model=GraphExpansionResponse)
 def get_graph_node(
     node_id: UUID, port: ExpandKnowledgeGraphUseCase = Depends(get_expand_knowledge_graph_port),
@@ -136,8 +170,22 @@ def get_graph_node(
 
 @router.post("/outbox/dispatch", response_model=DispatchReportResponse)
 def dispatch_outbox(port: OutboxDispatchPort = Depends(get_outbox_dispatch_port), actor_id: str = Header(alias="X-Actor-Id")) -> DispatchReportResponse:
-    """08-transaction-and-outbox (deferred detail to SPEC-MK-003): operational trigger
-    for DispatchOutboxEventsService, mirroring agent-runtime-service's own
+    """SPEC-MK-003 08-transaction-and-outbox: operational trigger for
+    DispatchOutboxEventsService, mirroring agent-runtime-service's own
     `POST /admin/outbox/dispatch`.
     """
     return to_dispatch_response(port.dispatch_due_events(batch_size=50))
+
+
+@router.post("/outbox/replay-dead-letter", response_model=DispatchReportResponse)
+def replay_dead_letter(port: OutboxDispatchPort = Depends(get_outbox_dispatch_port), actor_id: str = Header(alias="X-Actor-Id")) -> DispatchReportResponse:
+    """SPEC-MK-003 08-transaction-and-outbox §"Outbox Publisher": "replay 必须幂等" — the
+    manual/ops intervention OutboxRepository.requeue()'s own docstring names.
+    """
+    return to_dispatch_response(port.replay_dead_letter(batch_size=50))
+
+
+@router.get("/audit-events", response_model=list[AuditEventResponse])
+def list_audit_events(port: AuditRecordQueryPort = Depends(get_audit_record_query_port), actor_id: str = Header(alias="X-Actor-Id")) -> list[AuditEventResponse]:
+    """SPEC-MK-003 12-observability §"Audit Events" visibility surface."""
+    return [to_audit_event_response(entry) for entry in port.list_audit_events(limit=100)]

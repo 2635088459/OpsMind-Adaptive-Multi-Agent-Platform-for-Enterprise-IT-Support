@@ -2,9 +2,59 @@ SPEC-MK-015:
   domain: 04-memory-knowledge
   name: Publish And Supersede Active Memory
   cn_name: 发布与 supersede Active Memory
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 04
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    08-transaction-and-outbox §"Publish Memory Transaction" / 06-event-contracts audit:
+    PublishMemoryService already correctly implemented the "always create a brand new
+    Memory" half of UC-05 (steps 2, 3-ish, 5-ish, 9-10: create MemoryVersion, mark
+    candidate PUBLISHED, write outbox `memory.published.v1`, all in one call/commit) —
+    but the *supersede* half this spec's own name promises was entirely unbuilt: UC-05
+    step 1 ("创建 Memory 或定位 existing Memory") had no "定位 existing Memory" path at
+    all (PublishMemoryCommand carried no memory_id field), so step 4 ("标记 previous
+    active version 为 superseded") could never run, and the already-fully-defined
+    `MemorySuperseded` domain event / `memory.superseded.v1` publish
+    (06-event-contracts: "旧版本被新版本取代时发布") was dead code with zero callers — the
+    same "pre-planted, never wired" shape SPEC-MK-011/012 already found in their own
+    domains (source_hash column, MemoryCandidateConflictingException).
+
+    Fixed: PublishMemoryCommand gained an optional `memory_id: MemoryId | None` — None
+    preserves the original "always new Memory" behavior; set, it targets an existing
+    Memory, whose current ACTIVE version (if any) is superseded before the new version
+    is inserted as ACTIVE (next `version` number computed from the existing version
+    history, not hardcoded to 1). No LLD section describes an automatic algorithm for
+    choosing which existing Memory a candidate should supersede, so this stays a
+    caller-supplied decision (an admin approving the candidate), not something
+    invented here. `ApproveCandidateRequest`/`to_publish_command` thread the same
+    optional field through the admin API.
+
+    A real ordering bug was caught only by integration testing against a real,
+    migrated Postgres schema (invisible against the in-memory adapter, which enforces
+    no uniqueness at all): the first implementation inserted the new ACTIVE version
+    *before* superseding the old one, which briefly left two ACTIVE-status rows for
+    the same memory_id — violating 07-data-model's own real partial unique index
+    (`uq_memory_versions_one_active_per_memory`, created in SPEC-MK-002) and failing
+    every second-publish attempt with a 409. Fixed by superseding the old version
+    first (CAS `ACTIVE -> SUPERSEDED`), then inserting the new one — matching
+    09-concurrency-and-idempotency §"Publish 并发"'s own ordering ("同一 Memory 只能有
+    一个 active version").
+
+    Graph node/edge upsert for the newly-published version (UC-05 step 6: "upsert
+    graph nodes / edges，并为新版本建立 DERIVED_FROM / SUPPORTED_BY / RESOLVED_BY 关系";
+    08-transaction-and-outbox step 7-8 of this same transaction) is a deliberate,
+    documented deferral to phase-05 (SPEC-MK-018, knowledge-graph-node-edge-index) —
+    the coverage matrix assigns 01-domain-model's own §"GraphNode"/"GraphEdge"
+    sections to SPEC-MK-018, not this spec, and the codebase already defers real
+    seed-node graph expansion/embedding generation to that same phase
+    (SearchMemoryService's and IngestKnowledgeDocumentService's own docstrings). Not
+    building it now avoids inventing entity/relation-extraction logic no LLD section
+    specifies for Memory content the way EntityExtractorPort's document path already
+    has one. ExecuteRetentionService's own delete() already contains matching
+    tombstone logic for a `memory:{memoryId}` graph node that no publish path creates
+    yet — that logic stays inert (gracefully no-op) until SPEC-MK-018 lands, exactly
+    like ProcessedEventRepository sat inert from SPEC-MK-001 until SPEC-MK-010 wired
+    its first consumer.
   lld_mapping:
     - 08-transaction-and-outbox
     - 06-event-contracts
@@ -14,3 +64,7 @@ SPEC-MK-015:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (121, includes 2 new: publishing against an existing memory_id supersedes its active version and publishes memory.superseded.v1, publishing against an unknown memory_id raises MEMORY_NOT_FOUND; 1 new REST end-to-end test covering the supersede flow through the admin approve endpoint and search only returning the new version)"
+    integration: "services/memory-knowledge-service/tests/integration (22, includes 1 new: publish -> supersede -> delete against a real migrated Postgres schema — this test is what caught and proved the fix for the ACTIVE-uniqueness ordering bug the in-memory adapter could not surface)"
+    result: "143 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

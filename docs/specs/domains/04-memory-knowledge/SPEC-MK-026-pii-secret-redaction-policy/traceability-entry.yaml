@@ -2,9 +2,46 @@ SPEC-MK-026:
   domain: 04-memory-knowledge
   name: PII Secret Redaction Policy
   cn_name: PII/Secret redaction policy
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 07
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    11-security §"Redaction Pipeline" audit: steps 1 ("Pattern redaction") and 3
+    ("Policy rule redaction") were already fully covered by
+    `RegexRedactionPolicyAdapter` (email/credit-card/SSN/bearer-token/key-value-
+    secret/high-entropy-blob patterns, each producing a named `policy_rule_id`) and
+    already applied to every content path that reaches persistence — WorkingMemory
+    facts/hypotheses/context_summary (SPEC-MK-004), MemoryCandidate text
+    (SPEC-MK-011/012), DocumentChunk content (SPEC-MK-008), search queries
+    (SPEC-MK-017), and — the redaction gap SPEC-MK-024's own audit found and fixed —
+    the final `content`/`summary` a candidate is published with (SPEC-MK-015's own
+    `PublishMemoryService`). Step 5 ("RedactionReport 持久化") was already correct for
+    MemoryCandidate/MemoryVersion (both persist one); confirmed (not a gap) that
+    DocumentChunk deliberately does not, since 07-data-model's own
+    `memory.document_chunks` table has no column for it. Step 2 ("Structured field
+    redaction") is reasonably satisfied at this MVP's fidelity by the existing
+    key-value-secret regex pattern (`(?i)(password|secret|token|api[_-]?key|
+    access[_-]?key)\s*[:=]\s*...`), which already catches structured key:value pairs;
+    no LLD section specifies a more sophisticated structured-field parser (e.g. real
+    JSON field-name matching) to build instead.
+
+    This spec's own real gap: step 4 ("Human review for high-risk candidate") named
+    no concrete implementation anywhere — `review_required` (already a real field,
+    already flipped by `mark_conflicting()`) was never set based on redaction
+    severity at all. No LLD section defines a concrete "high risk" threshold (no
+    pattern count, no named pattern list), so — rather than inventing an arbitrary
+    number — the minimal, defensible, LLD-grounded threshold used is: a candidate
+    whose raw extracted evidence actually contained secret-shaped text at all
+    (`RedactionReport.had_redactions`) is itself the risk signal, regardless of how
+    many patterns matched or which ones. Fixed: `MemoryCandidate.redact()` now sets
+    `review_required = review_required or redaction_report.had_redactions`.
+    `PublishMemoryService`'s own approval gate (previously keyed on literal
+    `status is CONFLICTING`) now checks `candidate.review_required` generally — which
+    already covers CONFLICTING as a subset (`mark_conflicting()` sets the same flag)
+    — reusing the existing `is_conflict_resolution_authorized` AuthorizationPort
+    check and the existing `MEMORY_CANDIDATE_CONFLICTING` wire error code rather than
+    inventing a new one, since the root meaning ("this candidate needs a real actor
+    to look at it before it becomes active memory") is the same for both reasons.
   lld_mapping:
     - 11-security
   forbidden:
@@ -13,3 +50,7 @@ SPEC-MK-026:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (195, includes 4 new: domain-level redact() flips review_required only when the report shows actual redactions, application-level publish rejects a blank actor for a high-risk-redacted candidate and accepts a real one)"
+    integration: "services/memory-knowledge-service/tests/integration (24)"
+    result: "219 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

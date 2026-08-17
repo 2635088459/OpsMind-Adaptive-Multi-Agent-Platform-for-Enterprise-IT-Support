@@ -2,9 +2,61 @@ SPEC-MK-023:
   domain: 04-memory-knowledge
   name: Memory Published Event Contracts
   cn_name: Memory published event contracts
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 06
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    06-event-contracts / 08-transaction-and-outbox audit: all seven published events
+    (memory.candidate.created/rejected.v1, memory.published/superseded/deleted.v1,
+    knowledge.document.indexed.v1, knowledge.graph.updated.v1) were already fired
+    from the right places by earlier specs — this spec's own job was proving the
+    *payload contract* those events carry actually round-trips correctly, which no
+    prior spec had verified beyond "an outbox row of this event_type exists."
+
+    Built `tests/contracts/test_published_event_contracts.py`: drives the real
+    end-to-end pipeline (extract -> validate -> approve, ingest, delete) through the
+    real container/routes, then JSON-decodes the real `OutboxRecord.payload` for
+    each event type and asserts the documented fields are present with correct
+    values — for `knowledge.graph.updated.v1`, against 06-event-contracts' own
+    explicit field list (graphUpdateId/sourceType/sourceId/nodeCount/edgeCount/
+    indexVersion); for the rest (which 04's own 06-event-contracts sketch gives no
+    field list for), against each event's own domain-object field shape, since this
+    service *is* the system of record for its own published events — unlike
+    consuming 02/03's events, there is no external upstream schema to defer to here.
+
+    This found and fixed a real, generically-impactful bug in `application/
+    outbox_codec.py::encode_event_payload()`: it built payloads via
+    `dataclasses.asdict(event)`, whose own recursion also expands *nested*
+    dataclasses — including every `domain.ids.*` value object a domain event
+    carries (e.g. `MemoryCandidateCreated.candidate_id: MemoryCandidateId`) — into a
+    nested `{"value": "<uuid>"}` dict instead of the plain string every one of those
+    classes' own `__str__` already produces and 06-event-contracts' own Envelope
+    example documents (`"aggregateId": "memory-id"`, a plain string). Every event
+    type carrying an id field was affected — this was not narrow to one event.
+    Fixed by replacing the recursive `asdict()` call with a shallow field-by-field
+    extraction (`{f.name: _to_serializable(getattr(event, f.name)) for f in
+    dataclasses.fields(event)}`) plus a `_to_serializable()` helper that stringifies
+    any dataclass it encounters instead of recursing into it — correct for every
+    event this codebase actually publishes today, since none of their fields are
+    ever a richer nested value object, only primitives or `domain.ids.*` wrappers.
+
+    Full camelCase wire-envelope construction (matching 06-event-contracts' own
+    Envelope example exactly — `eventId`/`eventType`/`schemaVersion`/etc.) stays
+    unbuilt: `LoggingEventPublisherAdapter` remains the only `EventPublisherPort`
+    adapter, and unlike agent-runtime-service (whose own SPEC-ARO-025 built a real
+    `RabbitMqEventPublisherAdapter` with an explicit envelope-assembly step), no spec
+    across this domain's full 32-spec roadmap (SPEC-MK-001 through SPEC-MK-032)
+    schedules building a real broker adapter for Memory at all — a deliberate MVP
+    posture for this domain specifically, not a gap this spec introduces or defers
+    quietly. What *is* now correctly proven is the payload the eventual envelope
+    would wrap.
+
+    A second, unrelated real bug — `PublishMemoryService` never redacting the
+    `content`/`summary` an admin supplies on the approve call before persisting them —
+    was found while building this spec's own end-to-end fixtures but is attributed to
+    SPEC-MK-024 instead, since the violated rule ("对 Runtime 返回 redacted snippet")
+    is explicitly an 05-api-contracts principle, which is that spec's own LLD mapping,
+    not this one's; see its own traceability entry for the full description.
   lld_mapping:
     - 06-event-contracts
     - 08-transaction-and-outbox
@@ -14,3 +66,7 @@ SPEC-MK-023:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (187, includes 6 new: tests/contracts/test_published_event_contracts.py's own payload-content assertions for all 7 published event types, decoding the real OutboxRecord.payload produced by the real end-to-end pipeline)"
+    integration: "services/memory-knowledge-service/tests/integration (23)"
+    result: "210 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

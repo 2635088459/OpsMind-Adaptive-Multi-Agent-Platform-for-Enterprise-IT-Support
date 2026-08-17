@@ -2,9 +2,53 @@ SPEC-MK-017:
   domain: 04-memory-knowledge
   name: Hybrid Retrieval Engine
   cn_name: Hybrid Retrieval Engine
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 05
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    04-use-cases UC-02 audit against SearchMemoryService (already built in phase-00):
+    steps 1 (receive query/filters/access scope), 3 (scoring seed results), 5 (rerank
+    seam), 6 (redacted snippets + provenance), 7 (RetrievalLog) were already correct.
+    This spec's own audit found and closed two real gaps:
+
+    (1) UC-02 step 2 "对 query 做 secret 检测和 normalization" had no implementation at
+    all — the raw query text was hashed and scored unredacted. A pasted secret/PII in
+    a query (e.g. a copy-pasted error line) would reach both the scoring path and the
+    RetrievalLog's own query_hash unredacted. Fixed: SearchMemoryService now runs the
+    query through RedactionPolicyPort before hashing or scoring it — the same adapter
+    every other spec's content path already uses, no new redaction logic invented.
+
+    (2) 01-domain-model lists `embeddingRef` as a MemoryVersion field, but no publish
+    path ever set one — PublishMemoryService always passed `embedding_ref=None`.
+    DocumentChunk already gets a real embedding during ingestion (SPEC-MK-009); the
+    same EmbeddingProvider/EmbeddingRepository ports are now called during
+    PublishMemoryService's own publish, using the final, redacted `content` (the one
+    piece of text guaranteed clean at that point).
+
+    A genuine hybrid (vector + keyword) *scoring blend* was deliberately **not**
+    wired into ranking, and this is a considered scope decision, not an oversight:
+    DeterministicHashEmbeddingProvider is honestly documented as carrying "no real
+    semantic meaning" (a real embedding model/API call is explicitly out of this
+    codebase's scope, consistent with every prior phase's treatment of that adapter).
+    A nearest-neighbor query over a hash projection would not approximate semantic
+    similarity — it would only find near-byte-identical text, which the existing
+    token-overlap scorer (`score_text_relevance`) already captures more transparently.
+    Blending it into ranking today would add complexity without adding real retrieval
+    quality, and risks quietly misleading callers into believing vector similarity
+    means something semantic it does not. 02-business-invariants' own "Retrieval
+    score 不能只依赖 embedding similarity" independently supports keeping the existing
+    multi-signal (semantic+keyword+recency+trust) `RetrievalScore` shape as the
+    primary ranking signal rather than privileging an admittedly-fake vector. The
+    embedding IS now stored for every MemoryVersion (closing gap #2 above) so that a
+    *real* embedding provider, when one is later plugged in behind the same port, can
+    retroactively re-embed and light up genuine vector search without any further
+    schema or pipeline change — the honest seam this spec's own predecessor
+    (infrastructure/embedding's own docstring) already promised.
+
+    "applicationCode" filtering (05-api-contracts' own example request) stays
+    unimplemented for the same reason already recorded on `MemoryRow.application_code`
+    since SPEC-MK-001/002: no use case populates it yet, so filtering on it would
+    filter on data that is always absent — an honest deferral, not a fabricated filter.
   lld_mapping:
     - 04-use-cases
     - 05-api-contracts
@@ -15,3 +59,7 @@ SPEC-MK-017:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (126, includes 1 new: search query is redacted before hashing; embedding-on-publish covered by SPEC-MK-018's own new publish tests since both landed in the same PublishMemoryService change)"
+    integration: "services/memory-knowledge-service/tests/integration (23, includes 1 new: publish creates a real embedding row against real migrated Postgres, verified via EmbeddingRepository.find())"
+    result: "149 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

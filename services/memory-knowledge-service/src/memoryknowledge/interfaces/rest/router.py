@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
-from memoryknowledge.application.ports_in import SearchMemoryUseCase, UpdateWorkingMemoryUseCase
-from memoryknowledge.container import get_search_memory_port, get_update_working_memory_port
+from memoryknowledge.application.ports_in import SearchMemoryUseCase, UpdateWorkingMemoryUseCase, WorkingMemoryQueryUseCase
+from memoryknowledge.container import get_search_memory_port, get_update_working_memory_port, get_working_memory_query_port
 from memoryknowledge.interfaces.rest.mapper import (
     derive_working_memory_id,
+    to_query_working_memory_command,
     to_search_command,
     to_search_response,
     to_update_working_memory_command,
@@ -42,3 +43,14 @@ def update_working_memory(
     if working_memory_id != expected_id:
         raise ValueError("workingMemoryId path parameter does not match the derived id for the given scope")
     return to_working_memory_response(port.update_working_memory(to_update_working_memory_command(request)))
+
+
+@router.get("/working-memory/{working_memory_id}", response_model=WorkingMemoryResponse)
+def find_working_memory(
+    working_memory_id: UUID, correlation_id: UUID = Query(...), port: WorkingMemoryQueryUseCase = Depends(get_working_memory_query_port),
+) -> WorkingMemoryResponse:
+    """SPEC-MK-006 05-api-contracts: `GET /internal/memory/v1/working-memory/
+    {workingMemoryId}`. correlation_id is a required query parameter — 05-api-contracts
+    §"通用约束": "Internal API 必须携带 correlation id", and a GET has no body to carry it in.
+    """
+    return to_working_memory_response(port.find_working_memory(to_query_working_memory_command(working_memory_id, correlation_id)))

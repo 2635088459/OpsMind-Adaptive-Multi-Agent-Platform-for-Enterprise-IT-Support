@@ -2,9 +2,45 @@ SPEC-MK-027:
   domain: 04-memory-knowledge
   name: Prompt Injection And Graph Traversal Guard
   cn_name: Prompt injection 与 graph traversal guard
-  status: planned
+  status: implemented
   service: memory-knowledge-service
-  phase: 07
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    11-security §"Prompt Injection 防护" / §"Graph Security" audit:
+    §"Prompt Injection 防护"'s own five rules ("标记 source type" — already true via
+    `RetrievalResultItem.result_type`/`Provenance.source_type`; "不允许 document
+    content 覆盖 system/developer/runtime 指令"; "不允许 retrieval result 触发 tool
+    execution"; "不允许 graph path 被解释为指令链"; "Agent 使用检索内容前必须经过 Runtime
+    的 context builder") describe properties of how the *caller* (agent-runtime-
+    service) must treat this service's output, not a mechanism this service itself
+    builds beyond already returning plain, clearly-provenance-tagged text — already
+    structurally satisfied, no gap found there.
+
+    §"Graph Security" was already mostly correct: bounded-depth traversal with
+    node/edge visibility filtered *before* expansion (not after), and a path only
+    ever built through nodes/edges that individually passed both the VISIBLE-status
+    and classification-authorization checks — meaning "如果 path 中任一节点或边不可见，
+    整个 path 不返回" and "high sensitivity node 不能通过低敏 neighbor 泄漏名称" were
+    already true by construction (a node's own `display_name` is never referenced in
+    any explanation string until *after* it individually passes both checks).
+
+    The one real, concretely-specified gap: "OWNED_BY / POLICY_RULE 等组织关系默认只对
+    authorized role 返回" — a *type-based* default, independent of whatever
+    classification an OWNED_BY edge or POLICY_RULE node happens to carry (both
+    default to the same "INTERNAL" every other node/edge does, per SPEC-MK-025's own
+    audit) — was not enforced at all; `AuthorizationPort.is_retrieval_authorized`
+    only ever saw a classification string, with no way to express "this specific
+    type needs a stricter floor regardless of its classification." Fixed: added
+    `AuthorizationPort.is_organizational_relation_authorized(access_scope)`
+    (`StaticAuthorizationPolicyAdapter`'s own implementation reuses the same
+    `_RESTRICTED_ROLES` set `is_retrieval_authorized` already applies to non-public
+    classifications — the same honest-simple posture as every other method on that
+    adapter). `ExpandKnowledgeGraphService` now consults it *in addition to* the
+    existing classification check, never instead of it: for every node (seed or
+    neighbor) whose `node_type is POLICY_RULE`, and for every edge whose
+    `edge_type is OWNED_BY` (checked before the edge is allowed to extend any path at
+    all, so a hidden OWNED_BY edge cannot even be traversed through, regardless of
+    what lies beyond it).
   lld_mapping:
     - 11-security
     - 04-use-cases
@@ -14,3 +50,7 @@ SPEC-MK-027:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (195, includes 2 new: an OWNED_BY edge between two otherwise-INTERNAL-classification nodes is hidden from a plain agent role but visible to admin; a POLICY_RULE node reachable via an otherwise-visible edge is hidden the same way)"
+    integration: "services/memory-knowledge-service/tests/integration (24)"
+    result: "219 passed, 3 import-linter contracts kept, 0 pyflakes warnings"
