@@ -2,9 +2,61 @@ SPEC-MK-030:
   domain: 04-memory-knowledge
   name: Admin Repair Reindex Replay
   cn_name: Admin repair、reindex 与 replay
-  status: planned
+  status: implemented
   service: memory-knowledge-service
   phase: 08
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic / SQLAlchemy (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    This spec's own goal statement names four concrete capabilities: "reindex, graph
+    rebuild, outbox replay, retention retry." Audited each against what already exists
+    before building anything new — two of the four turned out to already be correct,
+    not gaps:
+
+    "outbox replay" — `DispatchOutboxEventsService.replay_dead_letter()`
+    (`POST /admin/outbox/replay-dead-letter`) already exists since SPEC-MK-003; not
+    rebuilt.
+
+    "retention retry" — `ExecuteRetentionService.delete()` is already idempotent and
+    naturally resumable (its own `_DELETABLE_STATUSES` skip-already-deleted check, its
+    unconditional node/edge tombstone step) — a stuck/partial deletion is already
+    safely retriable by resubmitting the same delete request under a fresh
+    idempotency_key; SPEC-MK-029's own `scan_and_recover_retention` additionally
+    catches and repairs it proactively. A separate single-target "retry" endpoint
+    would be redundant with capability this codebase already has, confirmed by
+    re-reading `_do_delete()`, not assumed.
+
+    "reindex" / "graph rebuild" — real, from-scratch gaps, unified into one
+    `POST /admin/documents/{documentId}/reindex` endpoint (10-failure-handling itself
+    never distinguishes them as separate operational triggers). Deliberately narrower
+    than "re-embed everything": an initial implementation attempt that re-embedded an
+    ACTIVE document's existing chunks was reverted after discovering it violated this
+    codebase's own explicit, pre-existing invariants —
+    `DocumentChunkRow`'s own docstring ("CHUNKED 后 chunks 不可原地修改... always an
+    insert of newly-created chunks, never an update") and
+    `EmbeddingRepository.save()`'s own insert-only, no-op-on-an-already-known-vector_id
+    contract both make chunk/embedding rows genuinely immutable once written.
+    Reindexing embeddings in place would mean breaking a real invariant to satisfy a
+    vaguely-named LLD goal — treated as worse than not building it, consistent with
+    this whole implementation's own discipline. `reindex()` therefore only re-runs
+    entity/relation extraction and graph upsert against a document's existing,
+    unmodified chunk content — a real, buildable "graph rebuild" with no such
+    conflict, since GraphNode/GraphEdge upsert is already a legitimate, idempotent,
+    stable-key-deduped update-in-place operation elsewhere in this codebase. A genuine
+    embedding-provider upgrade needing a fresh vector requires a full re-ingest under
+    a new document version instead.
+
+    "repair" (05-api-contracts' own admin-surface framing, 10-failure-handling
+    §"Poison Document": "可由 admin 修正 metadata 或 content 后重试") is the other new
+    capability: `POST /admin/documents/{documentId}/retry` transitions a FAILED
+    document back to RECEIVED (new `KnowledgeDocument.retry()` domain method, a real
+    CAS transition backed by the same status-based optimistic-concurrency save() every
+    other aggregate here already uses) and re-runs the exact same ingestion pipeline
+    `ingest()` itself uses — extracted into a shared `_run_pipeline()` so retry() is
+    never a second, drifting copy of that logic. `raw_content` is always required on
+    retry, never optional: `raw_content_ref` (07-data-model) stays intentionally
+    unpopulated (this codebase never persists raw content, only its hash and derived
+    chunks), so there is nothing stored from the original failed attempt to replay —
+    confirmed by re-reading the model, not assumed.
   lld_mapping:
     - 05-api-contracts
     - 10-failure-handling
@@ -14,3 +66,7 @@ SPEC-MK-030:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (227, includes 12 new: KnowledgeDocument.retry() domain transition and its FAILED-only guard, IngestKnowledgeDocumentService.retry()/reindex() success and rejection paths including document-not-found, admin router retry/reindex end-to-end tests)"
+    integration: "services/memory-knowledge-service/tests/integration (26, includes 1 new: the FAILED->RECEIVED CAS retry transition and a subsequent reindex round-trip against a real migrated Postgres schema)"
+    result: "253 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

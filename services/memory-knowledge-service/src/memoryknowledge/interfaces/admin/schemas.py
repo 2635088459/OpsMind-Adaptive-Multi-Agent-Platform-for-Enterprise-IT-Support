@@ -38,6 +38,23 @@ class IngestDocumentRequest(BaseModel):
     graph_namespace: str | None = None
 
 
+class RetryDocumentRequest(BaseModel):
+    """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/retry`."""
+
+    raw_content: str = Field(min_length=1)
+    retried_by: str = Field(min_length=1)
+    extract_graph: bool = False
+    graph_namespace: str | None = None
+
+
+class ReindexDocumentRequest(BaseModel):
+    """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/reindex`."""
+
+    requested_by: str = Field(min_length=1)
+    extract_graph: bool = False
+    graph_namespace: str | None = None
+
+
 class KnowledgeDocumentResponse(BaseModel):
     document_id: UUID
     version: int
@@ -185,3 +202,34 @@ class AuditEventResponse(BaseModel):
     causation_id: str | None
     detail: str
     occurred_at: datetime
+
+
+class PoisonEventResponse(BaseModel):
+    """SPEC-MK-029 10-failure-handling §"Poison Event" step 4's own visibility
+    surface. `payload` is already redacted by the time it reaches this response —
+    see PoisonEventView's own docstring.
+    """
+
+    id: UUID
+    event_id: str
+    consumer_name: str
+    event_type: str
+    payload: str
+    error_message: str
+    occurred_at: datetime
+    recorded_at: datetime
+    quarantined_at: datetime | None = None
+
+
+class PoisonEventListResponse(BaseModel):
+    poison_events: list[PoisonEventResponse]
+
+
+class RecoveryScanReportResponse(BaseModel):
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers" — same report shape
+    across all three admin-triggered scans this spec adds.
+    """
+
+    scanned: int
+    recovered: int
+    scanned_at: datetime

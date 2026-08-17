@@ -19,9 +19,19 @@ agent-runtime-service's own ConsumeTicketCreatedService/ConsumeTicketCycleEventS
 service only marks an event processed *after* a successful extraction: a malformed or
 otherwise unprocessable event must stay retryable, per this domain's own explicit
 failure-handling rule — a deliberate divergence from the agent-runtime-service
-precedent, not an oversight. A full poison-event quarantine table + admin replay
-(10-failure-handling's own further detail) is phase-08 (SPEC-MK-029) scope, not this
-spec's.
+precedent, not an oversight.
+
+SPEC-MK-029 10-failure-handling §"Poison Event" steps 1-2 ("写入 poison event 表",
+"不推进 Workflow"): this domain's own event router already validates payload *shape*
+with typed Pydantic request schemas before this service ever runs, so the one
+invariant-violation this layer can actually raise is
+IdempotencyKeyReusedException — the same idempotency_key arriving with genuinely
+different candidate content, which is exactly "违反不变量" in this architecture's own
+terms. Caught here, recorded to PoisonEventRepository (see
+PoisonEventRecord's own docstring for the full reasoning), and re-raised as
+PoisonMemorySourceEventException rather than the raw exception — never marked
+processed either way, so this is a continuation of the existing rule above, not a
+change to it.
 
 ticket.closed.v1's own 06-event-contracts purpose ("确认 outcome，提升或降低 candidate
 usefulness") is deliberately *not* implemented here as an in-place usefulness_score
@@ -37,13 +47,19 @@ text coincides).
 
 from __future__ import annotations
 
+import dataclasses
+import json
+import uuid
+
 from memoryknowledge.application.commands import (
     ConsumeTicketClosedCommand,
     ConsumeTicketResolvedCommand,
     ExtractMemoryCandidateCommand,
 )
+from memoryknowledge.application.exceptions import IdempotencyKeyReusedException, PoisonMemorySourceEventException
 from memoryknowledge.application.ports_in import ExtractMemoryCandidateUseCase
-from memoryknowledge.application.ports_out import ClockPort, ProcessedEventRepository
+from memoryknowledge.application.ports_out import ClockPort, PoisonEventRepository, ProcessedEventRepository
+from memoryknowledge.application.records import PoisonEventRecord
 from memoryknowledge.domain.enums import MemoryType
 from memoryknowledge.domain.ids import IdempotencyKey
 from memoryknowledge.domain.values import SourceRef
@@ -58,24 +74,28 @@ CONSUMER_NAME = "consume_ticket_memory_source_event"
 class ConsumeTicketMemorySourceEventService:
     def __init__(
         self, processed_event_repository: ProcessedEventRepository, extract_memory_candidate_port: ExtractMemoryCandidateUseCase,
-        clock: ClockPort,
+        clock: ClockPort, poison_event_repository: PoisonEventRepository,
     ) -> None:
         self._processed_event_repository = processed_event_repository
         self._extract_memory_candidate_port = extract_memory_candidate_port
         self._clock = clock
+        self._poison_event_repository = poison_event_repository
 
     def consume_resolved(self, command: ConsumeTicketResolvedCommand) -> bool:
         if self._processed_event_repository.is_processed(command.event_id, CONSUMER_NAME):
             return False
 
         candidate_text = f"Ticket resolved (resolutionCode={command.resolution_code}): {command.resolution_summary}"
-        self._extract_memory_candidate_port.extract(ExtractMemoryCandidateCommand(
-            memory_type=MemoryType.EPISODIC,
-            source_refs=(SourceRef(source_type="ticket", source_id=str(command.ticket_id), field_path="resolution"),),
-            candidate_text=candidate_text,
-            idempotency_key=IdempotencyKey(f"ticket-resolved:{command.ticket_id}:{command.ticket_cycle_id}"),
-            extracted_by="ticket-resolved-consumer",
-        ))
+        self._extract(
+            ExtractMemoryCandidateCommand(
+                memory_type=MemoryType.EPISODIC,
+                source_refs=(SourceRef(source_type="ticket", source_id=str(command.ticket_id), field_path="resolution"),),
+                candidate_text=candidate_text,
+                idempotency_key=IdempotencyKey(f"ticket-resolved:{command.ticket_id}:{command.ticket_cycle_id}"),
+                extracted_by="ticket-resolved-consumer",
+            ),
+            command.event_id, "ticket.resolved.v1",
+        )
         # Marked only after a successful extraction — see this module's own docstring
         # for why that's a deliberate divergence from the agent-runtime-service
         # precedent's unconditional `finally: mark_processed(...)`.
@@ -87,12 +107,31 @@ class ConsumeTicketMemorySourceEventService:
             return False
 
         candidate_text = f"Ticket closed (closeReasonCode={command.close_reason_code}): {command.close_reason}"
-        self._extract_memory_candidate_port.extract(ExtractMemoryCandidateCommand(
-            memory_type=MemoryType.EPISODIC,
-            source_refs=(SourceRef(source_type="ticket", source_id=str(command.ticket_id), field_path="closure"),),
-            candidate_text=candidate_text,
-            idempotency_key=IdempotencyKey(f"ticket-closed:{command.ticket_id}:{command.ticket_cycle_id}"),
-            extracted_by="ticket-closed-consumer",
-        ))
+        self._extract(
+            ExtractMemoryCandidateCommand(
+                memory_type=MemoryType.EPISODIC,
+                source_refs=(SourceRef(source_type="ticket", source_id=str(command.ticket_id), field_path="closure"),),
+                candidate_text=candidate_text,
+                idempotency_key=IdempotencyKey(f"ticket-closed:{command.ticket_id}:{command.ticket_cycle_id}"),
+                extracted_by="ticket-closed-consumer",
+            ),
+            command.event_id, "ticket.closed.v1",
+        )
         self._processed_event_repository.mark_processed(command.event_id, CONSUMER_NAME, self._clock.now(), "ticket.closed.v1")
         return True
+
+    def _extract(self, command: ExtractMemoryCandidateCommand, event_id: str, event_type: str) -> None:
+        try:
+            self._extract_memory_candidate_port.extract(command)
+        except IdempotencyKeyReusedException as exc:
+            now = self._clock.now()
+            payload = {
+                "memory_type": command.memory_type.name, "candidate_text": command.candidate_text,
+                "idempotency_key": str(command.idempotency_key), "extracted_by": command.extracted_by,
+                "source_refs": [dataclasses.asdict(r) for r in command.source_refs],
+            }
+            self._poison_event_repository.record(PoisonEventRecord(
+                id=uuid.uuid4(), event_id=event_id, consumer_name=CONSUMER_NAME, event_type=event_type,
+                payload=json.dumps(payload), error_message=str(exc), occurred_at=now, recorded_at=now,
+            ))
+            raise PoisonMemorySourceEventException(event_id, str(exc)) from exc

@@ -8,6 +8,7 @@ import pytest
 from memoryknowledge.application.commands import SearchMemoryCommand
 from memoryknowledge.application.services.expand_knowledge_graph import ExpandKnowledgeGraphService
 from memoryknowledge.application.services.search_memory import SearchMemoryService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.domain.ids import CorrelationId
 from memoryknowledge.domain.memory import Memory, MemoryVersion
 from memoryknowledge.domain.values import AccessScope, SourceRef
@@ -38,11 +39,11 @@ def _build_service(memory_repository=None, authorization_port=None, graph_node_r
     graph_node_repository = graph_node_repository or InMemoryGraphNodeRepository()
     graph_edge_repository = InMemoryGraphEdgeRepository()
     authorization_port = authorization_port or StaticAuthorizationPolicyAdapter()
-    expand_service = ExpandKnowledgeGraphService(graph_node_repository, graph_edge_repository, authorization_port)
+    expand_service = ExpandKnowledgeGraphService(graph_node_repository, graph_edge_repository, authorization_port, MemoryTelemetry())
     return (
         SearchMemoryService(
             memory_repository, InMemoryKnowledgeDocumentRepository(), graph_node_repository, InMemoryRetrievalLogRepository(),
-            authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(),
+            authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(), MemoryTelemetry(),
         ),
         memory_repository, graph_node_repository,
     )
@@ -50,15 +51,15 @@ def _build_service(memory_repository=None, authorization_port=None, graph_node_r
 
 def _seed_active_version(
     memory_repository: InMemoryMemoryRepository, *, summary: str, memory_type: MemoryType = MemoryType.EPISODIC,
-    classification: str = "INTERNAL",
-) -> None:
+    classification: str = "INTERNAL", source_trust_score: float = 0.7,
+) -> MemoryVersion:
     memory = Memory.create(MemoryId.new_id(), memory_type, _now(), classification=classification)
     memory_repository.save_memory(memory)
     version = MemoryVersion.create_active(
         MemoryVersionId.new_id(), memory.memory_id, 1, summary, summary, (SourceRef("ticket", "T-1"),),
-        RedactionReport(), 0.8, 0.7, f"hash-{uuid.uuid4()}", "agent-1", _now(),
+        RedactionReport(), 0.8, source_trust_score, f"hash-{uuid.uuid4()}", "agent-1", _now(),
     )
-    memory_repository.save_version(version, expected_status=None)
+    return memory_repository.save_version(version, expected_status=None)
 
 
 def test_search_returns_matching_result_with_provenance_and_writes_retrieval_log() -> None:
@@ -156,10 +157,10 @@ def test_search_expands_the_graph_from_a_memory_seed_and_attaches_paths() -> Non
     graph_edge_repository.save(edge)
     # Rebuild the service so its ExpandKnowledgeGraphService shares this same edge repository.
     authorization_port = StaticAuthorizationPolicyAdapter()
-    expand_service = ExpandKnowledgeGraphService(graph_node_repository, graph_edge_repository, authorization_port)
+    expand_service = ExpandKnowledgeGraphService(graph_node_repository, graph_edge_repository, authorization_port, MemoryTelemetry())
     service = SearchMemoryService(
         memory_repository, InMemoryKnowledgeDocumentRepository(), graph_node_repository, InMemoryRetrievalLogRepository(),
-        authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(),
+        authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(), MemoryTelemetry(),
     )
 
     command = SearchMemoryCommand(
@@ -201,10 +202,10 @@ def test_search_query_is_redacted_before_hashing() -> None:
     retrieval_log_repository = InMemoryRetrievalLogRepository()
     graph_node_repository = InMemoryGraphNodeRepository()
     authorization_port = StaticAuthorizationPolicyAdapter()
-    expand_service = ExpandKnowledgeGraphService(graph_node_repository, InMemoryGraphEdgeRepository(), authorization_port)
+    expand_service = ExpandKnowledgeGraphService(graph_node_repository, InMemoryGraphEdgeRepository(), authorization_port, MemoryTelemetry())
     service = SearchMemoryService(
         InMemoryMemoryRepository(), InMemoryKnowledgeDocumentRepository(), graph_node_repository, retrieval_log_repository,
-        authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(),
+        authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(), MemoryTelemetry(),
     )
     raw_query = "api_key: abcd1234efgh5678"
     command = SearchMemoryCommand(
@@ -219,3 +220,52 @@ def test_search_query_is_redacted_before_hashing() -> None:
     assert redacted_query != raw_query
     assert log.query_hash == hashlib.sha256(redacted_query.encode()).hexdigest()
     assert log.query_hash != hashlib.sha256(raw_query.encode()).hexdigest()
+
+
+def test_search_ranks_a_higher_source_trust_result_above_an_otherwise_identical_lower_trust_one() -> None:
+    """SPEC-MK-031 14-testing-strategy §"Retrieval Quality Tests": "source trust 影响
+    排序." 02-business-invariants §"检索不变量": "Retrieval score 不能只依赖 embedding
+    similarity" — RetrievalScore.combined already weights trust at 0.15; this proves
+    that weighting actually reaches SearchMemoryService's own result ordering, not
+    just the domain-level score object in isolation.
+    """
+    memory_repository = InMemoryMemoryRepository()
+    low_trust = _seed_active_version(memory_repository, summary="vpn login fails after mfa reset", source_trust_score=0.1)
+    high_trust = _seed_active_version(memory_repository, summary="vpn login fails after mfa reset", source_trust_score=0.9)
+    service, _, _ = _build_service(memory_repository=memory_repository)
+
+    command = SearchMemoryCommand(
+        query="vpn login fails after mfa reset", requester_type="agent", requester_id="knowledge-agent-1",
+        access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"), correlation_id=CorrelationId.new_id(),
+    )
+    result = service.search(command)
+
+    ranked_ids = [item.source_id for item in result.results]
+    assert ranked_ids.index(str(high_trust.memory_id)) < ranked_ids.index(str(low_trust.memory_id))
+
+
+def test_search_excludes_deprecated_and_deleted_memory_versions() -> None:
+    """SPEC-MK-031 14-testing-strategy §"Retrieval Quality Tests": "expired/deprecated
+    memory 不返回" — 02-business-invariants §"检索不变量" already names ACTIVE as the only
+    default-retrievable status; MemoryRepository.find_active_versions_by_type() is
+    where that's actually enforced against a repository, not just documented on the
+    enum.
+    """
+    memory_repository = InMemoryMemoryRepository()
+    active = _seed_active_version(memory_repository, summary="printer offline reseat network cable")
+    deprecated_source = _seed_active_version(memory_repository, summary="printer offline reseat network cable")
+    memory_repository.save_version(deprecated_source.deprecate(), expected_status=deprecated_source.status)
+    deleted_source = _seed_active_version(memory_repository, summary="printer offline reseat network cable")
+    memory_repository.save_version(deleted_source.delete(), expected_status=deleted_source.status)
+    service, _, _ = _build_service(memory_repository=memory_repository)
+
+    command = SearchMemoryCommand(
+        query="printer offline reseat network cable", requester_type="agent", requester_id="knowledge-agent-1",
+        access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"), correlation_id=CorrelationId.new_id(),
+    )
+    result = service.search(command)
+
+    returned_ids = {item.source_id for item in result.results}
+    assert str(active.memory_id) in returned_ids
+    assert str(deprecated_source.memory_id) not in returned_ids
+    assert str(deleted_source.memory_id) not in returned_ids

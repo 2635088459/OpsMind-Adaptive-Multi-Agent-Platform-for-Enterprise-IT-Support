@@ -329,3 +329,70 @@ def test_working_memory_query_archive_and_delete_against_real_postgres(client: T
     still_findable = client.get(f"/internal/memory/v1/working-memory/{derived_id}", params={"correlation_id": str(uuid.uuid4())})
     assert still_findable.status_code == 200
     assert still_findable.json()["status"] == "DELETED"
+
+
+def test_poison_event_is_persisted_and_quarantinable_against_real_postgres(client: TestClient) -> None:
+    """SPEC-MK-029 against a real, migrated Postgres schema — proves the
+    `memory.poison_events` table (and its `find_all`/`mark_quarantined` queries) is
+    real DDL, not just an in-memory adapter's own dict.
+    """
+    ticket_id, ticket_cycle_id = str(uuid.uuid4()), str(uuid.uuid4())
+    first = client.post("/internal/memory/v1/events/ticket-resolved", json={
+        "event_id": f"evt-{uuid.uuid4()}", "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id,
+        "resolution_code": "MFA_RESET_SUCCESSFUL", "resolution_summary": "reset device binding fixed the mfa loop",
+        "resolved_by": "verification-agent", "resolved_at": "2026-08-16T00:00:00Z", "correlation_id": str(uuid.uuid4()),
+    })
+    assert first.status_code == 200
+
+    second_event_id = f"evt-{uuid.uuid4()}"
+    second = client.post("/internal/memory/v1/events/ticket-resolved", json={
+        "event_id": second_event_id, "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id,
+        "resolution_code": "MFA_RESET_SUCCESSFUL", "resolution_summary": "a completely different, conflicting resolution narrative",
+        "resolved_by": "verification-agent", "resolved_at": "2026-08-16T00:00:00Z", "correlation_id": str(uuid.uuid4()),
+    })
+    assert second.status_code == 422
+
+    poison_events = client.get("/internal/memory/v1/admin/poison-events", headers={"X-Actor-Id": "ops-1"})
+    [entry] = [e for e in poison_events.json()["poison_events"] if e["event_id"] == second_event_id]
+    assert entry["quarantined_at"] is None
+
+    quarantined = client.post(f"/internal/memory/v1/admin/poison-events/{entry['id']}/quarantine", headers={"X-Actor-Id": "ops-1"})
+    assert quarantined.status_code == 200
+    assert quarantined.json()["quarantined_at"] is not None
+
+    get_container.cache_clear()
+    new_client = TestClient(create_app())
+    still_quarantined = new_client.get("/internal/memory/v1/admin/poison-events", headers={"X-Actor-Id": "ops-1"})
+    [reloaded] = [e for e in still_quarantined.json()["poison_events"] if e["event_id"] == second_event_id]
+    assert reloaded["quarantined_at"] is not None
+
+
+def test_document_retry_recovers_a_failed_row_against_real_postgres(client: TestClient) -> None:
+    """SPEC-MK-030 against a real, migrated Postgres schema — proves the FAILED ->
+    RECEIVED CAS transition (KnowledgeDocument.retry()) actually round-trips through
+    `KnowledgeDocumentRepository.save(document, expected_status="FAILED")`, not just
+    the in-memory adapter's own dict-based status check.
+    """
+    failed = client.post("/internal/memory/v1/admin/documents", json={
+        "source_system": "confluence", "external_id": "KB-PG-RETRY-1", "title": "Broken Runbook", "document_type": "RUNBOOK",
+        "raw_content": "   \n\n   ", "ingested_by": "admin-1",
+    })
+    assert failed.status_code == 422
+
+    audit_events = client.get("/internal/memory/v1/admin/audit-events", headers={"X-Actor-Id": "ops-1"})
+    [failed_entry] = [e for e in audit_events.json() if e["action"] == "ingest_document" and e["outcome"] == "FAILURE"]
+    document_id = failed_entry["resource_id"]
+
+    retried = client.post(f"/internal/memory/v1/admin/documents/{document_id}/retry", json={
+        "raw_content": "## Fix\nRestart the VPN client after resetting MFA.", "retried_by": "ops-1",
+    })
+    assert retried.status_code == 200
+    assert retried.json()["ingestion_status"] == "ACTIVE"
+
+    get_container.cache_clear()
+    new_client = TestClient(create_app())
+    reindexed = new_client.post(f"/internal/memory/v1/admin/documents/{document_id}/reindex", json={
+        "requested_by": "ops-1", "extract_graph": True,
+    })
+    assert reindexed.status_code == 200
+    assert reindexed.json()["ingestion_status"] == "ACTIVE"

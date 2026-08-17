@@ -1,10 +1,65 @@
 SPEC-MK-029:
   domain: 04-memory-knowledge
-  name: Poison And Recovery Workers
+  name: Poison Recovery Workers
   cn_name: Poison 与 recovery workers
-  status: planned
+  status: implemented
   service: memory-knowledge-service
   phase: 08
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic / SQLAlchemy + Alembic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    10-failure-handling audit against agent-runtime-service's own SPEC-ARO-024/028/029/031
+    precedent, confirmed as real, from-scratch gap: `ConsumeTicketMemorySourceEventService`'s
+    own docstring already named this explicitly ("A full poison-event quarantine table
+    + admin replay ... is phase-08 (SPEC-MK-029) scope, not this spec's").
+
+    §"Poison Event": this domain's own event router validates payload *shape* with
+    typed Pydantic request schemas before any application service runs — unlike
+    agent-runtime-service's own raw-envelope `ConsumeRuntimeEventService`, a malformed
+    or missing-field payload is already rejected at the FastAPI boundary and never
+    reaches this layer. The one invariant-violation this architecture can actually
+    raise is `IdempotencyKeyReusedException` — the same idempotency key (ticket/
+    workflow-scoped) arriving with genuinely different candidate content — which is
+    exactly "违反不变量" in this codebase's own terms. `ConsumeTicketMemorySourceEventService`/
+    `ConsumeWorkflowMemorySourceEventService` now catch it, record a `PoisonEventRecord`
+    (new `memory.poison_events` table, migration c7b3f1a9d24e), and re-raise
+    `PoisonMemorySourceEventException` (mapped to 422 `POISON_EVENT`) instead of the raw
+    exception — never marked processed either way, continuing the existing
+    "不标记 processed，除非明确 quarantine" rule rather than changing it. New admin surface
+    (`GET /admin/poison-events`, `POST /admin/poison-events/{id}/quarantine`) mirrors
+    agent-runtime-service's own SPEC-ARO-031 exactly, including its own scope limit:
+    "replay" is never a bespoke re-dispatch endpoint, only resending the corrected event
+    under the same eventId — this codebase never built one either. Payload redaction
+    reuses the existing `RedactionPolicyPort` (not a second, weaker regex the way
+    agent-runtime-service's own free-function `redact_payload()` had to, since this
+    domain already has a real one).
+
+    §"Recovery Workers" names five bullets; three are real, distinct recoverable
+    concerns in this codebase's own synchronous, non-worker-queue architecture — the
+    other two ("outbox replay", already `DispatchOutboxEventsService`; "embedding
+    recovery", folded into ingestion recovery below since this codebase never built a
+    separate embedding-job queue) are not separate surfaces here, confirmed by audit,
+    not assumed. New `RecoverMemoryOperationsService` (`RecoveryPort`):
+    `scan_and_recover_ingestion()` — `IngestKnowledgeDocumentService.ingest()` runs its
+    whole RECEIVED→ACTIVE/FAILED sequence synchronously, so a document found by the new
+    `KnowledgeDocumentRepository.find_stuck()` (non-terminal status, older than a 5-minute
+    grace period) can only mean a process crash mid-call; recovery marks it FAILED, the
+    same outcome an in-process failure would have reached.
+    `scan_and_recover_publish_graph()` — `PublishMemoryService` saves the new
+    MemoryVersion ACTIVE *before* its own graph upsert (07-data-model's own partial-
+    unique-index ordering requires it); a crash in that window leaves an ACTIVE version
+    with no MEMORY_VERSION graph node, found via `MemoryRepository.find_active_versions_by_type()`
+    + a stable-key lookup, repaired by re-running the same idempotent upsert.
+    `scan_and_recover_retention()` — `ExecuteRetentionService._do_delete()` deletes
+    versions before tombstoning the graph node, so a still-VISIBLE MEMORY node (new
+    `GraphNodeRepository.find_by_type_and_status()`) whose Memory has zero remaining
+    non-deleted versions is a partial deletion; recovery finishes the tombstone.
+    All three exposed as manual/ops-triggered admin endpoints
+    (`POST /admin/recovery/{ingestion,publish-graph,retention}`) — no periodic scheduler
+    exists yet, mirroring `OutboxDispatchPort`'s own "nothing schedules this
+    periodically yet" precedent exactly. 10-failure-handling's own "不允许的恢复" list is
+    respected by construction: nothing here ever creates a new Memory/MemoryCandidate,
+    only finishes an already-committed transition or marks an already-abandoned one
+    FAILED.
   lld_mapping:
     - 10-failure-handling
   forbidden:
@@ -13,3 +68,7 @@ SPEC-MK-029:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (215, includes 17 new: poison-event detection/recording for both ticket and workflow consumers, PoisonEventQueryService list/redact/quarantine/not-found, three RecoverMemoryOperationsService scans each proving both the repair case and the leave-alone case, admin router poison-event and recovery-scan end-to-end tests)"
+    integration: "services/memory-knowledge-service/tests/integration (25, includes 1 new: a poisoned ticket.resolved.v1 replay is persisted to and quarantinable against a real migrated Postgres schema, surviving a container rebuild)"
+    result: "240 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

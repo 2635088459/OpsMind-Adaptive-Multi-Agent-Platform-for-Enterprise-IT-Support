@@ -2,9 +2,21 @@ from __future__ import annotations
 
 import pytest
 
-from memoryknowledge.application.commands import IngestKnowledgeDocumentCommand
-from memoryknowledge.application.exceptions import DocumentAlreadyIngestedException, DocumentIngestionFailedException
+from memoryknowledge.application.commands import (
+    IngestKnowledgeDocumentCommand,
+    ReindexDocumentCommand,
+    RetryDocumentIngestionCommand,
+)
+from memoryknowledge.application.exceptions import (
+    DocumentAlreadyIngestedException,
+    DocumentIngestionFailedException,
+    DocumentNotActiveException,
+    KnowledgeDocumentNotFoundException,
+)
 from memoryknowledge.application.services.ingest_document import IngestKnowledgeDocumentService
+from memoryknowledge.application.telemetry import MemoryTelemetry
+from memoryknowledge.domain.exceptions import InvalidDocumentIngestionTransitionException
+from memoryknowledge.domain.ids import KnowledgeDocumentId
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.document_parser import SimpleDocumentParserAdapter
 from memoryknowledge.infrastructure.embedding.embedding_provider import DeterministicHashEmbeddingProvider
@@ -30,7 +42,7 @@ def _build_service():
     service = IngestKnowledgeDocumentService(
         document_repository, SimpleDocumentParserAdapter(), RegexRedactionPolicyAdapter(), DeterministicHashEmbeddingProvider(),
         InMemoryEmbeddingRepository(), MarkerBasedEntityExtractorAdapter(), graph_node_repository, graph_edge_repository,
-        outbox_repository, InMemoryAuditRecordRepository(), SystemClockAdapter(),
+        outbox_repository, InMemoryAuditRecordRepository(), SystemClockAdapter(), MemoryTelemetry(),
     )
     return service, document_repository, outbox_repository, graph_node_repository, graph_edge_repository
 
@@ -148,7 +160,7 @@ def test_graph_extraction_failure_blocks_activation_instead_of_leaking_an_active
     service = IngestKnowledgeDocumentService(
         document_repository, SimpleDocumentParserAdapter(), RegexRedactionPolicyAdapter(), DeterministicHashEmbeddingProvider(),
         InMemoryEmbeddingRepository(), _FailingEntityExtractor(), InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository(),
-        outbox_repository, InMemoryAuditRecordRepository(), SystemClockAdapter(),
+        outbox_repository, InMemoryAuditRecordRepository(), SystemClockAdapter(), MemoryTelemetry(),
     )
 
     with pytest.raises(DocumentIngestionFailedException):
@@ -162,3 +174,102 @@ def test_graph_extraction_failure_blocks_activation_instead_of_leaking_an_active
     published_types = {r.event_type for r in outbox_repository.recorded()}
     assert "knowledge.document.indexed.v1" not in published_types
     assert "knowledge.graph.updated.v1" not in published_types
+
+
+def test_retry_recovers_a_failed_document_with_corrected_content() -> None:
+    """SPEC-MK-030 10-failure-handling §"Poison Document": "可由 admin 修正 metadata 或
+    content 后重试."
+    """
+    service, document_repository, *_ = _build_service()
+    with pytest.raises(DocumentIngestionFailedException):
+        service.ingest(_command(raw_content="   \n\n   "))
+    failed = document_repository.find_by_natural_key("confluence", "KB-100", 1)
+    assert failed.ingestion_status.name == "FAILED"
+
+    retried = service.retry(RetryDocumentIngestionCommand(
+        document_id=failed.document_id, raw_content="## Fix\nRestart the VPN client after resetting MFA.",
+        retried_by="ops-1",
+    ))
+
+    assert retried.ingestion_status.name == "ACTIVE"
+    stored = document_repository.find_by_id(failed.document_id)
+    assert stored.ingestion_status.name == "ACTIVE"
+    assert stored.failure_reason is None
+
+
+def test_retry_an_active_document_is_rejected() -> None:
+    service, document_repository, *_ = _build_service()
+    view = service.ingest(_command())
+    active = document_repository.find_by_natural_key("confluence", "KB-100", 1)
+    assert active.ingestion_status.name == "ACTIVE"
+
+    with pytest.raises(InvalidDocumentIngestionTransitionException):
+        service.retry(RetryDocumentIngestionCommand(document_id=view.document_id, raw_content="anything", retried_by="ops-1"))
+
+
+def test_retry_unknown_document_raises_not_found() -> None:
+    service, *_ = _build_service()
+    with pytest.raises(KnowledgeDocumentNotFoundException):
+        service.retry(RetryDocumentIngestionCommand(document_id=KnowledgeDocumentId.new_id(), raw_content="x", retried_by="ops-1"))
+
+
+def test_reindex_rebuilds_the_graph_from_an_active_documents_existing_chunks_without_touching_them() -> None:
+    """SPEC-MK-030: reindex re-runs graph extraction/upsert only — chunk content and
+    embeddings are immutable once written (DocumentChunkRow's own "chunks 不可原地修改"
+    contract), so reindex must leave them byte-for-byte untouched.
+    """
+    service, document_repository, outbox_repository, _, _ = _build_service()
+    view = service.ingest(_command(
+        raw_content="SERVICE: vpn-auth is affected by SYMPTOM: mfa-loop-after-reset.", extract_graph=False,
+    ))
+    original_chunks = document_repository.find_chunks(view.document_id)
+
+    reindexed = service.reindex(ReindexDocumentCommand(document_id=view.document_id, requested_by="ops-1", extract_graph=True))
+
+    assert reindexed.ingestion_status.name == "ACTIVE"
+    assert reindexed.chunk_count == len(original_chunks)
+    unchanged_chunks = document_repository.find_chunks(view.document_id)
+    assert unchanged_chunks == original_chunks  # byte-for-byte identical — reindex never mutates chunks
+    published_types = {r.event_type for r in outbox_repository.recorded()}
+    assert "knowledge.graph.updated.v1" in published_types
+
+
+def test_reindex_a_non_active_document_is_rejected() -> None:
+    service, document_repository, *_ = _build_service()
+    with pytest.raises(DocumentIngestionFailedException):
+        service.ingest(_command(raw_content="   \n\n   "))
+    failed = document_repository.find_by_natural_key("confluence", "KB-100", 1)
+
+    with pytest.raises(DocumentNotActiveException):
+        service.reindex(ReindexDocumentCommand(document_id=failed.document_id, requested_by="ops-1"))
+
+
+def test_reindex_unknown_document_raises_not_found() -> None:
+    service, *_ = _build_service()
+    with pytest.raises(KnowledgeDocumentNotFoundException):
+        service.reindex(ReindexDocumentCommand(document_id=KnowledgeDocumentId.new_id(), requested_by="ops-1"))
+
+
+class _FailingEmbeddingProvider:
+    def embed(self, text: str):
+        raise RuntimeError("embedding provider unavailable")
+
+
+def test_embedding_failure_during_ingest_fails_the_document_instead_of_activating_it_partially() -> None:
+    """SPEC-MK-031 14-testing-strategy §"Recovery Tests": "embedding failure retry."
+    10-failure-handling §"Embedding Failure": "对 knowledge document，未 embedded 前不可
+    active" — an embedding-provider exception must land the document in FAILED (later
+    recoverable via SPEC-MK-030's own retry()), never a partially-embedded ACTIVE row.
+    """
+    document_repository = InMemoryKnowledgeDocumentRepository()
+    service = IngestKnowledgeDocumentService(
+        document_repository, SimpleDocumentParserAdapter(), RegexRedactionPolicyAdapter(), _FailingEmbeddingProvider(),
+        InMemoryEmbeddingRepository(), MarkerBasedEntityExtractorAdapter(), InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository(),
+        InMemoryOutboxRepository(), InMemoryAuditRecordRepository(), SystemClockAdapter(), MemoryTelemetry(),
+    )
+
+    with pytest.raises(DocumentIngestionFailedException):
+        service.ingest(_command())
+
+    stored = document_repository.find_by_natural_key("confluence", "KB-100", 1)
+    assert stored.ingestion_status.name == "FAILED"

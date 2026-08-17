@@ -16,7 +16,10 @@ from memoryknowledge.application.ports_in import (
     ExtractMemoryCandidateUseCase,
     IngestKnowledgeDocumentUseCase,
     OutboxDispatchPort,
+    PoisonEventCommandPort,
+    PoisonEventQueryPort,
     PublishMemoryUseCase,
+    RecoveryPort,
     ValidateMemoryCandidateUseCase,
     WorkingMemoryLifecycleUseCase,
 )
@@ -27,7 +30,10 @@ from memoryknowledge.container import (
     get_extract_memory_candidate_port,
     get_ingest_knowledge_document_port,
     get_outbox_dispatch_port,
+    get_poison_event_command_port,
+    get_poison_event_query_port,
     get_publish_memory_port,
+    get_recovery_port,
     get_validate_memory_candidate_port,
     get_working_memory_lifecycle_port,
 )
@@ -45,8 +51,13 @@ from memoryknowledge.interfaces.admin.mapper import (
     to_expansion_response,
     to_extract_command,
     to_ingest_command,
+    to_poison_event_list_response,
+    to_poison_event_response,
     to_publish_command,
+    to_recovery_scan_report_response,
+    to_reindex_command,
     to_reject_command,
+    to_retry_command,
     to_validate_command,
     to_version_response,
 )
@@ -65,7 +76,12 @@ from memoryknowledge.interfaces.admin.schemas import (
     KnowledgeDocumentResponse,
     MemoryCandidateResponse,
     MemoryVersionResponse,
+    PoisonEventListResponse,
+    PoisonEventResponse,
+    RecoveryScanReportResponse,
+    ReindexDocumentRequest,
     RejectCandidateRequest,
+    RetryDocumentRequest,
     ValidateCandidateRequest,
 )
 from memoryknowledge.interfaces.rest.mapper import to_working_memory_response
@@ -78,6 +94,24 @@ router = APIRouter(prefix="/internal/memory/v1/admin", tags=["memory-admin"])
 def ingest_document(request: IngestDocumentRequest, port: IngestKnowledgeDocumentUseCase = Depends(get_ingest_knowledge_document_port)) -> KnowledgeDocumentResponse:
     """05-api-contracts: `POST /internal/memory/v1/admin/documents`."""
     return to_document_response(port.ingest(to_ingest_command(request)))
+
+
+@router.post("/documents/{document_id}/retry", response_model=KnowledgeDocumentResponse)
+def retry_document(
+    document_id: UUID, request: RetryDocumentRequest, port: IngestKnowledgeDocumentUseCase = Depends(get_ingest_knowledge_document_port),
+) -> KnowledgeDocumentResponse:
+    """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/retry`
+    — 10-failure-handling §"Poison Document": "可由 admin 修正 metadata 或 content 后重试."
+    """
+    return to_document_response(port.retry(to_retry_command(document_id, request)))
+
+
+@router.post("/documents/{document_id}/reindex", response_model=KnowledgeDocumentResponse)
+def reindex_document(
+    document_id: UUID, request: ReindexDocumentRequest, port: IngestKnowledgeDocumentUseCase = Depends(get_ingest_knowledge_document_port),
+) -> KnowledgeDocumentResponse:
+    """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/reindex`."""
+    return to_document_response(port.reindex(to_reindex_command(document_id, request)))
 
 
 @router.post("/candidates", status_code=status.HTTP_201_CREATED, response_model=MemoryCandidateResponse)
@@ -189,3 +223,48 @@ def replay_dead_letter(port: OutboxDispatchPort = Depends(get_outbox_dispatch_po
 def list_audit_events(port: AuditRecordQueryPort = Depends(get_audit_record_query_port), actor_id: str = Header(alias="X-Actor-Id")) -> list[AuditEventResponse]:
     """SPEC-MK-003 12-observability §"Audit Events" visibility surface."""
     return [to_audit_event_response(entry) for entry in port.list_audit_events(limit=100)]
+
+
+@router.get("/poison-events", response_model=PoisonEventListResponse)
+def list_poison_events(port: PoisonEventQueryPort = Depends(get_poison_event_query_port), actor_id: str = Header(alias="X-Actor-Id")) -> PoisonEventListResponse:
+    """SPEC-MK-029 10-failure-handling §"Poison Event" step 4: "等待人工修复后 replay" —
+    the visibility surface an operator uses to see what needs fixing before replaying
+    it (by resending the corrected event under the same eventId to its original
+    endpoint).
+    """
+    return to_poison_event_list_response(port.list_poison_events(limit=100))
+
+
+@router.post("/poison-events/{id}/quarantine", response_model=PoisonEventResponse)
+def quarantine_poison_event(
+    id: UUID, port: PoisonEventCommandPort = Depends(get_poison_event_command_port), actor_id: str = Header(alias="X-Actor-Id"),
+) -> PoisonEventResponse:
+    """SPEC-MK-029 05-api-contracts §"Admin API": "mark poison event quarantined" —
+    lets an operator flag a poison event as already triaged, distinguishing "seen"
+    from "brand new" on the /poison-events visibility surface. A one-way flag, not a
+    status machine — the event's only other exit is replay (resending the corrected
+    event under the same eventId).
+    """
+    return to_poison_event_response(port.mark_quarantined(id))
+
+
+@router.post("/recovery/ingestion", response_model=RecoveryScanReportResponse)
+def recover_ingestion(port: RecoveryPort = Depends(get_recovery_port), actor_id: str = Header(alias="X-Actor-Id")) -> RecoveryScanReportResponse:
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers": "ingestion recovery" /
+    "embedding recovery" — manual/ops trigger until a real periodic scheduler exists
+    (mirrors OutboxDispatchPort's own "nothing schedules this periodically yet"
+    precedent).
+    """
+    return to_recovery_scan_report_response(port.scan_and_recover_ingestion(batch_size=50))
+
+
+@router.post("/recovery/publish-graph", response_model=RecoveryScanReportResponse)
+def recover_publish_graph(port: RecoveryPort = Depends(get_recovery_port), actor_id: str = Header(alias="X-Actor-Id")) -> RecoveryScanReportResponse:
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers": "graph recovery"."""
+    return to_recovery_scan_report_response(port.scan_and_recover_publish_graph(batch_size=50))
+
+
+@router.post("/recovery/retention", response_model=RecoveryScanReportResponse)
+def recover_retention(port: RecoveryPort = Depends(get_recovery_port), actor_id: str = Header(alias="X-Actor-Id")) -> RecoveryScanReportResponse:
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers": "retention recovery"."""
+    return to_recovery_scan_report_response(port.scan_and_recover_retention(batch_size=50))

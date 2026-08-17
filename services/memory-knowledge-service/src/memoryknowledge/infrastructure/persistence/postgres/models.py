@@ -377,3 +377,27 @@ class AuditEventRow(Base):
     causation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     detail: Mapped[str] = mapped_column(Text, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class PoisonEventRow(Base):
+    """SPEC-MK-029 10-failure-handling §"Poison Event": "写入 poison event 表" — a
+    separate table from processed_events/outbox_events, since a poisoned delivery is
+    neither "already applied" nor "waiting to be published"; it is parked for manual
+    investigation and possible replay (05-api-contracts §"Admin API": "mark poison
+    event quarantined"). `id` is its own surrogate primary key, mirroring
+    AuditEventRow's own reasoning: many poison rows could in principle share the same
+    event_id across retried deliveries under different consumer_names.
+    """
+
+    __tablename__ = "poison_events"
+    __table_args__ = (Index("ix_poison_events_recorded_at", "recorded_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    consumer_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    quarantined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

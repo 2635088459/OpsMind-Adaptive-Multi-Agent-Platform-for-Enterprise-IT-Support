@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 from memoryknowledge.application.ports_out import ClockPort, EventPublisherPort, OutboxRepository
 from memoryknowledge.application.records import OutboxRecord
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import DispatchReport
 from memoryknowledge.domain.enums import OutboxStatus
 
@@ -19,10 +20,14 @@ _BASE_BACKOFF_SECONDS = 30
 
 
 class DispatchOutboxEventsService:
-    def __init__(self, outbox_repository: OutboxRepository, event_publisher_port: EventPublisherPort, clock: ClockPort) -> None:
+    def __init__(
+        self, outbox_repository: OutboxRepository, event_publisher_port: EventPublisherPort, clock: ClockPort,
+        telemetry: MemoryTelemetry,
+    ) -> None:
         self._outbox_repository = outbox_repository
         self._event_publisher_port = event_publisher_port
         self._clock = clock
+        self._telemetry = telemetry
 
     def dispatch_due_events(self, batch_size: int) -> DispatchReport:
         now = self._clock.now()
@@ -64,4 +69,9 @@ class DispatchOutboxEventsService:
                 self._outbox_repository.mark_failed(record.outbox_id, now + backoff, attempts)
                 failed += 1
 
+        # "memory_outbox_backlog" (12-observability §"Metrics"): a lower-bound snapshot
+        # as of this scan (rows this call itself just backed off), not a live COUNT(*)
+        # — mirrors agent-runtime-service's own RuntimeTelemetry.set_outbox_pending()
+        # exactly, including its own docstring caveat.
+        self._telemetry.set_outbox_backlog(failed)
         return DispatchReport(scanned=len(records), published=published, failed=failed, dead_lettered=dead_lettered)

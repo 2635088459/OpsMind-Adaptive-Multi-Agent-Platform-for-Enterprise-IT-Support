@@ -2,9 +2,73 @@ SPEC-MK-028:
   domain: 04-memory-knowledge
   name: Memory Observability Audit
   cn_name: Memory observability 与 audit
-  status: planned
+  status: implemented
   service: memory-knowledge-service
   phase: 08
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic / OpenTelemetry (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    12-observability audit against agent-runtime-service's own SPEC-ARO-034 precedent
+    (RuntimeTelemetry / infrastructure/observability.py): confirmed no OpenTelemetry
+    dependency, settings field, or telemetry module existed anywhere in
+    memory-knowledge-service before this spec — a real, from-scratch gap, not another
+    "pre-planted hook" instance. §"Logs" own structured fields (eventType/status/
+    resource ids) were already satisfied by every service's existing
+    `logger.info("action=... status=...")` calls and AuditRecorder's own audit trail
+    (SPEC-MK-003); not re-built.
+
+    Added the exact opentelemetry-api/-sdk/-exporter-otlp-proto-grpc dependency
+    versions agent-runtime-service already pins, and the identical
+    `otel_exporter`/`otel_exporter_otlp_endpoint`/`otel_service_name` Settings fields
+    (same defaults: "console" — genuinely functional, exports to stdout, no network
+    calls — not "otlp", an explicit opt-in). `infrastructure/observability.py`'s own
+    `configure_observability(settings)` is a line-for-line mirror of
+    agent-runtime-service's own module (idempotent global TracerProvider/MeterProvider
+    setup), wired into `main.py::create_app()` immediately after `_configure_logging()`.
+
+    `application/telemetry.py::MemoryTelemetry` instruments every one of
+    12-observability §"Metrics"'s sixteen named metrics, mirroring RuntimeTelemetry's
+    own low-cardinality-labels-only discipline. Two names needed an explicit,
+    documented interpretation neither this LLD section nor agent-runtime-service's own
+    precedent settles directly (see the class's own module docstring for the full
+    reasoning): `memory_retrieval_hit_rate` (no `_total` suffix, unlike every counter
+    here) is recorded as a per-search 1.0/0.0 histogram observation rather than a
+    self-computed windowed rate; `memory_graph_nodes_total`/`memory_graph_edges_total`
+    (both `_total`-suffixed) are read as monotonic creation counters, not a live
+    point-in-time graph size — no repository COUNT(*) method exists for the latter, and
+    no scan currently owns refreshing one. `memory_outbox_backlog` reuses
+    agent-runtime-service's own "lower-bound snapshot as of the last dispatch scan"
+    convention exactly (DispatchOutboxEventsService sets it to the batch's own `failed`
+    count, not a live query).
+
+    Telemetry threaded into every application service that owns a named metric:
+    SearchMemoryService (search_requests/latency/degraded/retrieval_outcome),
+    ExtractMemoryCandidateService (candidate_created — only on an actual new-row
+    insert, not the source_hash dedup-hit early return),
+    ValidateMemoryCandidateService (candidate_approved when a validation pass lands at
+    VALIDATED with neither a conflict nor a duplicate link; candidate_rejected;
+    conflict_detected), PublishMemoryService and IngestKnowledgeDocumentService (graph
+    node/edge creation counters — excluding stable-key/natural-key dedup hits;
+    embedding_failure, wrapping the one embed() call each already had with a
+    try/except that records then re-raises unchanged, so failure-handling behavior
+    itself is untouched), ExpandKnowledgeGraphService (expansion latency via
+    time.perf_counter(), path_returned count), DispatchOutboxEventsService
+    (outbox_backlog gauge).
+
+    12-observability §"Traces" own named span lists (Search/Ingestion sub-steps) have
+    no LLD text distinguishing "these must be a child span each" from "these are what
+    one span's own attributes/timeline should let an operator see" — resolved the same
+    way agent-runtime-service's own SPEC-ARO-034 resolved the analogous ambiguity for
+    its own trace sections: one span per top-level pipeline entry point
+    ("memory.search", "knowledge.document.ingest", "knowledge.graph.expand",
+    "memory.publish"), not nine/six hand-named child spans no LLD section actually
+    requires as separate instruments.
+
+    Dashboards/Alerting (12-observability's own last two sections) are ops-config
+    artifacts (a Grafana/Prometheus dashboard definition, alert rule YAML) with no
+    corresponding application code to write — every metric/label they'd reference now
+    exists to be queried, which is this spec's own actual deliverable; building a
+    fabricated dashboard JSON with no real deployment target would be inventing
+    infrastructure, not implementing this spec.
   lld_mapping:
     - 12-observability
   forbidden:
@@ -13,3 +77,7 @@ SPEC-MK-028:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (200, includes 5 new: every MemoryTelemetry instrument callable without raising, multiple instances do not conflict)"
+    integration: "services/memory-knowledge-service/tests/integration (24)"
+    result: "224 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

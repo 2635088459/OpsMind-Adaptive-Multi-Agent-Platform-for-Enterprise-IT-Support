@@ -24,7 +24,10 @@ from memoryknowledge.application.ports_in import (
     ExtractMemoryCandidateUseCase,
     IngestKnowledgeDocumentUseCase,
     OutboxDispatchPort,
+    PoisonEventCommandPort,
+    PoisonEventQueryPort,
     PublishMemoryUseCase,
+    RecoveryPort,
     SearchMemoryUseCase,
     TicketMemorySourceEventConsumerPort,
     WorkflowMemorySourceEventConsumerPort,
@@ -41,15 +44,19 @@ from memoryknowledge.application.services.execute_retention import ExecuteRetent
 from memoryknowledge.application.services.expand_knowledge_graph import ExpandKnowledgeGraphService
 from memoryknowledge.application.services.extract_memory_candidate import ExtractMemoryCandidateService
 from memoryknowledge.application.services.ingest_document import IngestKnowledgeDocumentService
+from memoryknowledge.application.services.poison_event_query import PoisonEventQueryService
 from memoryknowledge.application.services.publish_memory import PublishMemoryService
+from memoryknowledge.application.services.recover_memory_operations import RecoverMemoryOperationsService
 from memoryknowledge.application.services.search_memory import SearchMemoryService
 from memoryknowledge.application.services.update_working_memory import UpdateWorkingMemoryService
 from memoryknowledge.application.services.validate_memory_candidate import ValidateMemoryCandidateService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.infrastructure.authorization import StaticAuthorizationPolicyAdapter
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.document_parser import SimpleDocumentParserAdapter
 from memoryknowledge.infrastructure.embedding.embedding_provider import DeterministicHashEmbeddingProvider
 from memoryknowledge.infrastructure.event_publisher import LoggingEventPublisherAdapter
+from memoryknowledge.infrastructure.event_publisher_rabbitmq import RabbitMqEventPublisherAdapter
 from memoryknowledge.infrastructure.graph.entity_extractor import MarkerBasedEntityExtractorAdapter
 from memoryknowledge.infrastructure.persistence.in_memory import (
     InMemoryAuditRecordRepository,
@@ -61,6 +68,7 @@ from memoryknowledge.infrastructure.persistence.in_memory import (
     InMemoryMemoryCandidateRepository,
     InMemoryMemoryRepository,
     InMemoryOutboxRepository,
+    InMemoryPoisonEventRepository,
     InMemoryProcessedEventRepository,
     InMemoryRetrievalLogRepository,
     InMemoryWorkingMemoryRepository,
@@ -75,6 +83,7 @@ from memoryknowledge.infrastructure.persistence.postgres.repositories import (
     PostgresMemoryCandidateRepository,
     PostgresMemoryRepository,
     PostgresOutboxRepository,
+    PostgresPoisonEventRepository,
     PostgresProcessedEventRepository,
     PostgresRetrievalLogRepository,
     PostgresWorkingMemoryRepository,
@@ -106,6 +115,7 @@ class _PersistenceAdapters:
         outbox_repository,
         command_idempotency_repository,
         audit_record_repository,
+        poison_event_repository,
     ) -> None:
         self.working_memory_repository = working_memory_repository
         self.memory_candidate_repository = memory_candidate_repository
@@ -119,6 +129,7 @@ class _PersistenceAdapters:
         self.outbox_repository = outbox_repository
         self.command_idempotency_repository = command_idempotency_repository
         self.audit_record_repository = audit_record_repository
+        self.poison_event_repository = poison_event_repository
 
 
 def _build_memory_adapters() -> _PersistenceAdapters:
@@ -135,6 +146,7 @@ def _build_memory_adapters() -> _PersistenceAdapters:
         outbox_repository=InMemoryOutboxRepository(),
         command_idempotency_repository=InMemoryCommandIdempotencyRepository(),
         audit_record_repository=InMemoryAuditRecordRepository(),
+        poison_event_repository=InMemoryPoisonEventRepository(),
     )
 
 
@@ -154,6 +166,7 @@ def _build_postgres_adapters(settings: Settings) -> _PersistenceAdapters:
         outbox_repository=PostgresOutboxRepository(session_factory),
         command_idempotency_repository=PostgresCommandIdempotencyRepository(session_factory),
         audit_record_repository=PostgresAuditRecordRepository(session_factory),
+        poison_event_repository=PostgresPoisonEventRepository(session_factory),
     )
 
 
@@ -175,6 +188,7 @@ class Container:
         self.outbox_repository = adapters.outbox_repository
         self.command_idempotency_repository = adapters.command_idempotency_repository
         self.audit_record_repository = adapters.audit_record_repository
+        self.poison_event_repository = adapters.poison_event_repository
 
         self.redaction_policy_port = RegexRedactionPolicyAdapter()
         self.document_parser_port = SimpleDocumentParserAdapter()
@@ -184,56 +198,64 @@ class Container:
         self.authorization_port = StaticAuthorizationPolicyAdapter()
         self.ticket_snapshot_port = NoOpTicketSnapshotPort()
         self.workflow_trace_port = NoOpWorkflowTracePort()
-        # SPEC-MK-003 09-concurrency-and-idempotency / 12-observability: real RabbitMQ
-        # publisher wiring stays deferred past this spec too (mirrors
-        # agent-runtime-service's own SPEC-ARO-003 precedent, which likewise shipped
-        # only the logging placeholder — real broker wiring landed at a later phase);
-        # this spec's own job is the outbox row lifecycle (requeue/replay) and the
-        # idempotency/audit baseline, both already backend-agnostic.
-        self.event_publisher_port = LoggingEventPublisherAdapter()
+        # SPEC-MK-031 08-transaction-and-outbox §"Outbox Publisher": the real
+        # RabbitMQ adapter, mirroring agent-runtime-service's own SPEC-ARO-025
+        # container wiring exactly. "logging" stays the default (see settings.py's
+        # own docstring for why) — a caller must explicitly opt into "rabbitmq".
+        self.event_publisher_port = (
+            RabbitMqEventPublisherAdapter(settings) if settings.event_publisher_adapter == "rabbitmq" else LoggingEventPublisherAdapter()
+        )
+        self.telemetry = MemoryTelemetry()
 
         self.update_working_memory_service = UpdateWorkingMemoryService(
             self.working_memory_repository, self.redaction_policy_port, self.audit_record_repository, self.clock,
         )
         self.expand_knowledge_graph_service = ExpandKnowledgeGraphService(
-            self.graph_node_repository, self.graph_edge_repository, self.authorization_port,
+            self.graph_node_repository, self.graph_edge_repository, self.authorization_port, self.telemetry,
         )
         self.search_memory_service = SearchMemoryService(
             self.memory_repository, self.knowledge_document_repository, self.graph_node_repository,
             self.retrieval_log_repository, self.authorization_port, self.redaction_policy_port,
-            self.graph_reranker_port, self.expand_knowledge_graph_service, self.clock,
+            self.graph_reranker_port, self.expand_knowledge_graph_service, self.clock, self.telemetry,
         )
         self.ingest_document_service = IngestKnowledgeDocumentService(
             self.knowledge_document_repository, self.document_parser_port, self.redaction_policy_port,
             self.embedding_provider, self.embedding_repository, self.entity_extractor_port,
             self.graph_node_repository, self.graph_edge_repository, self.outbox_repository,
-            self.audit_record_repository, self.clock,
+            self.audit_record_repository, self.clock, self.telemetry,
         )
         self.extract_memory_candidate_service = ExtractMemoryCandidateService(
             self.memory_candidate_repository, self.command_idempotency_repository, self.outbox_repository,
-            self.audit_record_repository, self.clock,
+            self.audit_record_repository, self.clock, self.telemetry,
         )
         self.consume_ticket_memory_source_event_service = ConsumeTicketMemorySourceEventService(
-            self.processed_event_repository, self.extract_memory_candidate_service, self.clock,
+            self.processed_event_repository, self.extract_memory_candidate_service, self.clock, self.poison_event_repository,
         )
         self.consume_workflow_memory_source_event_service = ConsumeWorkflowMemorySourceEventService(
-            self.processed_event_repository, self.extract_memory_candidate_service, self.clock,
+            self.processed_event_repository, self.extract_memory_candidate_service, self.clock, self.poison_event_repository,
         )
         self.validate_memory_candidate_service = ValidateMemoryCandidateService(
             self.memory_candidate_repository, self.memory_repository, self.redaction_policy_port, self.outbox_repository,
-            self.audit_record_repository, self.clock,
+            self.audit_record_repository, self.clock, self.telemetry,
         )
         self.publish_memory_service = PublishMemoryService(
             self.memory_candidate_repository, self.memory_repository, self.graph_node_repository, self.graph_edge_repository,
             self.embedding_provider, self.embedding_repository, self.redaction_policy_port, self.command_idempotency_repository,
-            self.outbox_repository, self.audit_record_repository, self.authorization_port, self.clock,
+            self.outbox_repository, self.audit_record_repository, self.authorization_port, self.clock, self.telemetry,
         )
         self.execute_retention_service = ExecuteRetentionService(
             self.memory_repository, self.graph_node_repository, self.graph_edge_repository, self.authorization_port,
             self.command_idempotency_repository, self.outbox_repository, self.audit_record_repository, self.clock,
         )
-        self.dispatch_outbox_events_service = DispatchOutboxEventsService(self.outbox_repository, self.event_publisher_port, self.clock)
+        self.dispatch_outbox_events_service = DispatchOutboxEventsService(
+            self.outbox_repository, self.event_publisher_port, self.clock, self.telemetry,
+        )
         self.audit_record_query_service = AuditRecordQueryService(self.audit_record_repository)
+        self.poison_event_query_service = PoisonEventQueryService(self.poison_event_repository, self.redaction_policy_port, self.clock)
+        self.recover_memory_operations_service = RecoverMemoryOperationsService(
+            self.knowledge_document_repository, self.memory_repository, self.graph_node_repository, self.graph_edge_repository,
+            self.clock, self.audit_record_repository,
+        )
 
         self.update_working_memory_port: UpdateWorkingMemoryUseCase = self.update_working_memory_service
         self.working_memory_query_port: WorkingMemoryQueryUseCase = self.update_working_memory_service
@@ -249,6 +271,9 @@ class Container:
         self.execute_retention_port: ExecuteRetentionUseCase = self.execute_retention_service
         self.outbox_dispatch_port: OutboxDispatchPort = self.dispatch_outbox_events_service
         self.audit_record_query_port: AuditRecordQueryPort = self.audit_record_query_service
+        self.poison_event_query_port: PoisonEventQueryPort = self.poison_event_query_service
+        self.poison_event_command_port: PoisonEventCommandPort = self.poison_event_query_service
+        self.recovery_port: RecoveryPort = self.recover_memory_operations_service
 
 
 @lru_cache(maxsize=1)
@@ -310,3 +335,15 @@ def get_outbox_dispatch_port() -> OutboxDispatchPort:
 
 def get_audit_record_query_port() -> AuditRecordQueryPort:
     return get_container().audit_record_query_port
+
+
+def get_poison_event_query_port() -> PoisonEventQueryPort:
+    return get_container().poison_event_query_port
+
+
+def get_poison_event_command_port() -> PoisonEventCommandPort:
+    return get_container().poison_event_command_port
+
+
+def get_recovery_port() -> RecoveryPort:
+    return get_container().recovery_port

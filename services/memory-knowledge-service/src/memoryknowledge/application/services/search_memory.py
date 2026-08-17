@@ -10,6 +10,8 @@ import dataclasses
 import hashlib
 import logging
 
+from opentelemetry import trace
+
 from memoryknowledge.application.commands import ExpandKnowledgeGraphCommand, SearchMemoryCommand
 from memoryknowledge.application.ports_out import (
     AuthorizationPort,
@@ -22,6 +24,7 @@ from memoryknowledge.application.ports_out import (
     RetrievalLogRepository,
 )
 from memoryknowledge.application.services.expand_knowledge_graph import ExpandKnowledgeGraphService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import SearchResultView
 from memoryknowledge.domain.enums import GraphNodeType
 from memoryknowledge.domain.ids import RetrievalId
@@ -29,6 +32,7 @@ from memoryknowledge.domain.retrieval import RetrievalLog, score_text_relevance
 from memoryknowledge.domain.values import GraphPath, Provenance, RetrievalResultItem
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 _FALLBACK_CLASSIFICATION = "INTERNAL"
 """SPEC-MK-025: Memory.classification/KnowledgeDocument.classification are now real,
@@ -52,6 +56,7 @@ class SearchMemoryService:
         graph_reranker_port: GraphRerankerPort,
         expand_knowledge_graph_service: ExpandKnowledgeGraphService,
         clock: ClockPort,
+        telemetry: MemoryTelemetry,
     ) -> None:
         self._memory_repository = memory_repository
         self._knowledge_document_repository = knowledge_document_repository
@@ -62,8 +67,21 @@ class SearchMemoryService:
         self._graph_reranker_port = graph_reranker_port
         self._expand_knowledge_graph_service = expand_knowledge_graph_service
         self._clock = clock
+        self._telemetry = telemetry
 
     def search(self, command: SearchMemoryCommand) -> SearchResultView:
+        """12-observability §"Traces" §"Search trace spans" (request validation / access
+        scope resolution / embedding query / vector search / keyword search / rerank /
+        graph expansion / redaction / retrieval log write) — one span for this whole
+        pipeline, mirroring agent-runtime-service's own SPEC-ARO-034 granularity
+        (`ConsumeRuntimeEventService.consume()`'s single "event.consumed" span, not one
+        child span per numbered sub-step no LLD text otherwise distinguishes).
+        """
+        with tracer.start_as_current_span("memory.search"):
+            return self._search_traced(command)
+
+    def _search_traced(self, command: SearchMemoryCommand) -> SearchResultView:
+        self._telemetry.record_search_requested(command.requester_type)
         started_at = self._clock.now()
         # UC-02 step 2 "对 query 做 secret 检测和 normalization" — a query itself can
         # carry a pasted secret/PII (e.g. a copy-pasted error line); redacting before
@@ -172,6 +190,10 @@ class SearchMemoryService:
         retrieval_id = RetrievalId.new_id()
         completed_at = self._clock.now()
         latency_ms = int((completed_at - started_at).total_seconds() * 1000)
+        self._telemetry.record_search_latency(latency_ms, command.requester_type)
+        if degraded:
+            self._telemetry.record_search_degraded(degraded_reason or "UNKNOWN")
+        self._telemetry.record_retrieval_outcome(hit=bool(results))
         log = RetrievalLog.record(
             retrieval_id=retrieval_id, requester_type=command.requester_type, requester_id=command.requester_id,
             query_hash=query_hash, result_refs=tuple(r.provenance.source_ref for r in results), degraded=degraded,

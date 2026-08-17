@@ -2,9 +2,67 @@ SPEC-MK-032:
   domain: 04-memory-knowledge
   name: Final Coverage Audit Release Readiness
   cn_name: 最终覆盖审计与发布就绪
-  status: planned
+  status: implemented
   service: memory-knowledge-service
   phase: 09
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic / SQLAlchemy + Alembic (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    Final audit, not new feature-building — the domain's own last spec, whose only
+    real rule is "No LLD core answer or cross-domain contract remains uncovered."
+
+    Confirmed all 32 specs (SPEC-MK-001 – SPEC-MK-032) have a
+    `traceability-entry.yaml` with `status: implemented` (scripted check over every
+    spec subdirectory) — the roadmap itself is fully closed, nothing skipped.
+
+    Re-verified the domain's own "forbidden" list holds by construction, not just by
+    convention: `memory_direct_ticket_state_write`/`memory_direct_workflow_state_write`
+    — `TicketSnapshotPort`/`WorkflowTracePort` are each a single `find_*` read method,
+    structurally incapable of writing; grepped the whole source tree for any write
+    call against ticket/workflow tables and found none. `agent_direct_active_memory_write`
+    — `MemoryVersionStatus.ACTIVE` is assigned in exactly one place in the entire
+    codebase (`MemoryVersion.create_active()`), reachable only from
+    `PublishMemoryService._do_publish()`; the Runtime-facing REST router
+    (`interfaces/rest/router.py`) exposes only `/search` (read) and `/working-memory`
+    (a distinct, explicitly-scoped scratch aggregate) — no path from an Agent-facing
+    endpoint to a direct active-memory write exists. `graph_traversal_bypasses_acl`
+    and `cross_domain_distributed_transaction` were already exhaustively re-verified
+    across phase-05/06/07's own audits (bounded BFS with per-node/edge authorization
+    checks before traversal; every write is one local Postgres transaction, no 2PC/saga).
+
+    The audit's one real, concrete finding: running `alembic current` against the
+    real shared Postgres instance (a read-only check — the shared database was never
+    written to) surfaced that this service's own `migrations/env.py` never set
+    `version_table_schema`, so its `alembic_version` tracking table would default to
+    the database's `public` schema — the exact same default
+    agent-runtime-service's own `migrations/env.py` also uses. Confirmed directly:
+    the shared database's `public.alembic_version` already tracks
+    agent-runtime-service's own head revision, one this repo's own migration chain
+    doesn't even contain — the two services' alembic histories were set up to
+    silently collide in the same table the moment both were ever migrated against
+    that shared instance for real (invisible to every integration test in this
+    repo, since those always run against a fresh, empty ephemeral testcontainers
+    database with no such collision possible). Fixed by scoping this service's own
+    version table to its own dedicated `memory` schema
+    (`version_table_schema=Base.metadata.schema`), the same isolation
+    07-data-model already requires of every real table — plus an explicit
+    `CREATE SCHEMA IF NOT EXISTS` ahead of `context.configure()`, since alembic
+    creates the version table itself but never the containing schema. Verified via
+    the full integration suite (which now applies migrations against a schema that
+    didn't exist a moment before, proving the ordering is correct) rather than
+    against the real shared instance, consistent with this whole implementation's
+    standing rule to never write to that shared container. The equivalent bug in
+    agent-runtime-service's own `migrations/env.py` was confirmed but not fixed here
+    — out of this spec's own service boundary; worth flagging to whoever owns that
+    service next.
+
+    `README.md` (this spec's own second LLD-mapping target) did not exist at the
+    service root at all — confirmed agent-runtime-service also has none (no
+    established platform precedent to mirror for the Python services, unlike the
+    Java `ticket-workflow-service`'s own README.md, which was used as the structural
+    template instead: purpose, status, prerequisites, run/test commands, migrations,
+    configuration variables — including the new `RABBITMQ_*`/`OTEL_*` ones —
+    API surface summary, architecture pointers, design links). Written to reflect
+    the actual final state (all 9 phases complete), not a stale "phase 1" snapshot.
   lld_mapping:
     - 14-testing-strategy
     - README
@@ -14,3 +72,7 @@ SPEC-MK-032:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (231)"
+    integration: "services/memory-knowledge-service/tests/integration (30, re-run after the migrations/env.py version_table_schema fix — all pass against a fresh ephemeral schema)"
+    result: "261 passed, 3 import-linter contracts kept, 0 pyflakes warnings, all 32 SPEC-MK-0xx traceability entries confirmed status: implemented"

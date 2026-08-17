@@ -119,6 +119,19 @@ class KnowledgeDocument:
             raise InvalidDocumentIngestionTransitionException(self.ingestion_status, _FAILABLE)
         return dataclasses.replace(self, ingestion_status=DocumentIngestionStatus.FAILED, failure_reason=reason)
 
+    def retry(self, new_content_hash: str) -> "KnowledgeDocument":
+        """SPEC-MK-030 10-failure-handling §"Poison Document": "可由 admin 修正 metadata
+        或 content 后重试" — FAILED -> RECEIVED, clearing failure_reason and adopting
+        whatever content_hash the corrected (or identical, if the failure was merely
+        transient — an embedding provider hiccup, say) retry content actually hashes
+        to. raw_content itself is never persisted (07-data-model's own
+        `raw_content_ref` column stays unpopulated — see this module's own docstring),
+        so a retry always requires the caller to resupply the full content; there is
+        nothing stored here to silently replay.
+        """
+        self._require(DocumentIngestionStatus.FAILED)
+        return dataclasses.replace(self, ingestion_status=DocumentIngestionStatus.RECEIVED, failure_reason=None, content_hash=new_content_hash)
+
     def supersede(self) -> "KnowledgeDocument":
         self._require(DocumentIngestionStatus.ACTIVE)
         return dataclasses.replace(self, ingestion_status=DocumentIngestionStatus.SUPERSEDED)

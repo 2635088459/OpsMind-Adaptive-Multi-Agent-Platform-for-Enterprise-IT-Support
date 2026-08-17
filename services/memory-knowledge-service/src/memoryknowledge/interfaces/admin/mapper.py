@@ -15,7 +15,9 @@ from memoryknowledge.application.commands import (
     ExtractMemoryCandidateCommand,
     IngestKnowledgeDocumentCommand,
     PublishMemoryCommand,
+    ReindexDocumentCommand,
     RejectMemoryCandidateCommand,
+    RetryDocumentIngestionCommand,
     ValidateMemoryCandidateCommand,
 )
 from memoryknowledge.application.records import AuditRecordEntry
@@ -26,9 +28,19 @@ from memoryknowledge.application.views import (
     KnowledgeDocumentView,
     MemoryCandidateView,
     MemoryVersionView,
+    PoisonEventView,
+    RecoveryScanReport,
 )
 from memoryknowledge.domain.enums import MemoryType
-from memoryknowledge.domain.ids import CorrelationId, GraphNodeId, IdempotencyKey, MemoryCandidateId, MemoryId, WorkingMemoryId
+from memoryknowledge.domain.ids import (
+    CorrelationId,
+    GraphNodeId,
+    IdempotencyKey,
+    KnowledgeDocumentId,
+    MemoryCandidateId,
+    MemoryId,
+    WorkingMemoryId,
+)
 from memoryknowledge.domain.values import AccessScope, SourceRef
 from memoryknowledge.interfaces.admin.schemas import (
     ApproveCandidateRequest,
@@ -46,7 +58,12 @@ from memoryknowledge.interfaces.admin.schemas import (
     KnowledgeDocumentResponse,
     MemoryCandidateResponse,
     MemoryVersionResponse,
+    PoisonEventListResponse,
+    PoisonEventResponse,
+    RecoveryScanReportResponse,
+    ReindexDocumentRequest,
     RejectCandidateRequest,
+    RetryDocumentRequest,
     ValidateCandidateRequest,
 )
 
@@ -65,6 +82,20 @@ def to_document_response(view: KnowledgeDocumentView) -> KnowledgeDocumentRespon
     return KnowledgeDocumentResponse(
         document_id=view.document_id.value, version=view.version, ingestion_status=view.ingestion_status.name,
         title=view.title, chunk_count=view.chunk_count, created_at=view.created_at,
+    )
+
+
+def to_retry_command(document_id: UUID, request: RetryDocumentRequest) -> RetryDocumentIngestionCommand:
+    return RetryDocumentIngestionCommand(
+        document_id=KnowledgeDocumentId(document_id), raw_content=request.raw_content, retried_by=request.retried_by,
+        extract_graph=request.extract_graph, graph_namespace=request.graph_namespace,
+    )
+
+
+def to_reindex_command(document_id: UUID, request: ReindexDocumentRequest) -> ReindexDocumentCommand:
+    return ReindexDocumentCommand(
+        document_id=KnowledgeDocumentId(document_id), requested_by=request.requested_by,
+        extract_graph=request.extract_graph, graph_namespace=request.graph_namespace,
     )
 
 
@@ -176,3 +207,19 @@ def to_audit_event_response(entry: AuditRecordEntry) -> AuditEventResponse:
         outcome=entry.outcome, correlation_id=entry.correlation_id, causation_id=entry.causation_id, detail=entry.detail,
         occurred_at=entry.occurred_at,
     )
+
+
+def to_poison_event_response(view: PoisonEventView) -> PoisonEventResponse:
+    return PoisonEventResponse(
+        id=view.id, event_id=view.event_id, consumer_name=view.consumer_name, event_type=view.event_type,
+        payload=view.payload, error_message=view.error_message, occurred_at=view.occurred_at,
+        recorded_at=view.recorded_at, quarantined_at=view.quarantined_at,
+    )
+
+
+def to_poison_event_list_response(views: list[PoisonEventView]) -> PoisonEventListResponse:
+    return PoisonEventListResponse(poison_events=[to_poison_event_response(view) for view in views])
+
+
+def to_recovery_scan_report_response(report: RecoveryScanReport) -> RecoveryScanReportResponse:
+    return RecoveryScanReportResponse(scanned=report.scanned, recovered=report.recovered, scanned_at=report.scanned_at)

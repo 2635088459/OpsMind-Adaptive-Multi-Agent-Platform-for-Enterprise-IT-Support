@@ -6,6 +6,8 @@ already carries. Error codes in each docstring match 05-api-contracts §"错误�
 
 from __future__ import annotations
 
+import uuid
+
 from memoryknowledge.domain.ids import GraphNodeId, KnowledgeDocumentId, MemoryCandidateId, MemoryId, WorkingMemoryId
 
 
@@ -57,6 +59,19 @@ class DocumentIngestionFailedException(RuntimeError):
     def __init__(self, reason: str) -> None:
         super().__init__(f"document ingestion failed: {reason}")
         self.reason = reason
+
+
+class DocumentNotActiveException(RuntimeError):
+    """SPEC-MK-030 05-api-contracts: `DOCUMENT_NOT_ACTIVE` — raised by reindex() when
+    the named document is not currently ACTIVE (reindex re-embeds/re-extracts existing
+    chunks of a document that is already searchable; a RECEIVED/FAILED/... document
+    has no such chunks to reindex, and retry() is the right operation for FAILED).
+    """
+
+    def __init__(self, document_id: KnowledgeDocumentId, actual_status: str) -> None:
+        super().__init__(f"knowledge document {document_id} is {actual_status}, not ACTIVE")
+        self.document_id = document_id
+        self.actual_status = actual_status
 
 
 class IdempotencyKeyReusedException(RuntimeError):
@@ -132,3 +147,28 @@ class WorkingMemoryScopeConflictException(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__("an active working memory already exists for this scope")
+
+
+class PoisonMemorySourceEventException(RuntimeError):
+    """SPEC-MK-029 10-failure-handling §"Poison Event". Raised by
+    ConsumeTicketMemorySourceEventService/ConsumeWorkflowMemorySourceEventService after
+    a PoisonEventRecord has already been durably recorded — the caller (the event
+    router) sees a real error (never a silent 200), but the underlying delivery stays
+    unmarked/processed and replayable, per this module's own PoisonEventRecord
+    docstring.
+    """
+
+    def __init__(self, event_id: str, reason: str) -> None:
+        super().__init__(f"poison event {event_id}: {reason}")
+        self.event_id = event_id
+        self.reason = reason
+
+
+class PoisonEventNotFoundException(RuntimeError):
+    """SPEC-MK-029 05-api-contracts §"Admin API": "mark poison event quarantined" —
+    raised when the id an operator names does not match any recorded poison event.
+    """
+
+    def __init__(self, id: uuid.UUID) -> None:
+        super().__init__(f"poison event not found: {id}")
+        self.id = id

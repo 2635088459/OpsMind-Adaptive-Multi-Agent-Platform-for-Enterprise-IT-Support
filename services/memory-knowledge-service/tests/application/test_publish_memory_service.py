@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 
 import pytest
@@ -11,6 +12,7 @@ from memoryknowledge.application.exceptions import (
     MemoryNotFoundException,
 )
 from memoryknowledge.application.services.publish_memory import PublishMemoryService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.domain.enums import GraphNodeType, MemoryType
 from memoryknowledge.domain.exceptions import InvalidMemoryCandidateTransitionException
 from memoryknowledge.domain.ids import IdempotencyKey, MemoryCandidateId, MemoryId
@@ -48,7 +50,7 @@ def _build_service():
         candidate_repository, memory_repository, graph_node_repository, graph_edge_repository,
         DeterministicHashEmbeddingProvider(), InMemoryEmbeddingRepository(), RegexRedactionPolicyAdapter(),
         InMemoryCommandIdempotencyRepository(), outbox_repository, InMemoryAuditRecordRepository(),
-        StaticAuthorizationPolicyAdapter(), SystemClockAdapter(),
+        StaticAuthorizationPolicyAdapter(), SystemClockAdapter(), MemoryTelemetry(),
     )
     return service, candidate_repository, memory_repository, outbox_repository, graph_node_repository, graph_edge_repository
 
@@ -298,3 +300,37 @@ def test_publishing_against_an_unknown_memory_id_raises_not_found() -> None:
 
     with pytest.raises(MemoryNotFoundException):
         service.publish(command)
+
+
+class _FailingEmbeddingProvider:
+    def embed(self, text: str):
+        raise RuntimeError("embedding provider unavailable")
+
+
+def test_embedding_failure_during_publish_propagates_instead_of_creating_a_partial_version() -> None:
+    """SPEC-MK-031 14-testing-strategy §"Recovery Tests": "embedding failure retry."
+    10-failure-handling §"Embedding Failure": "对 memory publish，MVP 推荐阻塞 publish" —
+    already true by construction (embed() is called before MemoryVersion.save_version()
+    in PublishMemoryService._do_publish()), proven here against a provider that
+    actually raises rather than just reading the source.
+    """
+    candidate_repository = InMemoryMemoryCandidateRepository()
+    memory_repository = InMemoryMemoryRepository()
+    service = PublishMemoryService(
+        candidate_repository, memory_repository, InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository(),
+        _FailingEmbeddingProvider(), InMemoryEmbeddingRepository(), RegexRedactionPolicyAdapter(),
+        InMemoryCommandIdempotencyRepository(), InMemoryOutboxRepository(), InMemoryAuditRecordRepository(),
+        StaticAuthorizationPolicyAdapter(), SystemClockAdapter(), MemoryTelemetry(),
+    )
+    candidate_id = _seed_validated_candidate(candidate_repository)
+    command = PublishMemoryCommand(
+        candidate_id=candidate_id, usefulness_score=0.7, published_by="admin-1",
+        idempotency_key=IdempotencyKey("publish-embedding-failure-1"), content="x", summary="x", source_trust_score=0.9,
+    )
+
+    with pytest.raises(RuntimeError):
+        service.publish(command)
+
+    # embed() is called before save_version() in _do_publish() — a failure there
+    # must never leave a MemoryVersion behind, redacted content or not.
+    assert memory_repository.find_by_source_hash(hashlib.sha256(b"x").hexdigest()) is None

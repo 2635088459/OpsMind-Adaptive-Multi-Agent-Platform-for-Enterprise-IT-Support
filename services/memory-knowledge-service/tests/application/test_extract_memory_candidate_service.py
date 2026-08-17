@@ -4,6 +4,7 @@ import pytest
 
 from memoryknowledge.application.commands import ExtractMemoryCandidateCommand
 from memoryknowledge.application.services.extract_memory_candidate import ExtractMemoryCandidateService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.domain.enums import MemoryType
 from memoryknowledge.domain.ids import IdempotencyKey
 from memoryknowledge.domain.values import SourceRef
@@ -23,6 +24,7 @@ def _build_service():
     outbox_repository = InMemoryOutboxRepository()
     service = ExtractMemoryCandidateService(
         candidate_repository, InMemoryCommandIdempotencyRepository(), outbox_repository, InMemoryAuditRecordRepository(), SystemClockAdapter(),
+        MemoryTelemetry(),
     )
     return service, candidate_repository, outbox_repository
 

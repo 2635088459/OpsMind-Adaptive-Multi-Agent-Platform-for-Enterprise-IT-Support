@@ -27,7 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from memoryknowledge.application.exceptions import OptimisticConcurrencyConflictException, WorkingMemoryScopeConflictException
-from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord
+from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord, PoisonEventRecord
 from memoryknowledge.domain.enums import (
     DocumentIngestionStatus,
     GraphEdgeType,
@@ -76,6 +76,7 @@ from memoryknowledge.infrastructure.persistence.postgres.models import (
     MemoryRow,
     MemoryVersionRow,
     OutboxEventRow,
+    PoisonEventRow,
     ProcessedEventRow,
     RetrievalLogRow,
     WorkingMemoryRow,
@@ -535,6 +536,16 @@ class PostgresKnowledgeDocumentRepository:
             rows = session.execute(stmt).scalars().all()
             return [_row_to_document_chunk(row) for row in rows]
 
+    def find_stuck(self, statuses: tuple[str, ...], older_than: datetime, limit: int) -> list[KnowledgeDocument]:
+        with self._session_factory() as session:
+            stmt = (
+                select(KnowledgeDocumentRow)
+                .where(KnowledgeDocumentRow.status.in_(statuses), KnowledgeDocumentRow.created_at < older_than)
+                .limit(limit)
+            )
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_knowledge_document(row) for row in rows]
+
 
 # --------------------------------------------------------------------------------
 # Embedding
@@ -665,6 +676,14 @@ class PostgresGraphNodeRepository:
             return []
         with self._session_factory() as session:
             stmt = select(GraphNodeRow).where(GraphNodeRow.id.in_([n.value for n in node_ids]))
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_graph_node(row) for row in rows]
+
+    def find_by_type_and_status(self, node_type: GraphNodeType, status: GraphNodeStatus, limit: int) -> list[GraphNode]:
+        # ix_graph_nodes_type_status (07-data-model / SPEC-MK-002) already exists for
+        # exactly this (node_type, status) predicate pair.
+        with self._session_factory() as session:
+            stmt = select(GraphNodeRow).where(GraphNodeRow.node_type == node_type.name, GraphNodeRow.status == status.name).limit(limit)
             rows = session.execute(stmt).scalars().all()
             return [_row_to_graph_node(row) for row in rows]
 
@@ -904,3 +923,49 @@ class PostgresAuditRecordRepository:
                 )
                 for row in rows
             ]
+
+
+class PostgresPoisonEventRepository:
+    """SPEC-MK-029 10-failure-handling §"Poison Event". record() is insert-only, same
+    shape as PostgresAuditRecordRepository.append() — mark_quarantined() is the one
+    later mutation a poison row ever gets.
+    """
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def record(self, record: PoisonEventRecord) -> PoisonEventRecord:
+        with self._session_factory() as session:
+            session.execute(
+                PoisonEventRow.__table__.insert().values(
+                    id=record.id, event_id=record.event_id, consumer_name=record.consumer_name, event_type=record.event_type,
+                    payload_json=record.payload, error_message=record.error_message, occurred_at=record.occurred_at,
+                    recorded_at=record.recorded_at, quarantined_at=record.quarantined_at,
+                )
+            )
+            session.commit()
+            return record
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        with self._session_factory() as session:
+            stmt = select(PoisonEventRow).order_by(PoisonEventRow.recorded_at.desc()).limit(limit)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_poison_event(row) for row in rows]
+
+    def find_by_id(self, id: uuid.UUID) -> PoisonEventRecord | None:
+        with self._session_factory() as session:
+            row = session.get(PoisonEventRow, id)
+            return _row_to_poison_event(row) if row else None
+
+    def mark_quarantined(self, id: uuid.UUID, quarantined_at: datetime) -> None:
+        with self._session_factory() as session:
+            session.execute(update(PoisonEventRow.__table__).where(PoisonEventRow.id == id).values(quarantined_at=quarantined_at))
+            session.commit()
+
+
+def _row_to_poison_event(row: PoisonEventRow) -> PoisonEventRecord:
+    return PoisonEventRecord(
+        id=row.id, event_id=row.event_id, consumer_name=row.consumer_name, event_type=row.event_type,
+        payload=row.payload_json, error_message=row.error_message, occurred_at=row.occurred_at,
+        recorded_at=row.recorded_at, quarantined_at=row.quarantined_at,
+    )

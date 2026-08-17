@@ -5,13 +5,20 @@ sole implementation of ExpandKnowledgeGraphUseCase. 13-package-and-class-design 
 
 from __future__ import annotations
 
+import time
+
+from opentelemetry import trace
+
 from memoryknowledge.application.commands import ExpandKnowledgeGraphCommand
 from memoryknowledge.application.exceptions import GraphTraversalDepthExceededException
 from memoryknowledge.application.ports_out import AuthorizationPort, GraphEdgeRepository, GraphNodeRepository
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import GraphExpansionView
 from memoryknowledge.domain.enums import GraphEdgeType, GraphNodeStatus, GraphNodeType
 from memoryknowledge.domain.ids import GraphNodeId
 from memoryknowledge.domain.values import AccessScope, GraphPath
+
+tracer = trace.get_tracer(__name__)
 
 _DEFAULT_MAX_DEPTH = 2
 _ADJACENT_SCAN_LIMIT = 25
@@ -20,10 +27,12 @@ _ADJACENT_SCAN_LIMIT = 25
 class ExpandKnowledgeGraphService:
     def __init__(
         self, graph_node_repository: GraphNodeRepository, graph_edge_repository: GraphEdgeRepository, authorization_port: AuthorizationPort,
+        telemetry: MemoryTelemetry,
     ) -> None:
         self._graph_node_repository = graph_node_repository
         self._graph_edge_repository = graph_edge_repository
         self._authorization_port = authorization_port
+        self._telemetry = telemetry
 
     def expand(self, command: ExpandKnowledgeGraphCommand) -> GraphExpansionView:
         """02-business-invariants: "graph traversal depth MVP 默认不超过 2，除非
@@ -32,6 +41,11 @@ class ExpandKnowledgeGraphService:
         command.max_depth hops from any seed, VISIBLE edges/nodes only, every visited
         node re-checked against access_scope before being added to a path.
         """
+        with tracer.start_as_current_span("knowledge.graph.expand"):
+            return self._expand_traced(command)
+
+    def _expand_traced(self, command: ExpandKnowledgeGraphCommand) -> GraphExpansionView:
+        started_at = time.perf_counter()
         max_depth = command.max_depth
         if max_depth > _DEFAULT_MAX_DEPTH and not command.allow_deep_traversal:
             raise GraphTraversalDepthExceededException(max_depth, _DEFAULT_MAX_DEPTH)
@@ -93,6 +107,8 @@ class ExpandKnowledgeGraphService:
                 depth += 1
 
         paths.sort(key=lambda p: p.path_score, reverse=True)
+        self._telemetry.record_graph_expansion_latency((time.perf_counter() - started_at) * 1000)
+        self._telemetry.record_graph_path_returned(len(paths))
         return GraphExpansionView(paths=tuple(paths), truncated=truncated)
 
     def _node_authorized(self, access_scope: AccessScope, classification: str, node_type: GraphNodeType) -> bool:

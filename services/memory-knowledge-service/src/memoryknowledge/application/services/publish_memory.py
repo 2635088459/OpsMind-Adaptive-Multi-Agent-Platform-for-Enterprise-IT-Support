@@ -12,6 +12,8 @@ import hashlib
 import uuid
 from datetime import datetime
 
+from opentelemetry import trace
+
 from memoryknowledge.application.commands import PublishMemoryCommand
 from memoryknowledge.application.exceptions import (
     MemoryCandidateConflictingException,
@@ -35,6 +37,7 @@ from memoryknowledge.application.ports_out import (
 )
 from memoryknowledge.application.services.audit import AuditRecorder
 from memoryknowledge.application.services.idempotency import CommandIdempotencyGuard
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import MemoryVersionView
 from memoryknowledge.domain.enums import GraphEdgeType, GraphNodeType, MemoryVersionStatus
 from memoryknowledge.domain.events import KnowledgeGraphUpdated, MemoryPublished, MemorySuperseded
@@ -42,6 +45,8 @@ from memoryknowledge.domain.ids import GraphEdgeId, GraphNodeId, MemoryId, Memor
 from memoryknowledge.domain.knowledge_graph import GraphEdge, GraphNode
 from memoryknowledge.domain.memory import Memory, MemoryVersion
 from memoryknowledge.domain.values import RedactionReport
+
+tracer = trace.get_tracer(__name__)
 
 _COMMAND_TYPE = "publish_memory"
 
@@ -53,7 +58,7 @@ class PublishMemoryService:
         embedding_provider: EmbeddingProvider, embedding_repository: EmbeddingRepository,
         redaction_policy_port: RedactionPolicyPort, command_idempotency_repository: CommandIdempotencyRepository,
         outbox_repository: OutboxRepository, audit_record_repository: AuditRecordRepository,
-        authorization_port: AuthorizationPort, clock: ClockPort,
+        authorization_port: AuthorizationPort, clock: ClockPort, telemetry: MemoryTelemetry,
     ) -> None:
         self._memory_candidate_repository = memory_candidate_repository
         self._memory_repository = memory_repository
@@ -65,6 +70,7 @@ class PublishMemoryService:
         self._outbox_repository = outbox_repository
         self._authorization_port = authorization_port
         self._clock = clock
+        self._telemetry = telemetry
         self._idempotency_guard = CommandIdempotencyGuard(command_idempotency_repository, clock)
         self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
@@ -76,11 +82,12 @@ class PublishMemoryService:
         replays the prior MemoryVersion; a different payload under the same key raises
         IdempotencyKeyReusedException.
         """
-        return self._idempotency_guard.run(
-            command_type=_COMMAND_TYPE, target_id=str(command.candidate_id), idempotency_key=command.idempotency_key,
-            request_payload=_request_payload(command), execute=lambda: self._do_publish(command),
-            to_dict=_view_to_dict, from_dict=_view_from_dict,
-        )
+        with tracer.start_as_current_span("memory.publish"):
+            return self._idempotency_guard.run(
+                command_type=_COMMAND_TYPE, target_id=str(command.candidate_id), idempotency_key=command.idempotency_key,
+                request_payload=_request_payload(command), execute=lambda: self._do_publish(command),
+                to_dict=_view_to_dict, from_dict=_view_from_dict,
+            )
 
     def _do_publish(self, command: PublishMemoryCommand) -> MemoryVersionView:
         candidate = self._memory_candidate_repository.find_by_id(command.candidate_id)
@@ -161,7 +168,11 @@ class PublishMemoryService:
         # hybrid retrieval (SPEC-MK-017) needs a real vector to search against, the
         # same way DocumentChunk already gets one during ingestion — publish is the
         # one place a MemoryVersion's final, redacted content is available to embed.
-        embedding_ref, vector = self._embedding_provider.embed(redacted_content)
+        try:
+            embedding_ref, vector = self._embedding_provider.embed(redacted_content)
+        except Exception:
+            self._telemetry.record_embedding_failure("publish_memory")
+            raise
         self._embedding_repository.save(embedding_ref, vector)
 
         # 07-data-model / 09-concurrency-and-idempotency: source_hash is computed from
@@ -240,6 +251,7 @@ class PublishMemoryService:
             )
             self._graph_node_repository.save(memory_node)
             node_count += 1
+            self._telemetry.record_graph_node_created(GraphNodeType.MEMORY.name)
 
         version_node = GraphNode.create(
             GraphNodeId.new_id(), GraphNodeType.MEMORY_VERSION, f"memory_version:{version.memory_version_id}",
@@ -247,6 +259,7 @@ class PublishMemoryService:
         )
         self._graph_node_repository.save(version_node)
         node_count += 1
+        self._telemetry.record_graph_node_created(GraphNodeType.MEMORY_VERSION.name)
 
         if previous_active is None:
             return node_count, 0
@@ -269,6 +282,7 @@ class PublishMemoryService:
             )
             self._graph_edge_repository.save(edge)
             edge_count += 1
+            self._telemetry.record_graph_edge_created(GraphEdgeType.SUPERSEDES.name)
         self._graph_node_repository.save(previous_node.hide())
         return node_count, edge_count
 

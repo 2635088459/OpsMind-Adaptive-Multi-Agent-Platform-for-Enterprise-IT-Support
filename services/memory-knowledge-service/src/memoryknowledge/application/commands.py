@@ -15,6 +15,7 @@ from memoryknowledge.domain.ids import (
     CorrelationId,
     GraphNodeId,
     IdempotencyKey,
+    KnowledgeDocumentId,
     MemoryCandidateId,
     MemoryId,
     TicketCycleId,
@@ -149,6 +150,37 @@ class IngestKnowledgeDocumentCommand:
     classification: str = "INTERNAL"
     effective_from: datetime | None = None
     expires_at: datetime | None = None
+    extract_graph: bool = False
+    graph_namespace: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RetryDocumentIngestionCommand:
+    """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/retry`
+    — 10-failure-handling §"Poison Document": "可由 admin 修正 metadata 或 content 后重试."
+    raw_content is always required — see KnowledgeDocument.retry()'s own docstring for
+    why nothing from the original failed attempt is stored to replay.
+    """
+
+    document_id: KnowledgeDocumentId
+    raw_content: str
+    retried_by: str
+    extract_graph: bool = False
+    graph_namespace: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReindexDocumentCommand:
+    """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/reindex`
+    — re-runs graph extraction/upsert against an already-ACTIVE document's existing,
+    immutable chunk content (recovering from an entity-extractor bug/rule-set
+    upgrade). Never touches chunks or embeddings — see
+    IngestKnowledgeDocumentService.reindex()'s own docstring for why re-embedding in
+    place would violate this codebase's own chunk/embedding immutability contracts.
+    """
+
+    document_id: KnowledgeDocumentId
+    requested_by: str
     extract_graph: bool = False
     graph_namespace: str | None = None
 

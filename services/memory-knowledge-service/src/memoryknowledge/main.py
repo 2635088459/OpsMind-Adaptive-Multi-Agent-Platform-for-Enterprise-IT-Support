@@ -10,10 +10,12 @@ import logging
 
 from fastapi import FastAPI
 
+from memoryknowledge.infrastructure.observability import configure_observability
 from memoryknowledge.interfaces.admin.router import router as admin_router
 from memoryknowledge.interfaces.errors import register_exception_handlers
 from memoryknowledge.interfaces.event.router import router as event_router
 from memoryknowledge.interfaces.rest.router import router as memory_router
+from memoryknowledge.settings import get_settings
 
 
 def _configure_logging() -> None:
@@ -29,6 +31,7 @@ def _configure_logging() -> None:
 
 def create_app() -> FastAPI:
     _configure_logging()
+    configure_observability(get_settings())
     app = FastAPI(title="memory-knowledge-service", version="0.1.0")
 
     register_exception_handlers(app)

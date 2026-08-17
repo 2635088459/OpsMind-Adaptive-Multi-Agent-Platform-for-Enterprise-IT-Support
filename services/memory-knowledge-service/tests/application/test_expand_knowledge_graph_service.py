@@ -7,6 +7,7 @@ import pytest
 from memoryknowledge.application.commands import ExpandKnowledgeGraphCommand
 from memoryknowledge.application.exceptions import GraphTraversalDepthExceededException
 from memoryknowledge.application.services.expand_knowledge_graph import ExpandKnowledgeGraphService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.domain.enums import GraphEdgeType, GraphNodeType
 from memoryknowledge.domain.ids import GraphEdgeId, GraphNodeId
 from memoryknowledge.domain.knowledge_graph import GraphEdge, GraphNode
@@ -40,7 +41,7 @@ def _build_chain(node_repository: InMemoryGraphNodeRepository, edge_repository: 
 def test_expand_returns_bounded_paths_from_seed() -> None:
     node_repository, edge_repository = InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository()
     nodes = _build_chain(node_repository, edge_repository, length=3)
-    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter(), MemoryTelemetry())
 
     result = service.expand(ExpandKnowledgeGraphCommand(
         seed_node_ids=(nodes[0],), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),
@@ -54,7 +55,7 @@ def test_expand_returns_bounded_paths_from_seed() -> None:
 def test_expand_does_not_traverse_beyond_max_depth() -> None:
     node_repository, edge_repository = InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository()
     nodes = _build_chain(node_repository, edge_repository, length=5)
-    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter(), MemoryTelemetry())
 
     result = service.expand(ExpandKnowledgeGraphCommand(
         seed_node_ids=(nodes[0],), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),
@@ -68,7 +69,7 @@ def test_expand_does_not_traverse_beyond_max_depth() -> None:
 def test_depth_beyond_default_requires_explicit_deep_traversal_flag() -> None:
     node_repository, edge_repository = InMemoryGraphNodeRepository(), InMemoryGraphEdgeRepository()
     nodes = _build_chain(node_repository, edge_repository, length=2)
-    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter(), MemoryTelemetry())
 
     with pytest.raises(GraphTraversalDepthExceededException):
         service.expand(ExpandKnowledgeGraphCommand(
@@ -92,7 +93,7 @@ def test_expand_skips_nodes_the_requester_is_not_authorized_for() -> None:
         def is_retrieval_authorized(self, access_scope, classification) -> bool:
             return False
 
-    service = ExpandKnowledgeGraphService(node_repository, edge_repository, DenyAllAuthorization())
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, DenyAllAuthorization(), MemoryTelemetry())
     result = service.expand(ExpandKnowledgeGraphCommand(
         seed_node_ids=(nodes[0],), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),
         requester_type="agent", requester_id="agent-1", max_depth=2,
@@ -120,7 +121,7 @@ def test_expand_hides_owned_by_edges_from_a_non_restricted_role_regardless_of_cl
         GraphEdgeId.new_id(), GraphEdgeType.OWNED_BY, service_node.node_id, owner_node.node_id, 0.9,
         (SourceRef("ticket", "T-1"),), "owned-by-hash-1", _now(),
     ))
-    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter(), MemoryTelemetry())
 
     agent_result = service.expand(ExpandKnowledgeGraphCommand(
         seed_node_ids=(service_node.node_id,), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),
@@ -150,7 +151,7 @@ def test_expand_hides_policy_rule_nodes_from_a_non_restricted_role_regardless_of
         GraphEdgeId.new_id(), GraphEdgeType.SUPPORTED_BY, action_node.node_id, policy_node.node_id, 0.9,
         (SourceRef("ticket", "T-1"),), "policy-edge-hash-1", _now(),
     ))
-    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter())
+    service = ExpandKnowledgeGraphService(node_repository, edge_repository, StaticAuthorizationPolicyAdapter(), MemoryTelemetry())
 
     agent_result = service.expand(ExpandKnowledgeGraphCommand(
         seed_node_ids=(action_node.node_id,), access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"),

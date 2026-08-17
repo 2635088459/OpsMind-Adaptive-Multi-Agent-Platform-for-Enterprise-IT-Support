@@ -66,3 +66,22 @@ def test_supersede_and_expire_require_active() -> None:
 
     with pytest.raises(InvalidDocumentIngestionTransitionException):
         superseded.expire()
+
+
+def test_retry_from_failed_clears_reason_and_adopts_the_new_content_hash() -> None:
+    """SPEC-MK-030 10-failure-handling §"Poison Document": "可由 admin 修正 metadata 或
+    content 后重试."
+    """
+    failed = _received().mark_parsed().mark_failed("parser crashed")
+
+    retried = failed.retry("corrected-hash-1")
+
+    assert retried.ingestion_status.name == "RECEIVED"
+    assert retried.failure_reason is None
+    assert retried.content_hash == "corrected-hash-1"
+
+
+def test_retry_requires_failed_status() -> None:
+    active = _received().mark_parsed().mark_chunked().mark_embedded().mark_indexed().activate()
+    with pytest.raises(InvalidDocumentIngestionTransitionException):
+        active.retry("some-hash")

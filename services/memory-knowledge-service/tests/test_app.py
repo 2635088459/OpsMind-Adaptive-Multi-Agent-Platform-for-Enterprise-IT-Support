@@ -597,3 +597,126 @@ def test_admin_outbox_replay_dead_letter_republishes_a_dead_lettered_event(clien
     [record] = [r for r in container.outbox_repository.recorded() if r.outbox_id == dead_lettered.outbox_id]
     assert record.status.name == "PUBLISHED"
     assert record.attempts == 0
+
+
+def test_a_conflicting_ticket_resolved_replay_is_poisoned_and_visible_to_admin(client: TestClient) -> None:
+    """SPEC-MK-029 10-failure-handling §"Poison Event" end-to-end through the real HTTP
+    surface: a second ticket.resolved.v1 delivery for the same ticket_id/ticket_cycle_id
+    carrying genuinely different resolution_summary text is a real
+    IdempotencyKeyReusedException, surfaced as a 422 POISON_EVENT rather than a 500,
+    and recorded to the admin /poison-events visibility surface.
+    """
+    ticket_id, ticket_cycle_id = str(uuid.uuid4()), str(uuid.uuid4())
+    first = client.post("/internal/memory/v1/events/ticket-resolved", json={
+        "event_id": f"evt-{uuid.uuid4()}", "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id,
+        "resolution_code": "MFA_RESET_SUCCESSFUL", "resolution_summary": "reset device binding fixed the mfa loop",
+        "resolved_by": "verification-agent", "resolved_at": "2026-08-16T00:00:00Z", "correlation_id": str(uuid.uuid4()),
+    })
+    assert first.status_code == 200
+
+    second_event_id = f"evt-{uuid.uuid4()}"
+    second = client.post("/internal/memory/v1/events/ticket-resolved", json={
+        "event_id": second_event_id, "ticket_id": ticket_id, "ticket_cycle_id": ticket_cycle_id,
+        "resolution_code": "MFA_RESET_SUCCESSFUL", "resolution_summary": "a completely different, conflicting resolution narrative",
+        "resolved_by": "verification-agent", "resolved_at": "2026-08-16T00:00:00Z", "correlation_id": str(uuid.uuid4()),
+    })
+    assert second.status_code == 422
+    assert second.json()["error"]["code"] == "POISON_EVENT"
+
+    poison_events = client.get("/internal/memory/v1/admin/poison-events", headers={"X-Actor-Id": "ops-1"})
+    assert poison_events.status_code == 200
+    [entry] = [e for e in poison_events.json()["poison_events"] if e["event_id"] == second_event_id]
+    assert entry["consumer_name"] == "consume_ticket_memory_source_event"
+    assert entry["quarantined_at"] is None
+
+    quarantined = client.post(f"/internal/memory/v1/admin/poison-events/{entry['id']}/quarantine", headers={"X-Actor-Id": "ops-1"})
+    assert quarantined.status_code == 200
+    assert quarantined.json()["quarantined_at"] is not None
+
+
+def test_admin_poison_events_requires_actor_header(client: TestClient) -> None:
+    response = client.get("/internal/memory/v1/admin/poison-events")
+    assert response.status_code == 400
+
+
+def test_admin_recovery_scans_are_reachable_and_return_a_well_formed_report(client: TestClient) -> None:
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers": a smoke test of the
+    end-to-end HTTP wiring — a fresh in-memory container has nothing stuck to recover,
+    so this proves the surface works, not any particular repair outcome (that is
+    tests/application/test_recover_memory_operations_service.py's own job).
+    """
+    for path in ("ingestion", "publish-graph", "retention"):
+        response = client.post(f"/internal/memory/v1/admin/recovery/{path}", headers={"X-Actor-Id": "ops-1"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["scanned"] == 0
+        assert body["recovered"] == 0
+
+
+def test_admin_retry_recovers_a_failed_document_with_corrected_content(client: TestClient) -> None:
+    """SPEC-MK-030 10-failure-handling §"Poison Document": "可由 admin 修正 metadata 或
+    content 后重试" end-to-end through the real HTTP surface.
+    """
+    failed = client.post("/internal/memory/v1/admin/documents", json={
+        "source_system": "confluence", "external_id": "KB-RETRY-1", "title": "Broken Runbook", "document_type": "RUNBOOK",
+        "raw_content": "   \n\n   ", "ingested_by": "admin-1",
+    })
+    assert failed.status_code == 422
+
+    audit_events = client.get("/internal/memory/v1/admin/audit-events", headers={"X-Actor-Id": "ops-1"})
+    [failed_entry] = [
+        e for e in audit_events.json()
+        if e["action"] == "ingest_document" and e["outcome"] == "FAILURE"
+    ]
+    document_id = failed_entry["resource_id"]
+
+    retried = client.post(f"/internal/memory/v1/admin/documents/{document_id}/retry", json={
+        "raw_content": "## Fix\nRestart the VPN client after resetting MFA.", "retried_by": "ops-1",
+    })
+    assert retried.status_code == 200
+    assert retried.json()["ingestion_status"] == "ACTIVE"
+
+
+def test_admin_retry_an_active_document_is_rejected(client: TestClient) -> None:
+    ingested = client.post("/internal/memory/v1/admin/documents", json={
+        "source_system": "confluence", "external_id": "KB-RETRY-2", "title": "Runbook", "document_type": "RUNBOOK",
+        "raw_content": "printer offline: reseat the network cable.", "ingested_by": "admin-1",
+    })
+    document_id = ingested.json()["document_id"]
+
+    retried = client.post(f"/internal/memory/v1/admin/documents/{document_id}/retry", json={
+        "raw_content": "anything", "retried_by": "ops-1",
+    })
+    assert retried.status_code == 409
+    assert retried.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+
+
+def test_admin_reindex_rebuilds_the_graph_for_an_active_document(client: TestClient) -> None:
+    ingested = client.post("/internal/memory/v1/admin/documents", json={
+        "source_system": "confluence", "external_id": "KB-REINDEX-1", "title": "VPN Runbook", "document_type": "RUNBOOK",
+        "raw_content": "SERVICE: vpn-auth is affected by SYMPTOM: mfa-loop-after-reset.",
+        "ingested_by": "admin-1", "extract_graph": False,
+    })
+    document_id = ingested.json()["document_id"]
+
+    reindexed = client.post(f"/internal/memory/v1/admin/documents/{document_id}/reindex", json={
+        "requested_by": "ops-1", "extract_graph": True,
+    })
+    assert reindexed.status_code == 200
+    assert reindexed.json()["ingestion_status"] == "ACTIVE"
+    assert reindexed.json()["chunk_count"] == ingested.json()["chunk_count"]
+
+
+def test_admin_reindex_a_non_active_document_is_rejected(client: TestClient) -> None:
+    failed = client.post("/internal/memory/v1/admin/documents", json={
+        "source_system": "confluence", "external_id": "KB-REINDEX-2", "title": "Broken Runbook", "document_type": "RUNBOOK",
+        "raw_content": "   \n\n   ", "ingested_by": "admin-1",
+    })
+    assert failed.status_code == 422
+    audit_events = client.get("/internal/memory/v1/admin/audit-events", headers={"X-Actor-Id": "ops-1"})
+    [failed_entry] = [e for e in audit_events.json() if e["action"] == "ingest_document" and e["outcome"] == "FAILURE"]
+    document_id = failed_entry["resource_id"]
+
+    reindexed = client.post(f"/internal/memory/v1/admin/documents/{document_id}/reindex", json={"requested_by": "ops-1"})
+    assert reindexed.status_code == 409
+    assert reindexed.json()["error"]["code"] == "DOCUMENT_NOT_ACTIVE"

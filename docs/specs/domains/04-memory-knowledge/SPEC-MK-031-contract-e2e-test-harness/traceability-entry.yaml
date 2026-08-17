@@ -2,9 +2,76 @@ SPEC-MK-031:
   domain: 04-memory-knowledge
   name: Contract And E2E Test Harness
   cn_name: Contract 与 E2E test harness
-  status: planned
+  status: implemented
   service: memory-knowledge-service
   phase: 09
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic / pika + RabbitMQ (per docs/low-level-design/shared/technology-baseline)"
+  implementation_notes: >
+    14-testing-strategy audit against every one of its own seven test-type sections
+    (Unit/Application/Integration/Contract/Security/Retrieval Quality/Recovery),
+    checked line by line against what already exists across phases 00-08 before
+    writing anything new — most categories were already fully covered; this spec's
+    real job was closing the handful of genuine, confirmed gaps.
+
+    §"Integration Tests": "RabbitMQ outbox publish/replay" was the one clear,
+    substantial gap. `event_publisher_adapter` had stayed a single-value
+    `Literal["logging"]` since SPEC-MK-002, with every intervening phase's own
+    docstring deferring "the real RabbitMQ publisher" to "a later spec" — none ever
+    claimed it. Confirmed agent-runtime-service already built exactly this
+    (SPEC-ARO-025's own `RabbitMqEventPublisherAdapter`, real `pika`+testcontainers
+    integration test) as concrete, working precedent, and mirrored it line for line:
+    same lazy-connect/reuse/reset-on-failure adapter shape, same `rabbitmq_*` Settings
+    field names/defaults, same "logging stays the boot-safe default, rabbitmq is an
+    explicit opt-in" posture. Adapted to this domain's own `OutboxRecord` shape
+    (`aggregate_id: str`, not a typed `workflow_instance_id`; `ticket_id` is
+    genuinely optional here — most Memory events, e.g.
+    `knowledge.document.indexed.v1`, have no ticket at all, unlike every ARO event).
+    New integration test (`tests/integration/test_rabbitmq_event_publisher.py`, 4
+    tests) proves the envelope round-trips through a real ephemeral broker
+    (testcontainers `RabbitMqContainer`), including the ticket-less-event case ARO's
+    own precedent has no equivalent of.
+
+    "pgvector nearest-neighbor search" / "full-text + vector hybrid retrieval" — NOT
+    built, confirmed as an honest, already-documented architectural choice, not a
+    silent gap: `SearchMemoryService` and `DeterministicHashEmbeddingProvider` both
+    already carry explicit docstrings stating retrieval uses
+    `domain.retrieval.score_text_relevance`'s token-overlap proxy specifically
+    *because* the embedding adapter "carries no real semantic meaning" and "cannot
+    honestly support real semantic search" — building a pgvector ANN-search
+    integration test today would test a code path this service deliberately doesn't
+    use, not close a real gap. A trained embedding model is a real future spec's own
+    job, not this one's.
+
+    §"Contract Tests": audited `tests/contracts/` (built in phase-06/SPEC-MK-021)
+    against every one of the twelve named event types — eleven of twelve already had
+    real contract tests (4 consumed: ticket.resolved/closed.v1,
+    workflow.completed/failed.v1; 7 published: memory.candidate.created/rejected.v1,
+    memory.published/superseded/deleted.v1, knowledge.document.indexed.v1,
+    knowledge.graph.updated.v1). `evaluation.completed.v1` — the twelfth — is
+    deliberately NOT implemented: grepped every service's own source tree in this
+    platform and confirmed no publisher of this event type exists anywhere (not
+    ticket-workflow-service, not agent-runtime-service); 06-event-contracts names it
+    as a planned consumer with no corresponding real producer built yet in this
+    codebase. Building a consumer with no real integration point to receive from or
+    validate against would be inventing behavior against a fixture, not implementing
+    a real capability — the same "don't fabricate a producer-less consumer" standard
+    already applied to 02-business-invariants' own unbuilt queue-scoped ACL in
+    SPEC-MK-025's own audit.
+
+    §"Retrieval Quality Tests" / §"Recovery Tests": the underlying behaviors already
+    existed (RetrievalScore.combined already weights trust at 0.15;
+    find_active_versions_by_type() already filters to ACTIVE only; embed() failures
+    already propagate before any partial write in both ingest_document.py and
+    publish_memory.py) but had no test proving so directly — added four focused
+    tests: source-trust ranking order, deprecated/deleted exclusion from search
+    results, and an embedding-provider-actually-raises path for both ingestion and
+    publish (previously only the telemetry counter itself was smoke-tested, never the
+    real failure path it instruments).
+
+    §"E2E test harness": already satisfied by `tests/test_app.py`'s own full-lifecycle
+    walk (ingest → extract → validate → publish → search → deprecate → delete)
+    through the real FastAPI app, explicitly described that way in its own module
+    docstring since SPEC-MK-001 — not rebuilt as a separate harness.
   lld_mapping:
     - 14-testing-strategy
   forbidden:
@@ -13,3 +80,7 @@ SPEC-MK-031:
     - agent_direct_active_memory_write
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
+  test_evidence:
+    unit: "services/memory-knowledge-service/tests (231, includes 4 new: source-trust ranking order, deprecated/deleted exclusion from search, embedding-provider-raises path for both ingest and publish)"
+    integration: "services/memory-knowledge-service/tests/integration (30, includes 4 new: RabbitMQ envelope round-trip against a real ephemeral broker, including the ticket-less-event case)"
+    result: "261 passed, 3 import-linter contracts kept, 0 pyflakes warnings"

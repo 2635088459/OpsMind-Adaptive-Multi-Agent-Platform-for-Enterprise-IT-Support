@@ -6,9 +6,11 @@ lived in; each view builds itself from the domain object it wraps.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from memoryknowledge.application.records import PoisonEventRecord
 from memoryknowledge.domain.enums import DocumentIngestionStatus, MemoryCandidateStatus, MemoryVersionStatus, WorkingMemoryStatus
 from memoryknowledge.domain.ids import KnowledgeDocumentId, MemoryCandidateId, MemoryId, MemoryVersionId, RetrievalId, WorkingMemoryId
 from memoryknowledge.domain.knowledge_document import KnowledgeDocument
@@ -167,3 +169,56 @@ class DeletionReport:
     versions_deleted: int
     graph_nodes_tombstoned: int
     graph_edges_tombstoned: int
+
+
+@dataclass(frozen=True, slots=True)
+class PoisonEventView:
+    """SPEC-MK-029 10-failure-handling §"Poison Event" step 4's own visibility surface.
+    05-api-contracts §"Admin API": "mark poison event quarantined" —
+    PoisonEventQueryService.mark_quarantined() is now the one command that produces
+    this view; list_poison_events() still just reads.
+
+    11-security §"Data Protection" posture (already applied to search/publish content
+    elsewhere in this codebase): `payload` is redacted before this view is built —
+    unlike agent-runtime-service's own free-function `redact_payload()`, this domain
+    already has a real `RedactionPolicyPort`/`RegexRedactionPolicyAdapter`
+    (email/credit-card/SSN/bearer-token/key-value-secret/high-entropy-blob patterns),
+    so PoisonEventQueryService reuses that existing port rather than duplicating a
+    second, weaker regex — `from_record()` takes the already-redacted string as a
+    parameter instead of redacting internally, keeping this a plain, port-free
+    dataclass method like every other view in this module.
+    """
+
+    id: uuid.UUID
+    event_id: str
+    consumer_name: str
+    event_type: str
+    payload: str
+    error_message: str
+    occurred_at: datetime
+    recorded_at: datetime
+    quarantined_at: datetime | None = None
+
+    @staticmethod
+    def from_record(record: PoisonEventRecord, redacted_payload: str) -> "PoisonEventView":
+        return PoisonEventView(
+            id=record.id, event_id=record.event_id, consumer_name=record.consumer_name, event_type=record.event_type,
+            payload=redacted_payload, error_message=record.error_message, occurred_at=record.occurred_at,
+            recorded_at=record.recorded_at, quarantined_at=record.quarantined_at,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryScanReport:
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers": one shape reused across all
+    three scans this spec builds (ingestion/embedding, graph, retention) — mirrors
+    DispatchReport's own "one shape reused across dispatch_due_events/
+    replay_dead_letter" precedent. `recovered` means whatever this particular scan's
+    own recovery action is (ingestion: marked FAILED; graph: graph node re-upserted;
+    retention: graph node tombstoned) — the scan-specific meaning lives in each
+    service's own docstring, not in this shared report type.
+    """
+
+    scanned: int
+    recovered: int
+    scanned_at: datetime

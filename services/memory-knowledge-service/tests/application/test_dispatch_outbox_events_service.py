@@ -6,6 +6,7 @@ import pytest
 
 from memoryknowledge.application.outbox_codec import build_outbox_record
 from memoryknowledge.application.services.dispatch_outbox_events import DispatchOutboxEventsService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.persistence.in_memory import InMemoryOutboxRepository
 
@@ -61,7 +62,7 @@ def _seed_outbox_repository(count: int = 1) -> InMemoryOutboxRepository:
 
 def test_dispatch_publishes_due_events() -> None:
     outbox_repository = _seed_outbox_repository(3)
-    service = DispatchOutboxEventsService(outbox_repository, _AlwaysSucceedsPublisher(), SystemClockAdapter())
+    service = DispatchOutboxEventsService(outbox_repository, _AlwaysSucceedsPublisher(), SystemClockAdapter(), MemoryTelemetry())
 
     report = service.dispatch_due_events(batch_size=10)
 
@@ -75,7 +76,7 @@ def test_dispatch_publishes_due_events() -> None:
 def test_dispatch_retries_transient_failures_and_eventually_publishes() -> None:
     outbox_repository = _seed_outbox_repository(1)
     publisher = _FailNTimesPublisher(fail_times=1)
-    service = DispatchOutboxEventsService(outbox_repository, publisher, SystemClockAdapter())
+    service = DispatchOutboxEventsService(outbox_repository, publisher, SystemClockAdapter(), MemoryTelemetry())
 
     first = service.dispatch_due_events(batch_size=10)
     assert first.failed == 1
@@ -88,7 +89,7 @@ def test_dispatch_retries_transient_failures_and_eventually_publishes() -> None:
 
 def test_dispatch_moves_permanently_failing_events_to_dead_letter() -> None:
     outbox_repository = _seed_outbox_repository(1)
-    service = DispatchOutboxEventsService(outbox_repository, _AlwaysFailsPublisher(), _JumpingClock())
+    service = DispatchOutboxEventsService(outbox_repository, _AlwaysFailsPublisher(), _JumpingClock(), MemoryTelemetry())
 
     for _ in range(10):
         report = service.dispatch_due_events(batch_size=10)

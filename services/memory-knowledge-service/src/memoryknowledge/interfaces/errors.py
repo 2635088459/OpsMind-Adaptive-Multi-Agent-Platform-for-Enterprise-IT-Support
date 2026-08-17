@@ -19,6 +19,7 @@ from memoryknowledge.application.exceptions import (
     DeletionNotAuthorizedException,
     DocumentAlreadyIngestedException,
     DocumentIngestionFailedException,
+    DocumentNotActiveException,
     GraphNodeNotFoundException,
     GraphTraversalDepthExceededException,
     IdempotencyKeyReusedException,
@@ -27,6 +28,8 @@ from memoryknowledge.application.exceptions import (
     MemoryCandidateNotFoundException,
     MemoryNotFoundException,
     OptimisticConcurrencyConflictException,
+    PoisonEventNotFoundException,
+    PoisonMemorySourceEventException,
     RetrievalAccessDeniedException,
     WorkingMemoryNotFoundException,
     WorkingMemoryScopeConflictException,
@@ -108,6 +111,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         logger.error("document ingestion failed: %s", exc.reason)
         return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=_body("DOCUMENT_INGESTION_FAILED", "Document ingestion failed.", request).model_dump())
 
+    @app.exception_handler(DocumentNotActiveException)
+    async def handle_document_not_active(request: Request, exc: DocumentNotActiveException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body("DOCUMENT_NOT_ACTIVE", "The document is not ACTIVE and cannot be reindexed.", request).model_dump())
+
     @app.exception_handler(IdempotencyKeyReusedException)
     async def handle_idempotency_key_reused(request: Request, exc: IdempotencyKeyReusedException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body("IDEMPOTENCY_KEY_REUSED", "A different idempotency key already produced this result.", request).model_dump())
@@ -123,6 +130,15 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(DeletionNotAuthorizedException)
     async def handle_deletion_not_authorized(request: Request, exc: DeletionNotAuthorizedException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content=_body("DELETION_NOT_AUTHORIZED", "Deletion of this memory is not authorized.", request).model_dump())
+
+    @app.exception_handler(PoisonEventNotFoundException)
+    async def handle_poison_event_not_found(request: Request, exc: PoisonEventNotFoundException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=_body("POISON_EVENT_NOT_FOUND", "The poison event was not found.", request).model_dump())
+
+    @app.exception_handler(PoisonMemorySourceEventException)
+    async def handle_poison_memory_source_event(request: Request, exc: PoisonMemorySourceEventException) -> JSONResponse:
+        logger.error("poison memory source event event_id=%s reason=%s", exc.event_id, exc.reason)
+        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=_body("POISON_EVENT", "The event could not be processed and has been recorded for review.", request).model_dump())
 
     @app.exception_handler(GraphTraversalDepthExceededException)
     async def handle_graph_depth_exceeded(request: Request, exc: GraphTraversalDepthExceededException) -> JSONResponse:

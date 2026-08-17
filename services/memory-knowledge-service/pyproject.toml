@@ -11,9 +11,12 @@ requires-python = ">=3.13"
 # 13-package-and-class-design). SPEC-MK-002 (schema baseline) adds the real
 # `memory` PostgreSQL schema via SQLAlchemy + Alembic, plus pgvector for
 # embedding storage (07-data-model: "使用 PostgreSQL + pgvector"; SPEC-MK-002
-# domain-rules: "pgvector-ready embedding storage"). The real RabbitMQ
-# publisher lands with SPEC-MK-003 (outbox/idempotency/audit baseline).
-# Nothing here is fabricated ahead of the spec that actually wires it.
+# domain-rules: "pgvector-ready embedding storage"). SPEC-MK-003's own original
+# docstring claimed the real RabbitMQ publisher would land there too — it
+# didn't (every phase through SPEC-MK-030 kept LoggingEventPublisherAdapter as
+# the only implementation, each time deferring "to a later spec"); SPEC-MK-031
+# (09-final-verification-release) is the actual spec that builds it, pinning
+# pika the same way agent-runtime-service's own SPEC-ARO-025 does.
 dependencies = [
     "fastapi>=0.118",
     "pydantic>=2.9",
@@ -23,6 +26,10 @@ dependencies = [
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
     "pgvector>=0.3",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+    "pika>=1.3",
 ]
 
 [dependency-groups]
@@ -30,7 +37,8 @@ dev = [
     "pytest>=8.3",
     "httpx>=0.28",
     "import-linter>=2.1",
-    "testcontainers[postgres]>=4.9",
+    "testcontainers[postgres,rabbitmq]>=4.9",
+    "pyflakes>=3.2",
 ]
 
 [build-system]

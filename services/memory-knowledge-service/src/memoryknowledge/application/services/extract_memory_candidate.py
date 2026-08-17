@@ -22,6 +22,7 @@ from memoryknowledge.application.ports_out import (
 )
 from memoryknowledge.application.services.audit import AuditRecorder
 from memoryknowledge.application.services.idempotency import CommandIdempotencyGuard
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import MemoryCandidateView
 from memoryknowledge.domain.enums import MemoryCandidateStatus
 from memoryknowledge.domain.events import MemoryCandidateCreated
@@ -35,10 +36,12 @@ class ExtractMemoryCandidateService:
     def __init__(
         self, memory_candidate_repository: MemoryCandidateRepository, command_idempotency_repository: CommandIdempotencyRepository,
         outbox_repository: OutboxRepository, audit_record_repository: AuditRecordRepository, clock: ClockPort,
+        telemetry: MemoryTelemetry,
     ) -> None:
         self._memory_candidate_repository = memory_candidate_repository
         self._outbox_repository = outbox_repository
         self._clock = clock
+        self._telemetry = telemetry
         self._idempotency_guard = CommandIdempotencyGuard(command_idempotency_repository, clock)
         self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
@@ -81,6 +84,7 @@ class ExtractMemoryCandidateService:
             audit_type="MEMORY", action="extract_candidate", resource_type="MEMORY_CANDIDATE", resource_id=str(saved.candidate_id),
             outcome="SUCCESS", actor_id=command.extracted_by,
         )
+        self._telemetry.record_candidate_created(command.memory_type.name)
         return MemoryCandidateView.from_domain(saved)
 
 

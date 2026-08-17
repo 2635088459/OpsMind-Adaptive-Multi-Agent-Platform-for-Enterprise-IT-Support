@@ -20,6 +20,7 @@ from memoryknowledge.application.ports_out import (
     RedactionPolicyPort,
 )
 from memoryknowledge.application.services.audit import AuditRecorder
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import MemoryCandidateView
 from memoryknowledge.domain.events import MemoryCandidateRejected
 
@@ -28,13 +29,14 @@ class ValidateMemoryCandidateService:
     def __init__(
         self, memory_candidate_repository: MemoryCandidateRepository, memory_repository: MemoryRepository,
         redaction_policy_port: RedactionPolicyPort, outbox_repository: OutboxRepository,
-        audit_record_repository: AuditRecordRepository, clock: ClockPort,
+        audit_record_repository: AuditRecordRepository, clock: ClockPort, telemetry: MemoryTelemetry,
     ) -> None:
         self._memory_candidate_repository = memory_candidate_repository
         self._memory_repository = memory_repository
         self._redaction_policy_port = redaction_policy_port
         self._outbox_repository = outbox_repository
         self._clock = clock
+        self._telemetry = telemetry
         self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
     def validate(self, command: ValidateMemoryCandidateCommand) -> MemoryCandidateView:
@@ -60,6 +62,7 @@ class ValidateMemoryCandidateService:
             previous_status = candidate.status
             candidate = candidate.mark_conflicting(command.conflict_set_id)
             candidate = self._memory_candidate_repository.save(candidate, previous_status)
+            self._telemetry.record_conflict_detected()
             return MemoryCandidateView.from_domain(candidate)
 
         # 02-business-invariants: "DUPLICATE candidate 不能创建新的 Memory，只能链接到既有
@@ -73,6 +76,14 @@ class ValidateMemoryCandidateService:
             previous_status = candidate.status
             candidate = candidate.mark_duplicate(existing_version.memory_id)
             candidate = self._memory_candidate_repository.save(candidate, previous_status)
+        else:
+            # 12-observability §"Metrics": "memory_candidate_approved_total" —
+            # "approved" here means this validation pass landed the candidate at
+            # VALIDATED with neither a conflict nor a duplicate link found; a
+            # CONFLICTING outcome already recorded its own conflict-detected metric
+            # above (and returned early), and a DUPLICATE outcome is not itself an
+            # approval — it never proceeds to PublishMemoryService.
+            self._telemetry.record_candidate_approved()
 
         return MemoryCandidateView.from_domain(candidate)
 
@@ -94,4 +105,5 @@ class ValidateMemoryCandidateService:
             audit_type="MEMORY", action="reject_candidate", resource_type="MEMORY_CANDIDATE", resource_id=str(candidate.candidate_id),
             outcome="SUCCESS", actor_id=command.actor_id, detail=f'{{"reason": "{command.reason}"}}',
         )
+        self._telemetry.record_candidate_rejected()
         return MemoryCandidateView.from_domain(candidate)

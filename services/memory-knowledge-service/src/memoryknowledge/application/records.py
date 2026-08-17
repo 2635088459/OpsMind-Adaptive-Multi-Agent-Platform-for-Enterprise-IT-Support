@@ -110,3 +110,41 @@ class WorkflowTrace:
     workflow_instance_id: str
     task_summaries: tuple[str, ...]
     tool_evidence_refs: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PoisonEventRecord:
+    """SPEC-MK-029 10-failure-handling §"Poison Event": "1. 记录 poison event 表. 2. 不
+    标记 processed，除非明确 quarantine. 3. 支持 admin replay. 4. 不创建 candidate." Mirrors
+    agent-runtime-service's own PoisonEventRecord shape exactly, adapted to this
+    domain's own consumer identity (consumer_name is "consume_ticket_memory_source_event"
+    / "consume_workflow_memory_source_event", not a workflow_instance_id-scoped one —
+    this domain's own event router validates payload *shape* with typed Pydantic
+    request schemas before an application service ever sees it, unlike
+    agent-runtime-service's own raw-envelope consumer, so "poison" here means a
+    payload that parsed fine at the wire but violates an application-level invariant
+    once inside the service (IdempotencyKeyReusedException: the same idempotency key
+    arriving with genuinely different candidate content) — the concrete, actually-
+    reachable analogue of ARO's own "schema 缺字段或违反不变量" trigger in an
+    architecture where a malformed/missing-field payload is already rejected at the
+    FastAPI/Pydantic boundary and never reaches this layer at all.
+
+    Deliberately NOT recorded in processed_events, same reasoning as ARO's own
+    PoisonEventRecord: a poisoned delivery must remain replayable under the same
+    event_id once whatever produced the conflicting payload is fixed upstream —
+    marking it processed would permanently block that replay behind the dedup gate
+    (this domain's own consumer services already never call mark_processed() on any
+    exception path, so this is a continuation of that existing rule, not a new one).
+    """
+
+    id: uuid.UUID
+    event_id: str
+    consumer_name: str
+    event_type: str
+    payload: str
+    error_message: str
+    occurred_at: datetime
+    recorded_at: datetime
+    # SPEC-MK-029 05-api-contracts §"Admin API": "mark poison event quarantined" — None
+    # until an operator flags this row as already triaged.
+    quarantined_at: datetime | None = None

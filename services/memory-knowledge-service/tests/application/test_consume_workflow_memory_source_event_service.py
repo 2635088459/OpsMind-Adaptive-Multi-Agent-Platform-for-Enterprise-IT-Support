@@ -6,8 +6,10 @@ from datetime import UTC, datetime
 import pytest
 
 from memoryknowledge.application.commands import ConsumeWorkflowCompletedCommand, ConsumeWorkflowFailedCommand
+from memoryknowledge.application.exceptions import PoisonMemorySourceEventException
 from memoryknowledge.application.services.consume_workflow_memory_source_event import ConsumeWorkflowMemorySourceEventService
 from memoryknowledge.application.services.extract_memory_candidate import ExtractMemoryCandidateService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.domain.ids import CorrelationId, MemoryCandidateId, TicketId, WorkflowInstanceId
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.persistence.in_memory import (
@@ -15,6 +17,7 @@ from memoryknowledge.infrastructure.persistence.in_memory import (
     InMemoryCommandIdempotencyRepository,
     InMemoryMemoryCandidateRepository,
     InMemoryOutboxRepository,
+    InMemoryPoisonEventRepository,
     InMemoryProcessedEventRepository,
 )
 
@@ -27,9 +30,10 @@ def _build_service():
     extract_service = ExtractMemoryCandidateService(
         candidate_repository, InMemoryCommandIdempotencyRepository(), outbox_repository, InMemoryAuditRecordRepository(),
         SystemClockAdapter(),
+        MemoryTelemetry(),
     )
     processed_event_repository = InMemoryProcessedEventRepository()
-    service = ConsumeWorkflowMemorySourceEventService(processed_event_repository, extract_service, SystemClockAdapter())
+    service = ConsumeWorkflowMemorySourceEventService(processed_event_repository, extract_service, SystemClockAdapter(), InMemoryPoisonEventRepository())
     return service, candidate_repository, outbox_repository, processed_event_repository
 
 
@@ -106,10 +110,47 @@ def test_consume_completed_marks_processed_only_after_a_successful_extraction() 
             raise RuntimeError("extraction backend unavailable")
 
     processed_event_repository = InMemoryProcessedEventRepository()
-    service = ConsumeWorkflowMemorySourceEventService(processed_event_repository, _FailingExtractPort(), SystemClockAdapter())
+    service = ConsumeWorkflowMemorySourceEventService(processed_event_repository, _FailingExtractPort(), SystemClockAdapter(), InMemoryPoisonEventRepository())
     command = _completed_command("evt-wf-poison")
 
     with pytest.raises(RuntimeError):
         service.consume_completed(command)
 
     assert processed_event_repository.is_processed(command.event_id, "consume_workflow_memory_source_event") is False
+
+
+def test_conflicting_workflow_versions_under_the_same_instance_are_recorded_as_a_poison_event() -> None:
+    """SPEC-MK-029 10-failure-handling §"Poison Event" — same IdempotencyKeyReusedException
+    poison-detection shape as ConsumeTicketMemorySourceEventService's own; here the
+    idempotency_key scope is workflow_instance_id + workflow_version.
+    """
+    poison_event_repository = InMemoryPoisonEventRepository()
+    candidate_repository = InMemoryMemoryCandidateRepository()
+    extract_service = ExtractMemoryCandidateService(
+        candidate_repository, InMemoryCommandIdempotencyRepository(), InMemoryOutboxRepository(), InMemoryAuditRecordRepository(),
+        SystemClockAdapter(), MemoryTelemetry(),
+    )
+    processed_event_repository = InMemoryProcessedEventRepository()
+    service = ConsumeWorkflowMemorySourceEventService(processed_event_repository, extract_service, SystemClockAdapter(), poison_event_repository)
+
+    workflow_instance_id, ticket_id = WorkflowInstanceId(uuid.uuid4()), TicketId(uuid.uuid4())
+    first = ConsumeWorkflowCompletedCommand(
+        event_id="evt-wf-first", workflow_instance_id=workflow_instance_id, ticket_id=ticket_id,
+        from_state="IN_PROGRESS", to_state="COMPLETED", workflow_version=5, occurred_at=datetime.now(UTC),
+        correlation_id=CorrelationId.new_id(),
+    )
+    second = ConsumeWorkflowCompletedCommand(
+        event_id="evt-wf-second", workflow_instance_id=workflow_instance_id, ticket_id=ticket_id,
+        from_state="BLOCKED", to_state="COMPLETED", workflow_version=5, occurred_at=datetime.now(UTC),
+        correlation_id=CorrelationId.new_id(),
+    )
+
+    assert service.consume_completed(first) is True
+
+    with pytest.raises(PoisonMemorySourceEventException):
+        service.consume_completed(second)
+
+    assert processed_event_repository.is_processed("evt-wf-second", "consume_workflow_memory_source_event") is False
+    [poison_record] = poison_event_repository.find_all(limit=10)
+    assert poison_record.event_id == "evt-wf-second"
+    assert poison_record.event_type == "workflow.completed.v1"

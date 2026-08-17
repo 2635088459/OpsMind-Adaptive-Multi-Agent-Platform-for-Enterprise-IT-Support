@@ -5,6 +5,7 @@ application service of the matching name in memoryknowledge.application.services
 
 from __future__ import annotations
 
+import uuid
 from typing import Protocol
 
 from memoryknowledge.application.commands import (
@@ -21,7 +22,9 @@ from memoryknowledge.application.commands import (
     IngestKnowledgeDocumentCommand,
     PublishMemoryCommand,
     QueryWorkingMemoryCommand,
+    ReindexDocumentCommand,
     RejectMemoryCandidateCommand,
+    RetryDocumentIngestionCommand,
     SearchMemoryCommand,
     UpdateWorkingMemoryCommand,
     ValidateMemoryCandidateCommand,
@@ -34,6 +37,8 @@ from memoryknowledge.application.views import (
     KnowledgeDocumentView,
     MemoryCandidateView,
     MemoryVersionView,
+    PoisonEventView,
+    RecoveryScanReport,
     SearchResultView,
     WorkingMemoryView,
 )
@@ -86,6 +91,14 @@ class IngestKnowledgeDocumentUseCase(Protocol):
     """05-api-contracts: `POST /internal/memory/v1/admin/documents`."""
 
     def ingest(self, command: IngestKnowledgeDocumentCommand) -> KnowledgeDocumentView: ...
+
+    def retry(self, command: RetryDocumentIngestionCommand) -> KnowledgeDocumentView:
+        """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/retry`."""
+        ...
+
+    def reindex(self, command: ReindexDocumentCommand) -> KnowledgeDocumentView:
+        """SPEC-MK-030 05-api-contracts §"Admin API": `POST .../documents/{documentId}/reindex`."""
+        ...
 
 
 class ExtractMemoryCandidateUseCase(Protocol):
@@ -168,3 +181,56 @@ class AuditRecordQueryPort(Protocol):
     """
 
     def list_audit_events(self, limit: int) -> list[AuditRecordEntry]: ...
+
+
+class PoisonEventQueryPort(Protocol):
+    """SPEC-MK-029 10-failure-handling §"Poison Event" step 4's own admin visibility
+    surface. Implemented directly by PoisonEventQueryService.
+    """
+
+    def list_poison_events(self, limit: int) -> list[PoisonEventView]: ...
+
+
+class PoisonEventCommandPort(Protocol):
+    """SPEC-MK-029 05-api-contracts §"Admin API": "mark poison event quarantined."
+    Implemented directly by PoisonEventQueryService — kept as a separate Protocol from
+    PoisonEventQueryPort so the pure-visibility surface stays undisturbed for any
+    caller that only ever needs to list, mirroring agent-runtime-service's own
+    PoisonEventQueryPort/PoisonEventCommandPort split.
+    """
+
+    def mark_quarantined(self, id: uuid.UUID) -> PoisonEventView: ...
+
+
+class RecoveryPort(Protocol):
+    """SPEC-MK-029 10-failure-handling §"Recovery Workers". Not named in
+    13-package-and-class-design's own "Input ports" bullet list (mirrors
+    OutboxDispatchPort's own absence there) — an operational surface, not a domain use
+    case. Implemented directly by RecoverMemoryOperationsService.
+    """
+
+    def scan_and_recover_ingestion(self, batch_size: int) -> RecoveryScanReport:
+        """10-failure-handling: "ingestion recovery：扫描 stuck document" /
+        "embedding recovery：扫描 pending / failed retryable job" — one scan covers
+        both bullets in this codebase's own architecture: IngestKnowledgeDocumentService
+        runs parse→chunk→embed→graph→index synchronously in one call, so a document
+        stuck anywhere between RECEIVED and INDEXED *is* the unrecovered
+        embedding/ingestion job, not two independent failure surfaces.
+        """
+        ...
+
+    def scan_and_recover_publish_graph(self, batch_size: int) -> RecoveryScanReport:
+        """10-failure-handling: "graph recovery：扫描 graph extraction/upsert failed
+        jobs" — an ACTIVE MemoryVersion missing its own MEMORY_VERSION graph node
+        indicates a crash between PublishMemoryService's own version-save and its
+        graph-upsert step; recovery re-runs the (idempotent, stable-key-deduped)
+        upsert for it.
+        """
+        ...
+
+    def scan_and_recover_retention(self, batch_size: int) -> RecoveryScanReport:
+        """10-failure-handling: "retention recovery：扫描 partially applied deletion" —
+        see GraphNodeRepository.find_by_type_and_status()'s own docstring for the
+        detection shape this reuses.
+        """
+        ...

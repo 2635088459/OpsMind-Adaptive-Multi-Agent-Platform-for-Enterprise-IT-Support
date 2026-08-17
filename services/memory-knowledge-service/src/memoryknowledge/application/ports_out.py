@@ -11,8 +11,15 @@ from datetime import datetime
 from typing import Protocol
 
 from memoryknowledge.application.commands import GraphEntityInput, GraphRelationInput
-from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord, TicketSnapshot, WorkflowTrace
-from memoryknowledge.domain.enums import GraphNodeType, MemoryCandidateStatus, MemoryType, MemoryVersionStatus
+from memoryknowledge.application.records import (
+    AuditRecordEntry,
+    CommandIdempotencyRecord,
+    OutboxRecord,
+    PoisonEventRecord,
+    TicketSnapshot,
+    WorkflowTrace,
+)
+from memoryknowledge.domain.enums import GraphNodeStatus, GraphNodeType, MemoryCandidateStatus, MemoryType, MemoryVersionStatus
 from memoryknowledge.domain.ids import (
     GraphEdgeId,
     GraphNodeId,
@@ -147,6 +154,20 @@ class KnowledgeDocumentRepository(Protocol):
         """
         ...
 
+    def find_stuck(self, statuses: tuple[str, ...], older_than: datetime, limit: int) -> list[KnowledgeDocument]:
+        """SPEC-MK-029 10-failure-handling §"Recovery Workers": "ingestion recovery：扫描
+        stuck document." `IngestKnowledgeDocumentService.ingest()` is fully synchronous
+        (RECEIVED through ACTIVE/FAILED in one call), so a row still sitting in any
+        non-terminal `statuses` (RECEIVED/PARSED/CHUNKED/EMBEDDED/INDEXED) once it is
+        older than `older_than` can only mean the process crashed mid-call — never a
+        request still legitimately in flight, which this codebase's own synchronous
+        pipeline never leaves visible to a separate scan for more than the length of
+        one HTTP request. `older_than` is still applied (not "any non-terminal row at
+        all") purely as a defensive grace period against racing a request that is
+        still genuinely in progress.
+        """
+        ...
+
 
 class EmbeddingRepository(Protocol):
     """Stores the vector an EmbeddingProvider produced, keyed by its EmbeddingRef —
@@ -190,6 +211,17 @@ class GraphNodeRepository(Protocol):
         ...
 
     def find_by_ids(self, node_ids: tuple[GraphNodeId, ...]) -> list[GraphNode]: ...
+
+    def find_by_type_and_status(self, node_type: GraphNodeType, status: GraphNodeStatus, limit: int) -> list[GraphNode]:
+        """SPEC-MK-029 10-failure-handling §"Recovery Workers": "retention recovery：
+        扫描 partially applied deletion" — the bounded scan target: a still-VISIBLE
+        MEMORY node whose Memory has no remaining non-deleted version indicates a
+        crash between `ExecuteRetentionService._do_delete()`'s own version-delete
+        loop (which runs first) and its final graph-tombstone step. Reused with
+        GraphNodeType.MEMORY_VERSION for admin reindex (SPEC-MK-030) — the same
+        "enumerate everything of one type" shape, different caller.
+        """
+        ...
 
 
 class GraphEdgeRepository(Protocol):
@@ -383,3 +415,26 @@ class GraphRerankerPort(Protocol):
     """
 
     def rerank(self, results: tuple[RetrievalResultItem, ...], graph_paths: tuple[GraphPath, ...]) -> tuple[RetrievalResultItem, ...]: ...
+
+
+class PoisonEventRepository(Protocol):
+    """SPEC-MK-029 10-failure-handling §"Poison Event": "写入 poison event 表" — a
+    separate table from processed_events/outbox_events, since a poisoned delivery is
+    neither "already applied" nor "waiting to be published"; it is parked for manual
+    investigation and possible replay. Mirrors agent-runtime-service's own
+    PoisonEventRepository shape exactly.
+    """
+
+    def record(self, record: PoisonEventRecord) -> PoisonEventRecord: ...
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        """Newest first — the admin visibility surface a human uses to see what needs
+        fixing before replaying (10-failure-handling step 4).
+        """
+        ...
+
+    def find_by_id(self, id: uuid.UUID) -> PoisonEventRecord | None: ...
+
+    def mark_quarantined(self, id: uuid.UUID, quarantined_at: datetime) -> None:
+        """05-api-contracts §"Admin API": "mark poison event quarantined"."""
+        ...

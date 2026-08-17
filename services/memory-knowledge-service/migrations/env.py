@@ -2,7 +2,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 
@@ -43,6 +43,21 @@ def include_object(object, name, type_, reflected, compare_to):
     return True
 
 
+# SPEC-MK-032 final coverage audit: the shared Postgres database is also
+# agent-runtime-service's own — its `migrations/env.py` never sets
+# `version_table_schema` either, so without one here both services' alembic
+# histories would collide in the very same default `public.alembic_version` table
+# (confirmed by inspecting the shared database: it already tracks
+# agent-runtime-service's own head revision, a revision id this repo's own
+# migration chain doesn't contain at all). Scoping this service's own version
+# table to its own dedicated `memory` schema — the same isolation
+# 07-data-model §"Schema" already requires of every real table — closes that
+# collision. `CREATE SCHEMA IF NOT EXISTS` must run before context.configure()
+# itself: alembic creates `<schema>.alembic_version` on its own, but never the
+# schema that's meant to contain it.
+_VERSION_TABLE_SCHEMA = Base.metadata.schema
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -52,6 +67,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
         include_object=include_object,
+        version_table_schema=_VERSION_TABLE_SCHEMA,
     )
 
     with context.begin_transaction():
@@ -66,11 +82,14 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {_VERSION_TABLE_SCHEMA}"))
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             include_schemas=True,
             include_object=include_object,
+            version_table_schema=_VERSION_TABLE_SCHEMA,
         )
 
         with context.begin_transaction():

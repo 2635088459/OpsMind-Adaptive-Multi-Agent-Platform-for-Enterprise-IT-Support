@@ -6,6 +6,7 @@ import pytest
 
 from memoryknowledge.application.commands import RejectMemoryCandidateCommand, ValidateMemoryCandidateCommand
 from memoryknowledge.application.services.validate_memory_candidate import ValidateMemoryCandidateService
+from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.domain.enums import MemoryType
 from memoryknowledge.domain.ids import MemoryCandidateId, MemoryId, MemoryVersionId
 from memoryknowledge.domain.memory import Memory, MemoryVersion
@@ -33,7 +34,7 @@ def _build_service():
     outbox_repository = InMemoryOutboxRepository()
     service = ValidateMemoryCandidateService(
         candidate_repository, memory_repository, RegexRedactionPolicyAdapter(), outbox_repository,
-        InMemoryAuditRecordRepository(), SystemClockAdapter(),
+        InMemoryAuditRecordRepository(), SystemClockAdapter(), MemoryTelemetry(),
     )
     return service, candidate_repository, memory_repository, outbox_repository
 

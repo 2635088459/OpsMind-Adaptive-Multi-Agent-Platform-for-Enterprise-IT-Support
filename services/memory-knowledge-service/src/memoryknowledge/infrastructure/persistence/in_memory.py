@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 
 from memoryknowledge.application.exceptions import OptimisticConcurrencyConflictException, WorkingMemoryScopeConflictException
-from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord
+from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord, PoisonEventRecord
 from memoryknowledge.domain.enums import GraphNodeStatus, MemoryVersionStatus, OutboxStatus
 from memoryknowledge.domain.exceptions import WorkingMemoryVersionConflictException
 from memoryknowledge.domain.ids import (
@@ -212,6 +212,13 @@ class InMemoryKnowledgeDocumentRepository:
                 break
         return results[:limit]
 
+    def find_stuck(self, statuses: tuple[str, ...], older_than: datetime, limit: int) -> list[KnowledgeDocument]:
+        matches = [
+            document for document in self._by_id.values()
+            if document.ingestion_status.name in statuses and document.created_at < older_than
+        ]
+        return matches[:limit]
+
 
 class InMemoryEmbeddingRepository:
     def __init__(self) -> None:
@@ -254,6 +261,10 @@ class InMemoryGraphNodeRepository:
 
     def find_by_ids(self, node_ids: tuple[GraphNodeId, ...]) -> list[GraphNode]:
         return [self._by_id[node_id] for node_id in node_ids if node_id in self._by_id]
+
+    def find_by_type_and_status(self, node_type, status, limit: int) -> list[GraphNode]:
+        matches = [node for node in self._by_id.values() if node.node_type is node_type and node.status is status]
+        return matches[:limit]
 
 
 class InMemoryGraphEdgeRepository:
@@ -360,3 +371,23 @@ class InMemoryAuditRecordRepository:
 
     def find_recent(self, limit: int) -> list[AuditRecordEntry]:
         return list(reversed(self._entries[-limit:]))
+
+
+class InMemoryPoisonEventRepository:
+    def __init__(self) -> None:
+        self._records: dict[uuid.UUID, PoisonEventRecord] = {}
+
+    def record(self, record: PoisonEventRecord) -> PoisonEventRecord:
+        self._records[record.id] = record
+        return record
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        return list(reversed(list(self._records.values())))[:limit]
+
+    def find_by_id(self, id: uuid.UUID) -> PoisonEventRecord | None:
+        return self._records.get(id)
+
+    def mark_quarantined(self, id: uuid.UUID, quarantined_at: datetime) -> None:
+        existing = self._records.get(id)
+        if existing is not None:
+            self._records[id] = dataclasses.replace(existing, quarantined_at=quarantined_at)
