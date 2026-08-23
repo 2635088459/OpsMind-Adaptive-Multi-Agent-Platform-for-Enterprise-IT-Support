@@ -1,0 +1,62 @@
+SPEC-PG-006:
+  domain: 06-policy-approval-governance
+  name: Decision Evaluate API
+  cn_name: Decision Evaluate API
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-01-policy-model-and-decision-engine
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    This spec's own LLD mapping (05-api-contracts + 09-concurrency-and-idempotency) was, by the
+    time it started, already mostly real from SPEC-PG-001/003/005: POST /policy-decisions:evaluate
+    already existed with the full request/response shape, decisionKey+inputHash idempotency, and
+    a DecisionKeyConflictException -> 409 mapping. Two real gaps remained.
+
+    (1) 05-api-contracts' illustrative evaluate-request example omits policyId, implying
+    scope-based auto-resolution, but no such resolution algorithm exists anywhere in the LLD
+    (no "policy scope" matching rule, no precedence order for overlapping scopes). This is a
+    consequential, ambiguous design decision — a wrong guess here would need to be undone by
+    every later spec that calls this endpoint — so it was escalated via AskUserQuestion rather
+    than guessed. Decision: keep the explicit policyId field in EvaluateDecisionRequest /
+    EvaluateDecisionCommand as-is; scope-based auto-resolution is explicitly NOT implemented.
+
+    (2) 09-concurrency-and-idempotency and 10-failure-handling require the evaluate path to fail
+    closed if the rule evaluator itself throws (distinct from "no effective policy version
+    found", which SPEC-PG-005 already handled). PolicyDecisionService#evaluate now wraps
+    evaluateAgainst in a try/catch: any RuntimeException from the evaluator is caught, recorded
+    via GovernanceMetricsPort#recordPolicyEvaluationFailure, logged, and produces the same
+    fail-safe DENY/evaluationFailed=true snapshot as the missing-version path, but tagged
+    ReasonCode.EVALUATOR_UNAVAILABLE instead of POLICY_VERSION_NOT_FOUND — so a caller reading
+    only `effect` still fails closed regardless of which fail-safe branch fired.
+
+    Also added, since 05-api-contracts explicitly lists it under the Decision API and no prior
+    spec had built it: GET /policy-decisions/{policyDecisionId}, backed by a new
+    PolicyDecisionService#findById (read-only transaction) and PolicyDecisionNotFoundException
+    (-> 404 POLICY_DECISION_NOT_FOUND) in GlobalRestExceptionHandler. The
+    PolicyDecisionRepository port already exposed findById from SPEC-PG-001, so no new
+    persistence/migration work was needed. Deliberately left out of this spec's scope: nested
+    subject/action/resource request DTOs (the api-contract's example nests them, but the existing
+    flat EvaluateDecisionRequest shape was already established by SPEC-PG-001 and reshaping it is
+    a breaking API change with no spec calling for it yet); an actionName field; and audit-query
+    filters by ticketId/sourceRequestId (that is GovernanceAuditController's own gap, not this
+    endpoint's, and out of this spec's LLD mapping).
+
+    71/71 tests pass (`./mvnw verify`): 62 unit (2 new PolicyDecisionServiceTest assertions for
+    findById success/not-found, 2 new PolicyDecisionControllerTest MockMvc assertions for GET
+    /policy-decisions/{id} success/404, plus the evaluator-failure fail-closed test already
+    covered) + 9 Testcontainers integration (unchanged from PG-005).
+  lld_mapping:
+    - 05-api-contracts
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyDecisionServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/PolicyDecisionControllerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/GovernanceOutboxIT.java
+    result: "71 passed (62 unit + 9 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

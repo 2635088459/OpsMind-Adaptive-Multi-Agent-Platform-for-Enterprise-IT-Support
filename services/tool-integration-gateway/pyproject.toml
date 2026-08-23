@@ -1,0 +1,118 @@
+[project]
+name = "tool-integration-gateway"
+version = "0.1.0"
+description = "OpsMind Tool Integration Gateway"
+requires-python = ">=3.13"
+
+# Module Foundation.
+#
+# SPEC-TG-001 establishes module/package boundaries with in-memory placeholder
+# adapters (docs/low-level-design/domains/05-tool-integration-gateway/
+# 13-package-and-class-design). Real PostgreSQL persistence lands in SPEC-TG-002
+# (schema baseline); the real RabbitMQ outbox publisher, processed-event
+# deduplication, and audit persistence land in SPEC-TG-003
+# (outbox/processed-event/audit baseline) — mirroring the sibling
+# memory-knowledge-service's own SPEC-MK-001/002/003 split exactly.
+dependencies = [
+    "fastapi>=0.118",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "pika>=1.3",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "import-linter>=2.1",
+    "pyflakes>=3.2",
+    "testcontainers[postgres,rabbitmq]>=4.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tool_gateway"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "unit: fast, no external I/O",
+    "integration: requires Docker (Postgres/RabbitMQ via testcontainers)",
+]
+
+[tool.importlinter]
+root_packages = ["tool_gateway"]
+include_external_packages = true
+
+# 13-package-and-class-design §"Dependency Direction": "domain does not depend on
+# framework, database, broker, or connector SDK. application depends on domain and
+# ports. adapters implement ports. api calls application services. workers call
+# application services and do not manipulate database directly." Mirrors
+# memory-knowledge-service's own import-linter contracts (see that service's
+# pyproject.toml for the sibling precedent) adjusted for this domain's own
+# api/application/domain/ports/adapters/workers split (ports and adapters are
+# top-level packages here, not nested under application/infrastructure as in
+# memory-knowledge-service).
+[[tool.importlinter.contracts]]
+name = "Layers: api/workers -> application -> domain"
+type = "layers"
+layers = [
+    "tool_gateway.api",
+    "tool_gateway.workers",
+    "tool_gateway.application",
+    "tool_gateway.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain must not depend on the web/ORM frameworks or any other layer"
+type = "forbidden"
+source_modules = ["tool_gateway.domain"]
+forbidden_modules = [
+    "fastapi",
+    "pydantic",
+    "sqlalchemy",
+    "uvicorn",
+    "pika",
+    "tool_gateway.ports",
+    "tool_gateway.application",
+    "tool_gateway.adapters",
+    "tool_gateway.api",
+    "tool_gateway.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "Ports must depend only on domain, never on adapters/application/api/workers"
+type = "forbidden"
+source_modules = ["tool_gateway.ports"]
+forbidden_modules = [
+    "tool_gateway.adapters",
+    "tool_gateway.application",
+    "tool_gateway.api",
+    "tool_gateway.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "Application must not depend on adapters"
+type = "forbidden"
+source_modules = ["tool_gateway.application"]
+forbidden_modules = ["tool_gateway.adapters"]
+
+# "api/workers must not depend on adapters directly" is enforced by
+# tests/architecture/test_api_boundary.py instead of an import-linter "forbidden"
+# contract: that contract type follows the whole transitive import graph, which
+# would also flag every router's legitimate `api -> tool_gateway.container ->
+# adapters` composition-root edge (tool_gateway.container is the one module
+# allowed to wire concrete adapters — see its own docstring). The AST-based test
+# checks only *direct* imports, which is the rule that actually matters here.
+# Mirrors memory-knowledge-service's own test_interfaces_boundary.py precedent.

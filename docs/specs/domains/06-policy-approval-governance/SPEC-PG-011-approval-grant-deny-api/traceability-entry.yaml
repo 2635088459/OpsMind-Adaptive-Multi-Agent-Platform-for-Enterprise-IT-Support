@@ -1,0 +1,67 @@
+SPEC-PG-011:
+  domain: 06-policy-approval-governance
+  name: Approval Grant Deny API
+  cn_name: Approval Grant/Deny API
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-02-approval-lifecycle
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    This spec's own goal ("implement grant/deny commands, final-decision uniqueness, and
+    concurrent approval conflict handling") was, by the time it started, already mostly built —
+    ApprovalController's :grant/:deny endpoints and ApprovalService#decide (pessimistic locking
+    via findByIdForUpdate, requester-cannot-approve-own-request guard, authorized-approver check,
+    separation-of-duties-required-for-APPROVED guard, ApprovalAlreadyDecidedException conflict
+    handling, and audit-on-conflict) all existed since SPEC-PG-001/003. Two real, narrow gaps
+    remained, both directly named in this spec's own LLD mapping.
+
+    (1) 09-concurrency-and-idempotency §Idempotency Keys names "approval command: approvalRequestId
+    + commandIdempotencyKey" as its own distinct key type, and 05-api-contracts says plainly
+    "every command must include idempotency key" — but no such field existed anywhere in
+    DecideApprovalRequest/DecideApprovalCommand/ApprovalDecision; the existing "same attempt"
+    replay check was a two-way heuristic (decision outcome + decidedBy only), which could
+    wrongly treat two genuinely different attempts as the same retry if they happened to share
+    an outcome and actor. Added ApprovalDecision#commandIdempotencyKey (required, mirroring
+    decidedBy's existing non-blank enforcement), threaded through DecideApprovalCommand,
+    DecideApprovalRequest (new required API field), ApprovalController, and a new migration
+    (V013) + JPA column. ApprovalService#decide's "sameAttempt" check is now a strict three-way
+    match (commandIdempotencyKey + decision + decidedBy) — a real behavioral improvement: a
+    different command that happens to share outcome and actor is now correctly rejected as a
+    conflict rather than silently treated as an idempotent replay.
+
+    (2) The :grant/:deny endpoints had zero MockMvc-level test coverage — ApprovalControllerTest
+    (added SPEC-PG-010) stubbed both with UnsupportedOperationException, deferring their
+    exercise to this spec by construction. Added grant/deny happy-path tests and an
+    ApprovalAlreadyDecidedException -> 409 mapping test.
+
+    Deliberately NOT touched, per phase boundaries confirmed via the implementation-plan spec
+    table: the full identity/RBAC/permission model behind IdentityAuthorizationPort (despite
+    that port's own javadoc loosely naming "and SPEC-PG-011" — phase-03's own spec breakdown,
+    written after that javadoc, makes clear SPEC-PG-014/015 own RBAC/ABAC and the real
+    separation-of-duties evaluation, not this spec); signature/session step-up validation
+    (phase-03 SPEC-PG-016 Approval Authenticity Step Up, 11-security — also loosely named in
+    ApprovalDecision's old javadoc, now corrected); and CancelApprovalRequest/ApprovalService#cancel
+    (SPEC-PG-012 Approval Expiry Cancel's own job — cancel() has no idempotency guard at all
+    today and would throw IllegalApprovalTransitionException on a retry, a real gap but out of
+    this spec's scope).
+
+    97/97 tests pass (`./mvnw verify`): 85 unit (1 new ApprovalDecisionTest case for the new
+    required field; 1 new ApprovalServiceTest case proving same-outcome-different-key is still a
+    conflict; 3 new ApprovalControllerTest cases for grant/deny/conflict) + 12 Testcontainers
+    integration (unchanged from PG-010, migration V013 applies cleanly).
+  lld_mapping:
+    - 05-api-contracts
+    - 03-state-machine
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalDecisionTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/ApprovalControllerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "97 passed (85 unit + 12 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

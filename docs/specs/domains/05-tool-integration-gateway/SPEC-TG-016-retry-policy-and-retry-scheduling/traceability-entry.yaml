@@ -1,0 +1,49 @@
+SPEC-TG-016:
+  domain: 05-tool-integration-gateway
+  name: Retry Policy And Retry Scheduling
+  cn_name: Retry Policy 与重试调度
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-04-retry-reconciliation-cancellation
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    UC-TG-004 steps 3-4: "Gateway creates the next attempt based on retry policy. If max
+    attempts are reached, ToolRequest enters TERMINAL_FAILED" — SPEC-TG-001 deliberately
+    left this undriven (see execute_tool_request.py's own prior deferral note): a
+    retryable FAILED outcome just parked the ToolRequest at bare FAILED forever, with no
+    caller ever driving ToolRequest.retry()/terminal_fail() (both existed unused since
+    TG-001). Added application.retry_helpers (is_retry_allowed() combines the
+    connector's own ExecutionOutcome.retryable classification with attempt_number <
+    RetryPolicy.max_attempts; compute_retry_not_before() applies RetryPolicy.
+    backoff_seconds) — shared by execute_tool_request's own FAILED branch and
+    reconcile_execution's own confirmed-failure branch (SPEC-TG-017). A retried request
+    re-enters QUEUED via ToolExecution.schedule_retry() (a bookkeeping marker only — the
+    real next attempt is a fresh ToolExecution row the next execute_tool_request claim
+    creates) and a new domain.tool_request.ToolRequest.retry_not_before field (07-data-
+    model never named this column; added via migration a2f6c1e4b7d3, same precedent as
+    SPEC-TG-012's credential_bindings.created_at) — ToolRequestRepository.find_queued()
+    signature changed to find_queued(now, limit) to exclude any row still backing off.
+    Also closed a related 07-data-model gap: tool_executions.error_code/.retryable were
+    real columns since SPEC-TG-002 with no domain field ever carrying them (every write
+    silently persisted NULL/false) — added to domain.tool_execution.ToolExecution,
+    populated by fail_invoking()/reconcile_terminal_fail(). Publishes a new
+    tool.execution.retry_scheduled.v1 (06-event-contracts: "Published after retryable
+    failure schedules another attempt" — previously never published at all) on retry,
+    and a real tool.completed.v1 (status TERMINAL_FAILED, carrying the actual failed
+    execution's connectorId/errorCode) once attempts are exhausted — the FAILED branch
+    never published any event before this spec.
+  lld_mapping:
+    - 10-failure-handling
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py (test_execute_retryable_failure_with_attempts_remaining_reschedules_to_queued, test_execute_retryable_failure_exhausting_max_attempts_reaches_terminal_failed, test_execute_non_retryable_failure_reaches_terminal_failed_on_first_attempt)
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py (test_find_queued_excludes_requests_still_backing_off_against_real_postgres, test_tool_execution_error_code_and_retryable_round_trip_against_real_postgres)
+    result: "115 passed (95 unit/application/architecture/e2e + 20 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

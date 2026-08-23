@@ -1,0 +1,35 @@
+SPEC-TG-015:
+  domain: 05-tool-integration-gateway
+  name: Tool Completed Event Publication
+  cn_name: tool.completed 事件发布
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-03-execution-worker-and-connectors
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    06-event-contracts §"tool.completed.v1" names a much wider field set than SPEC-TG-001's
+    original success-path publish (which only carried toolRequestId/executionId/status/
+    summary) — ticketId/ticketCycleId/workflowInstanceId/agentTaskId/capabilityName/
+    connectorId/structuredOutput/resultEnvelopeId/evidenceRefs/redactionStatus/errorCode/
+    retryable were all missing from the SUCCESS branch (the POLICY_DENIED/APPROVAL_DENIED/
+    rejected branches already used the shared outbox_events builders that had the full
+    set). Added application.outbox_events.build_success_completed_event(), the same
+    shared-builder pattern the other completion paths already followed, and wired it into
+    execute_tool_request.py's SUCCESS branch, replacing the old ad-hoc OutboxRecord
+    construction. status is mapped through a small _EVENT_STATUS_NAMES table
+    (ResultStatus.SUCCESS -> "SUCCEEDED") to match 06-event-contracts' own literal enum
+    naming instead of leaking the internal ResultStatus.name spelling.
+  lld_mapping:
+    - 06-event-contracts
+    - 08-transaction-and-outbox
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py::test_tool_completed_event_carries_full_06_event_contracts_field_set
+    result: "86 passed (68 unit/application/architecture/e2e + 18 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

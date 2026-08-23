@@ -1,0 +1,63 @@
+SPEC-PG-008:
+  domain: 06-policy-approval-governance
+  name: Decision Constraints And Policy Version Snapshot
+  cn_name: Decision Constraints 与 Policy Version Snapshot
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-01-policy-model-and-decision-engine
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    This spec's own goal ("ensure every decision stores policy version, constraints, reason
+    codes, and avoids policy version races") was, by the time it started, already fully true as
+    production code — not a gap in behavior, but a gap in verification:
+
+    - INV-PG-002 ("Policy Decisions Must Be Explainable": inputHash, policy id/version, reason
+      codes, constraints, evaluatedAt) has been enforced by PolicyDecision's own compact
+      constructor since SPEC-PG-001 (non-null policyId/policyVersion/inputHash/evaluatedAt,
+      non-empty reasonCodes).
+    - INV-PG-006 ("Policy Versions Must Not Rewrite History") has been enforced by
+      PolicyVersion#withRules throwing PolicyVersionImmutableException once PUBLISHED, also since
+      PG-001.
+    - The "Policy Version Race" invariant (09-concurrency-and-idempotency: "the effective version
+      is selected once ... a concurrently committed new version cannot retroactively change a
+      decision already in flight") was already true by construction — PolicyDecisionService reads
+      PolicyVersionRepository#findEffectiveVersion exactly once per evaluate() call and builds the
+      decision from that already-fetched Java object, never re-querying — but nothing tested it.
+
+    Re-reading the LLD mapping (02-business-invariants + 09-concurrency-and-idempotency) against
+    the actual test suite surfaced two real, narrow coverage gaps rather than behavior gaps:
+
+    (1) No test proved the Policy Version Race invariant end-to-end. Added
+    PolicyDecisionServiceTest#bindsTheEffectiveVersionChosenAtEvaluationStartDespiteAConcurrentPublish:
+    a RuleEvaluatorPort test double that, mid-evaluate(), saves a second newly-PUBLISHED policy
+    version into the repository (simulating a concurrent PolicyAdminService#publish committing
+    while this evaluation is in flight) before returning its result. Asserts the in-flight
+    decision still binds policyVersion="1" (the version it was handed), and that a second, later
+    evaluate() call correctly now observes the newly published version 2 — proving the race window
+    is closed by construction, not by accident.
+
+    (2) No test exercised a non-empty `constraints` list through the real Postgres jsonb column
+    (07-data-model §policy_decisions) — every prior GovernancePersistenceIT decision used an empty
+    list, so a real (de)serialization bug in PolicyDecisionMapper/JsonSupport could have gone
+    undetected, matching a recurring bug category already seen in this project's other domains
+    ("a real DB column exists but is never exercised with real data"). Added
+    policyDecisionConstraintsRoundTripThroughPostgresJsonb with two distinct Constraint entries;
+    round-trips correctly — no bug found, but the gap in verification is now closed.
+
+    79/79 tests pass (`./mvnw verify`): 69 unit (1 new PolicyDecisionServiceTest race test) + 10
+    Testcontainers integration (1 new GovernancePersistenceIT constraints round-trip test).
+  lld_mapping:
+    - 02-business-invariants
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyDecisionServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "79 passed (69 unit + 10 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

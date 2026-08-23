@@ -1,0 +1,40 @@
+SPEC-TG-012:
+  domain: 05-tool-integration-gateway
+  name: Credential Binding Invocation Preparation
+  cn_name: Credential Binding 与调用准备
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-03-execution-worker-and-connectors
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    01-domain-model §"CredentialBinding" and 11-security §"Credential Management":
+    "Connector invocation fetches short-lived credentials on demand" — SPEC-TG-002
+    shipped the durable credential_bindings table but nothing ever wrote to it;
+    execute_tool_request's own credential_port.resolve() call returned an ephemeral
+    CredentialHandle built fresh on every single invocation, with no persisted
+    CredentialBinding backing it at all. Added domain.credential_binding.CredentialBinding
+    (create/mark_used/revoke — every field restricted to vault_ref/scope/rotation/status/
+    lastUsedAt, structurally incapable of holding a secret value, per 11-security's own
+    "Gateway database stores only vault_ref, scope, rotation version, and status").
+    Rewrote adapters.credentials.vault_adapter.InMemoryVaultCredentialAdapter to accept a
+    new ports.storage_port.CredentialBindingRepository (InMemory + Postgres
+    implementations) and reuse an existing ACTIVE binding for the same (connector, scope)
+    rather than minting a new vault_ref per call, bumping last_used_at on every resolve.
+    Added migration 1b756c29ea89 for CredentialBindingRow.created_at (needed by the
+    domain factory, not itself in 07-data-model's own column list — see that row model's
+    own docstring; safe since the table had zero writers before this spec).
+  lld_mapping:
+    - 01-domain-model
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py::test_execute_resolves_and_reuses_credential_binding_for_same_connector_scope
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py::test_credential_binding_create_and_reuse_against_real_postgres
+    result: "86 passed (68 unit/application/architecture/e2e + 18 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

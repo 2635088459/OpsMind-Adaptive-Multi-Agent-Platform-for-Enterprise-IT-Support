@@ -1,0 +1,40 @@
+SPEC-TG-029:
+  domain: 05-tool-integration-gateway
+  name: Connector Admin Lifecycle API
+  cn_name: Connector Admin Lifecycle API
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-07-observability-audit-admin
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    05-api-contracts named GET /connectors/{id} as part of the Connector Admin API surface,
+    but ConnectorView (application/views.py) exposed almost none of the registered manifest —
+    only name/version/capability names and a couple of flags — giving admins zero visibility
+    into a connector's own network/timeout/retry/secret policy short of reading the database
+    directly. Extended ConnectorView with 9 new fields (side_effect_kind,
+    secret_requirements, allowed_hosts, deny_by_default, connect_timeout_seconds,
+    invoke_timeout_seconds, max_attempts, backoff_seconds, allowed_requester_types), all
+    populated from the connector's own network_policy/timeout_policy/retry_policy/
+    allowed_requester_types. Added RegisterConnectorService.find_connector(connector_id) and
+    a GET /internal/tool-gateway/v1/connectors/{connector_id} route
+    (api/connector_admin_routes.py). Reuses the pre-existing ConnectorNotFoundException ->
+    503/CONNECTOR_UNAVAILABLE mapping for an unknown id rather than introducing a second,
+    competing not-found meaning for the same connector_id concept (that exception/handler pair
+    already exists since SPEC-TG-003's own registry lookup, used at execution time for "this
+    connector's adapter is not available"); a lookup for a never-registered id maps to the same
+    code path deliberately.
+  lld_mapping:
+    - 05-api-contracts
+    - 03-state-machine
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    application: services/tool-integration-gateway/tests/application/test_full_flow.py (test_find_connector_returns_full_manifest, test_find_connector_raises_for_unknown_id)
+    http: services/tool-integration-gateway/tests/test_app.py (test_connector_lookup_by_id_returns_full_manifest_via_http)
+    result: "156 passed (130 unit/application/architecture/e2e/contract + 26 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs"

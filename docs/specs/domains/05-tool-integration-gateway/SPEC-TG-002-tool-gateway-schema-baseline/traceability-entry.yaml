@@ -1,0 +1,62 @@
+SPEC-TG-002:
+  domain: 05-tool-integration-gateway
+  name: Tool Gateway Schema Baseline
+  cn_name: Tool Gateway schema baseline
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-00-engineering-foundation
+  tech_stack: "Python 3.13+ / SQLAlchemy 2.x / Alembic / psycopg3, per this domain's own SPEC-TG-001 resolution (see that spec's traceability-entry.yaml)"
+  implementation_notes: >
+    Real PostgreSQL schema baseline delivered under services/tool-integration-gateway: a
+    dedicated `tool` schema (technology-baseline §7) with all eight 07-data-model tables
+    (tool_requests, tool_executions, tool_connectors, tool_results, credential_bindings,
+    tool_audit_records, outbox_events, processed_events), their documented unique
+    keys/indexes, and Postgres-backed implementations of every
+    ports.storage_port repository Protocol (adapters/db/postgres_repositories.py),
+    selected via Settings.tool_gateway_persistence ("postgres" is now the container's
+    real-run default; hermetic tests explicitly opt into "memory" — mirrors
+    memory-knowledge-service's own SPEC-MK-002 precedent exactly, including its
+    "real cross-repository transaction boundaries land with a later spec" honest scope
+    note in postgres_repositories.py's own module docstring — no such later spec has
+    landed for that service even after 32 specs, so this is this codebase's accepted
+    steady state, not a shortcut). ToolRequest gained a `payload_hash` field and the
+    idempotency lookup widened to the 07-data-model-mandated composite key
+    (workflow_instance_id, agent_task_id, idempotency_key) with real
+    IDEMPOTENCY_CONFLICT detection on a mismatched payload hash
+    (09-concurrency-and-idempotency §"Tool Request Idempotency") — a real domain/
+    application extension beyond SPEC-TG-001's own scope, done here because 07-data-model
+    is this spec's own LLD mapping. Alembic migrations (migrations/versions/
+    33c0a5358f30_create_tool_schema.py) run cleanly against the shared local Postgres
+    instance (verified directly, not just via testcontainers) with the same
+    version-table-schema-collision guard memory-knowledge-service's own SPEC-MK-032
+    fix established. A real Postgres foreign-key constraint
+    (tool_results.execution_id -> tool_executions.id) caught a genuine SPEC-TG-001 bug
+    invisible to the in-memory adapter's own test suite: execute_tool_request.py never
+    persisted the ToolExecution row until the attempt already resolved, so a completing
+    attempt's ToolResultEnvelope insert referenced a tool_executions row that did not
+    exist yet — fixed by persisting the execution immediately after claim() (also closes
+    a real 09-concurrency-and-idempotency §"Worker Concurrent Claim" gap: the lease
+    owner/expiry is now durably visible to other workers from CLAIMED onward, not only
+    once the attempt resolves). Integration tests
+    (tests/integration/test_app_postgres_integration.py,
+    tests/integration/test_postgres_repositories.py) run against a real, ephemeral
+    Postgres via testcontainers, running the actual Alembic migration chain — not a
+    `Base.metadata.create_all()` shortcut.
+  lld_mapping:
+    - 07-data-model
+    - 03-state-machine
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/domain
+    application: services/tool-integration-gateway/tests/application
+    architecture: services/tool-integration-gateway/tests/architecture
+    end_to_end: services/tool-integration-gateway/tests/test_app.py
+    integration: services/tool-integration-gateway/tests/integration
+    result: "45 passed (30 unit/application/architecture/e2e + 15 integration against real Postgres/RabbitMQ via testcontainers), 4 import-linter contracts kept, 0 pyflakes warnings"

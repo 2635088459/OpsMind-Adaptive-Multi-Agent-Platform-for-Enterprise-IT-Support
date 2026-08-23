@@ -1,0 +1,36 @@
+SPEC-TG-023:
+  domain: 05-tool-integration-gateway
+  name: 06 Policy Approval Contract
+  cn_name: 06 Policy Approval Contract
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-06-cross-domain-contracts
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    ``docs/low-level-design/domains/06-policy-approval-governance/`` is only a README
+    placeholder — no LLD slices, no service, exist for domain 06 anywhere in this monorepo.
+    This spec's own real functional scope (POLICY_DENIED verdicts, WAITING_APPROVAL linkage,
+    the approval-granted/denied consumer, policy.rule.changed.v1) was already built across
+    phase-02 (SPEC-TG-007~009); nothing new was owed there. What this spec closes is the
+    literal "Cross-Domain Contract Tests" 14-testing-strategy names for 06 ("Must verify
+    with 06: tool.approval.required.v1; approval.granted.v1 / approval.denied.v1") — since
+    there is no live consumer to verify against, verified TG's own published/consumed shapes
+    are internally complete against this domain's own frozen 06-event-contracts instead
+    (``tests/contracts/test_cross_domain_contracts.py::
+    test_tool_approval_required_v1_shape_is_complete``, asserting every field
+    tool.approval.required.v1 documents: toolRequestId, approvalRequestId, capabilityName,
+    riskLevel, ticketId, workflowInstanceId, agentTaskId, reason).
+  lld_mapping:
+    - 06-event-contracts
+    - 02-business-invariants
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    contract: services/tool-integration-gateway/tests/contracts/test_cross_domain_contracts.py::test_tool_approval_required_v1_shape_is_complete
+    result: "141 passed (119 unit/application/architecture/e2e/contract + 22 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

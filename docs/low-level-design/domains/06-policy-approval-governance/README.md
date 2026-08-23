@@ -1,4 +1,6 @@
-# Policy, Approval, and Governance
+# Policy Approval Governance LLD
 
-Status: planned.
+See:
 
+- [README_CN.md](README_CN.md)
+- [README_EN.md](README_EN.md)

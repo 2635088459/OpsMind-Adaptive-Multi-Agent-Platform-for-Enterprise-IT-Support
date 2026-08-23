@@ -1,0 +1,48 @@
+SPEC-TG-025:
+  domain: 05-tool-integration-gateway
+  name: 02 Ticket Workflow Traceability Contract
+  cn_name: 02 Ticket Workflow Traceability Contract
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-06-cross-domain-contracts
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Auditing this contract surfaced a major finding: 02-ticket-workflow-service (Java,
+    already built and tested) has real, wired RabbitMQ consumers
+    (ToolExecutionCompletedEventConsumer/ToolExecutionFailedEventConsumer/
+    ToolResultUnknownEventConsumer) expecting ``tool.execution.completed/failed/
+    result-unknown.v1`` — a producer explicitly allowlisted as `"tool-gateway-service"` in
+    that service's own EventProducerAllowlist.java, delivered on a *shared*
+    `opsmindEventsExchange`, with a JSON-schema-required field vocabulary
+    (workflowId/actionId/authorizationReference/toolExecutionId/toolResultId) that matches
+    nothing in this domain's own domain model, 06-event-contracts, or
+    03-agent-runtime-orchestration's own (much closer, toolRequestId/workflowInstanceId/
+    agentTaskId-based) contract. Raised to the user explicitly (this decision carries real
+    architectural weight and cannot be safely inferred from code alone) — decided: treat
+    ticket-workflow-service's own tool.execution.* consumers as legacy scaffolding predating
+    Agent Runtime Orchestration's introduction as the mediating domain between Ticket
+    Workflow and Tool Gateway; do not build a bridge (would require inventing new
+    ToolRequest fields — actionId, authorizationReference — this domain has no grounding
+    for, and publishing onto a shared exchange this service has never touched). Scoped this
+    spec instead to what genuinely matters for traceability regardless of which transport
+    eventually carries it: (1) closed a real gap found while writing the contract test —
+    tool.request.rejected.v1's payload never carried ticketId/ticketCycleId/
+    workflowInstanceId/agentTaskId at all (only tool.completed.v1 did, since SPEC-TG-015) —
+    a rejected fact with no ticket/workflow context is untraceable to whatever raised it;
+    added the same four fields tool.completed.v1 already carries. (2) new cross-domain
+    contract tests proving ticketId/ticketCycleId propagate through both tool.completed.v1
+    and tool.request.rejected.v1.
+  lld_mapping:
+    - 06-event-contracts
+    - 02-business-invariants
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    contract: services/tool-integration-gateway/tests/contracts/test_cross_domain_contracts.py (test_ticket_traceability_fields_propagate_through_tool_completed_v1, test_ticket_traceability_fields_propagate_through_rejected_event)
+    result: "141 passed (119 unit/application/architecture/e2e/contract + 22 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

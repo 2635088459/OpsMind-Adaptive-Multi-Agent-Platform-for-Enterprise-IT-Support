@@ -1,0 +1,59 @@
+SPEC-PG-009:
+  domain: 06-policy-approval-governance
+  name: Approval Request Aggregate
+  cn_name: Approval Request 聚合
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-02-approval-lifecycle
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    This spec's own goal ("implement ApprovalRequest aggregate, requestKey/requestHash/source
+    linkage, and REQUESTED/final states") was, by the time it started, already fully built as
+    production code since SPEC-PG-001/002/003 — full state machine (REQUESTED -> APPROVED/
+    DENIED/EXPIRED/CANCELLED/SUPERSEDED, only REQUESTED transitions, irreversible finals),
+    requestKey+sourceRequestId+requestHash idempotency/linkage (INV-PG-005), and real Postgres
+    persistence all pre-existed. Re-reading this spec's own LLD mapping (01-domain-model,
+    03-state-machine, 07-data-model) against the codebase surfaced the one gap PolicyDecision's
+    own javadoc had already flagged by name since SPEC-PG-005: "linking a decision to the
+    ApprovalRequest eventually created for it is SPEC-PG-009's job" — 01-domain-model §Aggregate
+    Boundary says PolicyDecision and ApprovalRequest "may be linked, but are not strictly
+    one-to-one," and 03-state-machine's Policy Decision State Machine names an
+    APPROVAL_REQUIRED -> APPROVAL_LINKED transition that nothing modeled.
+
+    Added ApprovalRequest#policyDecisionId (nullable — an approval request may exist without a
+    prior policy evaluation, per 04-use-cases §UC-PG-002 naming no such prerequisite): threaded
+    through the domain model's requested()/reconstruct() factories and every transition, the real
+    Postgres column (migration V012, WITH a real foreign key to policy_decisions since — unlike
+    ticket_id/workflow_instance_id, which are genuine cross-domain references living in other
+    services' own databases — policy_decisions lives in this same governance schema, so a real FK
+    is safe and adds real integrity value), the JPA entity/mapper, and end-to-end through
+    RequestApprovalCommand/RequestApprovalRequest/ApprovalRequestResponse so the field is usable
+    by a real caller (e.g. Tool Gateway echoing back the policyDecisionId from a prior evaluate()
+    REQUIRE_APPROVAL response) rather than a dead, unreachable domain field. Deliberately did NOT
+    touch PolicyDecision itself — 03-state-machine's own words, "approval lifecycle is represented
+    by ApprovalRequest," place the link on this aggregate only, not as a reverse reference on the
+    immutable decision snapshot. Also deliberately did NOT add a GET /approval-requests/{id}
+    endpoint despite 05-api-contracts listing it — that belongs to SPEC-PG-010 (Approval Request
+    API And Event), whose own LLD mapping is 05-api-contracts/06-event-contracts/
+    08-transaction-and-outbox; this spec's mapping is domain-model/state-machine/data-model only.
+
+    82/82 tests pass (`./mvnw verify`): 71 unit (2 new ApprovalRequestTest cases: the link
+    survives construction and a terminal transition, and is null when absent) + 11 Testcontainers
+    integration (1 new GovernancePersistenceIT test: the link round-trips through Postgres and the
+    real FK rejects a dangling policyDecisionId with DataIntegrityViolationException).
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+    - 07-data-model
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalRequestTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "82 passed (71 unit + 11 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

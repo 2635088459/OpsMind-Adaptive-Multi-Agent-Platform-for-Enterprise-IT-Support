@@ -1,0 +1,50 @@
+SPEC-TG-022:
+  domain: 05-tool-integration-gateway
+  name: 03 Agent Runtime Tool Contract
+  cn_name: 03 Agent Runtime Tool Contract
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-06-cross-domain-contracts
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Neither side of the Runtime<->Gateway integration has a real live wire-up yet:
+    agent-runtime-service's own ``ToolGatewayPort`` is still ``LoggingToolGatewayPort``, an
+    honest placeholder its own module docstring defers to Agent Runtime's own future
+    "phase-05 (tool-gateway-mediation)" — it never actually calls this service's HTTP API.
+    Found one real, concretely-scoped gap this spec could close on Tool Gateway's own side
+    regardless: ``workflow.cancelled.v1`` ("when Runtime workflow is cancelled, Gateway
+    attempts to cancel associated pending/running Tool Requests") was named in TG's own
+    06-event-contracts consumed-events list since SPEC-TG-001 but had no consumer, no query
+    to find affected requests, at all. Added ``ToolRequestRepository.
+    find_non_terminal_by_workflow_instance()`` (in-memory + Postgres) +
+    ``ConsumeWorkflowCancelledService`` (event-id dedup, reuses ``CancelToolRequestUseCase``
+    per affected request, skips — doesn't fail the batch on —
+    ``InvalidToolRequestTransitionException`` for requests with no cancel edge from their
+    current status, e.g. WAITING_APPROVAL) + a new ``POST /internal/tool-gateway/v1/events/
+    workflow-cancelled`` HTTP seam (same manual-trigger-until-a-real-consumer-exists pattern
+    ``api.event_routes`` already established for approval/policy events). Also closed a
+    literal field gap while auditing this contract: ``03-agent-runtime-orchestration``'s own
+    06-event-contracts names ``tool.completed.v1``'s "key fields" as toolRequestId/
+    gatewayCorrelationId/workflowInstanceId/agentTaskId/status/resultPayload/occurredAt —
+    ``gatewayCorrelationId``/``resultPayload`` map onto this domain's own envelope
+    ``correlationId``/{``summary``,``structuredOutput``} (a documented field-naming
+    reconciliation, not a bug — see the new cross-domain contract test suite). New
+    ``tests/contracts/test_cross_domain_contracts.py`` (14-testing-strategy §"Cross-Domain
+    Contract Tests") is the reusable home for this and the sibling TG-023~025 assertions.
+  lld_mapping:
+    - 05-api-contracts
+    - 06-event-contracts
+    - 14-testing-strategy
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py (consume_workflow_cancelled tests), services/tool-integration-gateway/tests/test_app.py::test_workflow_cancelled_event_cancels_queued_tool_requests_via_http
+    contract: services/tool-integration-gateway/tests/contracts/test_cross_domain_contracts.py (test_tool_completed_v1_satisfies_agent_runtime_consumed_field_list, test_tool_completed_v1_envelope_carries_a_correlation_id)
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py::test_find_non_terminal_by_workflow_instance_against_real_postgres
+    result: "141 passed (119 unit/application/architecture/e2e/contract + 22 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

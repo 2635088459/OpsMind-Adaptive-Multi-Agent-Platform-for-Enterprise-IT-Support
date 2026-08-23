@@ -1,0 +1,81 @@
+SPEC-TG-030:
+  domain: 05-tool-integration-gateway
+  name: Crash Recovery Backpressure Scaling
+  cn_name: Crash Recovery、Backpressure 与 Scaling
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-08-recovery-scaling-degraded-mode
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Audited against 10-failure-handling's own literal "Gateway Crash Recovery" and
+    "Connector Crash Or Unavailability" sections rather than the generic template docs.
+    Found and closed two concrete, previously-unimplemented gaps named in the second
+    section: (1) "Queued requests need connector reselection or terminal failure" — before
+    this spec, a QUEUED ToolRequest whose bound connector had since gone DISABLED/
+    DEPRECATED/DEGRADED-ineligible raised CapabilityNotRegisteredException from
+    execute_tool_request, which ExecutionWorker.run_once() only logs and swallows: the
+    request stayed QUEUED forever, re-failing identically on every future poll, with no
+    terminal state, no audit trail, no published fact, ever. New
+    ExecuteToolRequestService._handle_unavailable_connector(): a READ_ONLY capability with
+    another already-is_executable() connector reselects onto it via the same
+    ConnectorRegistry.find_by_capability() selection rule intake already uses; everything
+    else (no fallback, or a MUTATING capability regardless of fallback availability —
+    "High-risk mutation must not switch connectors automatically unless policy allows it",
+    and no PolicyPort hook is grounded anywhere in this domain for that permission) reaches
+    TERMINAL_FAILED via the same QUEUED->EXECUTING->FAILED->TERMINAL_FAILED path (and the
+    same save_resolved_tool_request concurrent-cancel race resolution) the connector-
+    invocation FAILED branch already uses, publishing a final tool.completed.v1 via
+    build_denied_completed_event (no real execution attempt ever existed to point to).
+    (2) "Health check failures beyond threshold move it to DISABLED" — apply_health_check_
+    result only ever drove ACTIVE<->DEGRADED; a connector already DEGRADED that kept failing
+    every subsequent health check fell into an unconditional no-op branch forever, with no
+    escalation path except a human admin noticing and acting. Added
+    ToolConnector.consecutive_health_check_failures (persisted via the same manifest_json
+    slot SPEC-TG-021's allowed_requester_types already established — no new migration) +
+    record_health_check_success()/record_health_check_failure(degrade_after, disable_after)
+    domain methods, driven by two new Settings fields (connector_degrade_after_failures=3,
+    connector_disable_after_failures=5). Deliberate behavior refinement alongside this: "
+    Consecutive failures move an ACTIVE connector to DEGRADED" (literal plural) now requires
+    a threshold of consecutive failures, not a single one as SPEC-TG-019 originally built —
+    updated that spec's own pre-existing test to match. The "Gateway Crash Recovery"
+    5-step startup list was audited too: steps 1 (outbox replay) and 2-3 (lease-expiry
+    reclaim/reconciliation routing) were already real (SPEC-TG-003/SPEC-TG-010's own
+    services), and steps 4-5 (QUEUED scheduling, WAITING_APPROVAL) need no code at all
+    (find_queued()/the approval-event consumer are both already stateless/always-live). What
+    was missing was a single callable entry point running steps 1-3 together — new
+    GatewayRecoveryService.run_recovery(), exposed as
+    POST /internal/tool-gateway/v1/admin/recovery/run rather than wired into
+    main.create_app() automatically: Settings.tool_gateway_persistence defaults to
+    "postgres" and app = create_app() executes at module import, so an eager call there
+    would make every hermetic unit test's mere import of tool_gateway.main require a live
+    database connection (this project's own consistent "no file in this repo ever
+    constructs an ExecutionWorker/OutboxWorker/ReconciliationWorker/ConnectorHealthWorker
+    outside of tests" finding, confirmed again this pass) — an operator/init-container/
+    deploy script triggers it explicitly, the same explicit-admin-action shape SPEC-TG-028's
+    own outbox dead-letter replay already established.
+  lld_mapping:
+    - 10-failure-handling
+    - 09-concurrency-and-idempotency
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    application: >
+      services/tool-integration-gateway/tests/application/test_full_flow.py
+      (test_execute_terminal_fails_when_the_bound_connector_was_disabled_after_accept_with_no_fallback,
+      test_execute_reselects_a_fallback_connector_when_the_bound_read_only_connector_is_unavailable,
+      test_execute_never_reselects_a_fallback_connector_for_a_mutating_capability,
+      test_apply_health_check_result_degrades_active_connector_after_consecutive_failures_and_reactivates,
+      test_apply_health_check_result_disables_connector_after_further_consecutive_failures_while_degraded,
+      test_gateway_recovery_service_reclaims_leases_and_replays_outbox_together)
+    http: "services/tool-integration-gateway/tests/test_app.py (test_admin_recovery_run_via_http)"
+    integration: >
+      services/tool-integration-gateway/tests/integration/test_app_postgres_integration.py
+      (test_connector_consecutive_health_check_failures_survives_a_container_rebuild_against_real_postgres)
+    result: "162 passed (135 unit/application/architecture/e2e/contract + 27 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs"

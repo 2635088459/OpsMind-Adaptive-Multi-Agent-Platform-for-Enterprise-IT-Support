@@ -1,0 +1,55 @@
+SPEC-TG-032:
+  domain: 05-tool-integration-gateway
+  name: Final Coverage Audit Release Readiness
+  cn_name: 最终覆盖审计与发布准备
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-09-final-verification-release
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Final coverage audit against 14-testing-strategy's own Recovery Tests list found one
+    real, previously-unimplemented gap: "reconciliation after timeout succeeds/fails/remains
+    uncertain" — the third outcome was never actually reached. ``ResultStatus.UNCERTAIN``
+    has existed as a real enum member since SPEC-TG-001 purely for 10-failure-handling
+    §"Reconciliation"'s own "If the result remains UNCERTAIN for too long, Gateway publishes
+    final uncertain result and marks human handling required", but ``reconcile_execution``'s
+    own non-SUCCESS branch treated it identically to a genuinely *confirmed* FAILED outcome
+    — eligible for the exact same automatic retry, risking a double side effect on a
+    MUTATING capability whose outcome is genuinely unknown (the same class of risk
+    SPEC-TG-013's operation-key guard and SPEC-TG-030's "must not switch connectors
+    automatically" refusal already protect against elsewhere). Added a distinct branch: never
+    retried, always reaches TERMINAL_FAILED with its own
+    ``execution_uncertain_after_reconciliation`` audit action, and ``build_terminal_failed_
+    completed_event`` gained a ``status_name`` parameter (default ``"TERMINAL_FAILED"``,
+    unchanged for every existing caller) so the published ``tool.completed.v1`` reads
+    ``status: "UNCERTAIN"`` — distinguishable per 02-business-invariants INV-TG-010's own
+    "must not be collapsed into a generic failure" principle, which this instance was never
+    literally named under but clearly extends to. No dedicated persisted "needs human review"
+    field exists anywhere in this domain's own schema to set instead of surfacing this
+    through the distinguishable status + audit trail — the same "narrow scope honestly rather
+    than inventing ungrounded state" call this domain has made repeatedly (e.g. SPEC-TG-021's
+    authorization narrowing).
+
+    Release-readiness checks: verified the cross-service ``alembic_version_table`` collision
+    class of bug memory-knowledge-service's own SPEC-MK-032 found in a sibling domain does
+    NOT affect this service — ``migrations/env.py`` already scopes its own version table to
+    the dedicated ``tool`` schema (confirmed ``tool.alembic_version`` exists distinct from
+    ``public.alembic_version`` in the shared dev database), written with that exact prior
+    finding already cited in its own comment from an earlier phase. Confirmed the real
+    RabbitMQ publisher (SPEC-TG-003) needs no further phase-09 work, unlike memory-knowledge-
+    service's own phase-09 (which had to build one from scratch this late). README.md already
+    current from every prior phase's own closure; no further edit needed beyond this phase's
+    own status/count updates.
+  lld_mapping:
+    - 14-testing-strategy
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    application: "services/tool-integration-gateway/tests/application/test_full_flow.py (test_reconcile_uncertain_outcome_terminal_fails_without_retry_and_publishes_distinguishable_status)"
+    result: "165 passed (138 unit/application/architecture/e2e/contract + 27 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs. This closes the entire 05-tool-integration-gateway domain roadmap — all 32 SPEC-TG-0xx specs are now status: implemented, no further phases remain."

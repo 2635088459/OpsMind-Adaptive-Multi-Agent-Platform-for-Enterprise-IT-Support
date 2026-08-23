@@ -1,0 +1,47 @@
+SPEC-TG-003:
+  domain: 05-tool-integration-gateway
+  name: Outbox Processed Event Audit Baseline
+  cn_name: Outbox、Processed Event 与审计 baseline
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-00-engineering-foundation
+  tech_stack: "Python 3.13+ / pika (RabbitMQ), per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Real RabbitMqEventBusAdapter delivered (adapters/events/rabbitmq_publisher.py),
+    replacing the SPEC-TG-001 NotImplementedError stub — mirrors memory-knowledge-
+    service's own RabbitMqEventPublisherAdapter (SPEC-MK-031) and agent-runtime-
+    service's own (SPEC-ARO-025) line for line: lazily-opened, reused blocking pika
+    connection/channel, publish-confirm-free "return False on failure, let the caller
+    retry with backoff" contract PublishOutboxService already implemented in
+    SPEC-TG-001, envelope shape matching technology-baseline §8's own event envelope
+    (eventId/eventType/eventVersion/occurredAt/producer/correlationId/aggregateId/
+    payload). Selected via Settings.event_publisher_adapter ("logging" stays the
+    default — see settings.py's own docstring for why). PostgresOutboxRepository/
+    PostgresProcessedEventRepository/PostgresAuditRecordRepository (SPEC-TG-002's own
+    adapters/db/postgres_repositories.py) round out the "outbox/processed-event/audit"
+    baseline this spec's own name promises — 08-transaction-and-outbox's own
+    "insert processed_events first, unique-key conflict means skip" dedup contract and
+    the outbox pending -> published / pending -> failed -> dead-letter lifecycle are
+    both proven against a real, migrated Postgres schema in
+    tests/integration/test_postgres_repositories.py. No real event consumer exists yet
+    in this domain's own scope to call ProcessedEventRepository (phase-02/06 build the
+    first one — see ports.approval_port's own module docstring); this spec ships the
+    baseline mechanism that consumer will call, exactly as 00-implementation-roadmap
+    phase-00's own scope describes. Audit-query API surface (12-observability
+    §"Audit Observability") is explicitly out of this spec's own scope — phase-07
+    SPEC-TG-027 "audit-query-and-admin-reporting" owns that.
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    integration: services/tool-integration-gateway/tests/integration/test_rabbitmq_event_publisher.py, services/tool-integration-gateway/tests/integration/test_postgres_repositories.py
+    result: "45 passed (30 unit/application/architecture/e2e + 15 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

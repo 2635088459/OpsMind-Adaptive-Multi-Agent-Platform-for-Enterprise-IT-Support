@@ -1,0 +1,48 @@
+SPEC-TG-007:
+  domain: 05-tool-integration-gateway
+  name: Policy Risk Decision Integration
+  cn_name: Policy Risk Decision 集成
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-02-policy-approval-mediation
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    SPEC-TG-001 already built the risk-decision call site (evaluate_tool_request.py)
+    and a deterministic StaticPolicyAdapter, but it could only ever return two
+    outcomes (auto-approve or requires-approval) — there was no way for a ToolRequest to
+    ever reach POLICY_DENIED, even though domain.tool_request.ToolRequest.deny_policy()
+    already existed. This spec closed that real gap: RiskDecisionRef gained
+    denied/denial_reason fields, StaticPolicyAdapter gained a hard-deny keyword rule
+    (10-failure-handling §"Policy / Approval Failure"), and evaluate_tool_request.py now
+    branches to POLICY_DENIED and publishes a final tool.completed.v1 (status
+    POLICY_DENIED) via the new shared application.outbox_events.build_denied_completed_event
+    helper — built with no ToolExecution/ToolResultEnvelope needed (01-domain-model
+    §"Aggregate Rules" already covers "no ToolExecution ... after policy denial").
+    Also: create_tool_request.py's REJECTED branch never published
+    tool.request.rejected.v1 at all (06-event-contracts: "Published when request is
+    rejected due to schema, capability, permission, or idempotency conflict") — added.
+    policy.rule.changed.v1 consumption (06-event-contracts: "refresh capability risk,
+    connector enablement, network allowlist, and approval requirement cache") is wired
+    end-to-end (application.consume_policy_rule_changed, processed-event dedup, HTTP
+    seam at POST /internal/tool-gateway/v1/events/policy-rule-changed) but its own
+    "apply" step is honestly a no-op beyond dedup+audit: StaticPolicyAdapter is a pure,
+    stateless function of capability name with no live rule cache to refresh — a real
+    mutable policy-rule store is deferred until 06-policy-approval-governance exists as
+    an actual service (see ports.policy_port and
+    application.consume_policy_rule_changed module docstrings).
+  lld_mapping:
+    - 02-business-invariants
+    - 04-use-cases
+    - 06-event-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py
+    end_to_end: services/tool-integration-gateway/tests/test_app.py
+    result: "68 passed (52 unit/application/architecture/e2e + 16 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

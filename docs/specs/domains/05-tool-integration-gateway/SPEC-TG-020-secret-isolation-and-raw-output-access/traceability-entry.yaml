@@ -1,0 +1,44 @@
+SPEC-TG-020:
+  domain: 05-tool-integration-gateway
+  name: Secret Isolation And Raw Output Access
+  cn_name: Secret 隔离与 Raw Output 受控访问
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-05-security-and-credential-boundary
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    02-business-invariants INV-TG-007: "Raw output can be read only through controlled
+    storage references" — the field existed on ToolResultEnvelope/ToolResultRow since
+    SPEC-TG-001/002 but nothing ever populated ``raw_output_ref`` (always ``None``, an
+    explicit test comment even said so: "unset in this spec's scope"), and
+    05-api-contracts' own ``GET /tool-results/{id}/raw`` endpoint did not exist at all
+    (``api.result_routes``'s own docstring named this exact spec as the owner). Added
+    ``ports.raw_output_port.RawOutputStorePort`` + an honestly-labeled
+    ``InMemoryRawOutputStoreAdapter`` (a real deployment would back this with controlled
+    object storage) — wired into both ``execute_tool_request``'s and
+    ``reconcile_execution``'s own SUCCESS branches: a connector's ``ExecutionOutcome.
+    raw_output`` (real since SPEC-TG-001, always discarded before) is now stored
+    out-of-band and only its opaque reference reaches the envelope/event. Added
+    ``ExecuteToolRequestService.find_raw_output()`` + ``RawOutputForbiddenException``
+    (403 ``RAW_OUTPUT_FORBIDDEN``, closing the last unwired code named in api/errors.py's
+    own docstring) — "Requires privileged RBAC, audit reason, and policy check" is
+    honestly implemented as HUMAN_OPERATOR-only + mandatory non-blank reason (no real
+    RBAC system exists in this platform), with every attempt (granted or denied) writing
+    an audit record. New ``GET /internal/tool-gateway/v1/tool-results/{id}/raw`` route
+    takes actor identity via ``X-Requested-By-Type``/``X-Requested-By-Id`` headers +
+    ``reason`` query param, returning a dedicated ``RawOutputView``/``RawOutputResponse``
+    — deliberately never a field on the normal ``ToolResultView``/response.
+  lld_mapping:
+    - 11-security
+    - 05-api-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py (raw-output tests), services/tool-integration-gateway/tests/test_app.py::test_raw_output_endpoint_requires_human_operator_and_reason
+    result: "128 passed (107 unit/application/architecture/e2e + 21 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

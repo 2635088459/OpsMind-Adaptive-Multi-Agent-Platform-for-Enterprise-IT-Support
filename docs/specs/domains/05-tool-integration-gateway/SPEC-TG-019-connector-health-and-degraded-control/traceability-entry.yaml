@@ -1,0 +1,51 @@
+SPEC-TG-019:
+  domain: 05-tool-integration-gateway
+  name: Connector Health And Degraded Control
+  cn_name: Connector Health 与降级控制
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-04-retry-reconciliation-cancellation
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    03-state-machine §"Connector Health State Machine": "Scheduling may select only
+    ACTIVE connectors. A DEGRADED connector is allowed only for read-only or low-risk
+    fallback unless policy explicitly permits otherwise." Before this spec,
+    ConnectorHealthStatus.is_schedulable() (ACTIVE-only, used at both connector
+    selection and execute_tool_request's own bound-connector re-check) collapsed
+    DEGRADED to fully unschedulable — stricter than this literal text, and the entire
+    "degraded fallback" half of the spec's own name was unbuilt. Added domain.connector.
+    ToolConnector.is_executable() (ACTIVE always; DEGRADED only when READ_ONLY or LOW
+    risk — no PolicyPort hook exists yet for "unless policy explicitly permits
+    otherwise", phase-05 SPEC-TG-020~021 scope), wired into ConnectorRegistry.
+    find_by_capability() (ACTIVE preferred over an eligible DEGRADED fallback) and
+    execute_tool_request's own re-check. Also found workers.connector_health_worker.
+    ConnectorHealthWorker already written (from earlier phase-03 scaffolding) but never
+    wired to anything nor tested, and mutating ConnectorRegistryPort directly — bypassing
+    audit/outbox entirely, the same class of gap SPEC-TG-010's own lease-reclaim service
+    was built to avoid. Fixed by routing its mutation through a new
+    RegisterConnectorService.apply_health_check_result() (the automatic ACTIVE<->
+    DEGRADED half; DISABLED/DEPRECATED stay admin-only via the pre-existing
+    update_connector_status()). Both that method and update_connector_status() now
+    publish a new tool.connector.health_changed.v1 (06-event-contracts: "Published after
+    connector health changes" — never published by either path before this spec).
+    12-observability's own real OpenTelemetry metrics (tool_connector_error_total,
+    tool_connector_timeout_total, etc.)/tracing/audit-query/alerts stay deferred to
+    phase-07 SPEC-TG-026~029 "Observability Audit Admin" (no metrics infrastructure
+    exists anywhere in this domain yet) — this spec's own narrow 12-observability slice
+    is the health-changed event itself, the surface a future observability pipeline
+    would consume.
+  lld_mapping:
+    - 03-state-machine
+    - 10-failure-handling
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/domain/test_connector.py (is_executable tests), services/tool-integration-gateway/tests/application/test_connector_health_worker.py, services/tool-integration-gateway/tests/application/test_full_flow.py (degraded-fallback/health-changed-event tests)
+    result: "115 passed (95 unit/application/architecture/e2e + 20 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

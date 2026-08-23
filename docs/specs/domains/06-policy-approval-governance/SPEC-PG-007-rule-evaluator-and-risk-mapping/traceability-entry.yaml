@@ -1,0 +1,68 @@
+SPEC-PG-007:
+  domain: 06-policy-approval-governance
+  name: Rule Evaluator And Risk Mapping
+  cn_name: Rule Evaluator 与 Risk Mapping
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-01-policy-model-and-decision-engine
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    This spec's own goal text ("implement rule evaluator, risk level mapping, fail-closed
+    baseline, and evaluator errors") was, until now, explicitly deferred by name from
+    DefaultRuleEvaluatorAdapter's and RuleCondition's own javadoc (both said "SPEC-PG-007's job")
+    — so unlike PG-004/005/006, this spec's real scope matched its stated goal closely, not a
+    narrow gap against already-built content.
+
+    Added infrastructure.evaluator.RuleConditionMatcher: interprets a PolicyRule's
+    List<RuleCondition> against RuleEvaluatorPort.Input (implicit AND across the list, matching
+    PolicyRule's own javadoc). attribute resolves only against Input's six request fields
+    (subjectType/subjectId/actionType/resourceType/resourceId/tenantId, plus inputHash for
+    completeness) since those are the evaluator's only known facts. Operator semantics: EQUALS/
+    NOT_EQUALS as String#equals; IN/NOT_IN split RuleCondition.value on comma (a value-encoding
+    choice — RuleCondition.value is a single String, not a List — since IN/NOT_IN need multiple
+    candidates; documented in the matcher's own javadoc rather than left implicit);
+    GREATER_THAN_OR_EQUAL/LESS_THAN_OR_EQUAL parse both sides as double; MATCHES uses
+    Pattern.matches. Rewrote DefaultRuleEvaluatorAdapter to try PolicyVersion#rules() in list
+    order and apply the first fully-matching rule (empty conditions = always matches, a
+    "catch-all" rule, unchanged behavior for PG-001's existing unconditional-rule tests); risk
+    mapping is a direct pass-through of the matched rule's own riskLevel field, since
+    01-domain-model already models risk as an authored per-rule value, not a derived one, so no
+    separate scoring step was needed. approvalRequired still force-upgrades the effect to
+    REQUIRE_APPROVAL (an established PG-001 convention, unchanged) and now also adds
+    ReasonCode.HIGH_RISK_REQUIRES_APPROVAL alongside POLICY_MATCHED; a matched DENY rule adds
+    ReasonCode.RULE_DENIED — both reason codes already existed in the enum, unused until now,
+    improving INV-PG-002 explainability. No rule matching = the same fail-safe
+    REQUIRE_APPROVAL/HIGH/NO_MATCHING_RULE this adapter already returned for "no rules at all",
+    now uniformly covering "rules exist but none match" too — never ALLOW (SPEC-PG-001 domain
+    rule).
+
+    10-failure-handling §Policy Evaluation Failure ("if rule parsing fails ... return
+    EVALUATION_FAILED ... do not default allow") is satisfied by design, not by a new local
+    catch: RuleConditionMatcher deliberately lets an unknown attribute, a condition referencing a
+    null request field, or a non-numeric comparison throw an uncaught RuntimeException, and
+    PolicyDecisionService#evaluate's existing SPEC-PG-006 try/catch already converts any evaluator
+    RuntimeException into the fail-safe evaluationFailed=true/DENY snapshot — duplicating that
+    handling inside the matcher would only obscure which layer owns it. Verified this end-to-end
+    with dedicated tests asserting the exception propagates uncaught out of the evaluator (the
+    PG-006 fail-closed test already covers the PolicyDecisionService-level integration of an
+    evaluator throwing).
+
+    77/77 tests pass (`./mvnw verify`): 68 unit (6 new DefaultRuleEvaluatorAdapterTest cases:
+    matching-condition applies its rule, non-matching condition falls through to the next rule,
+    no-match fail-safe, all six operators exercised, unknown-attribute throws, non-numeric
+    comparison throws) + 9 Testcontainers integration (unchanged from PG-006).
+  lld_mapping:
+    - 04-use-cases
+    - 10-failure-handling
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/evaluator/DefaultRuleEvaluatorAdapterTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/GovernanceOutboxIT.java
+    result: "77 passed (68 unit + 9 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

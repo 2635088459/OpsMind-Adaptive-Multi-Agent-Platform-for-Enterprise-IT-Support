@@ -1,0 +1,35 @@
+SPEC-TG-013:
+  domain: 05-tool-integration-gateway
+  name: Operation Key Side Effect Guard
+  cn_name: Operation Key 与副作用防护
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-03-execution-worker-and-connectors
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    09-concurrency-and-idempotency §"Connector Operation Key": "Recommended
+    operationKey format: toolRequestId:attemptNumber:connectorId:capabilityName." The
+    07-data-model unique-key guard on (connector_id, operation_key) was already in place
+    since SPEC-TG-002, and domain.tool_execution's own MutationConnectorMissingOperationKeyException
+    already enforced INV-TG-003 ("mutation connectors must have an operationKey") since
+    SPEC-TG-001, but the actual key application.execute_tool_request built was only
+    f"{tool_request_id}:{attempt_number}" — missing connectorId and capabilityName, so a
+    retry against a different connector version or a different capability sharing a
+    tool_request_id/attempt_number pair (not possible today, but the literal format is
+    the documented safety margin) would have collided. Fixed execute_tool_request.py to
+    build the full four-part key exactly as 09-concurrency-and-idempotency's own
+    recommended format specifies.
+  lld_mapping:
+    - 09-concurrency-and-idempotency
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py::test_execute_mutating_connector_uses_full_operation_key_format
+    result: "86 passed (68 unit/application/architecture/e2e + 18 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

@@ -1,0 +1,38 @@
+SPEC-TG-011:
+  domain: 05-tool-integration-gateway
+  name: Connector SDK And Built-In Fake Connector
+  cn_name: Connector SDK 与内置 Fake Connector
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-03-execution-worker-and-connectors
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    13-package-and-class-design names a "Connector SDK" boundary (adapters.connectors.
+    base.BaseConnector implementing ports.connector_port.ConnectorPort) that already
+    existed since SPEC-TG-001, but the only reference implementation was
+    EchoConnectorAdapter (always SUCCESS) plus a private test-only double
+    (_FixedOutcomeConnector duplicated inside tests/application/test_full_flow.py) —
+    14-testing-strategy §"Connector Contract Tests" had no real reusable suite. Promoted
+    that private double into a real, shared adapters/connectors/builtin/fake_connector.py
+    (FakeConnectorAdapter, constructed with any ExecutionOutcome — SUCCESS/TIMED_OUT/
+    FAILED/PARTIAL_SIDE_EFFECT), and added tests/contracts/connector_contract.py
+    (assert_connector_contract() — validate_input/invoke/health_check shape checks any
+    ConnectorPort implementation must satisfy) plus tests/adapters/test_builtin_connectors.py
+    exercising both EchoConnectorAdapter and FakeConnectorAdapter against that contract.
+    test_full_flow.py's own _FixedOutcomeConnector was deleted; every existing non-SUCCESS-
+    outcome test now imports the real FakeConnectorAdapter instead of a private duplicate.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 14-testing-strategy
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/adapters/test_builtin_connectors.py, services/tool-integration-gateway/tests/contracts/connector_contract.py
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py
+    result: "86 passed (68 unit/application/architecture/e2e + 18 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

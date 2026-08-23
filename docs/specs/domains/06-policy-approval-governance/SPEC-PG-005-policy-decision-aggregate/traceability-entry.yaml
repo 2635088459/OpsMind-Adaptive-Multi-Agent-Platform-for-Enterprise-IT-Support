@@ -1,0 +1,53 @@
+SPEC-PG-005:
+  domain: 06-policy-approval-governance
+  name: Policy Decision Aggregate
+  cn_name: Policy Decision 聚合
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-01-policy-model-and-decision-engine
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Data JPA / Flyway / PostgreSQL"
+  implementation_notes: >
+    By the time this spec started, "immutable PolicyDecision snapshot" and "decisionKey/inputHash
+    idempotency" (this spec's own goal text) were already real from SPEC-PG-001/002/003 —
+    PolicyDecision was already a fully-fielded record persisted through a real JPA/Postgres
+    adapter, with same-hash replay vs different-hash conflict already handled. Re-reading this
+    spec's actual LLD mapping (03-state-machine §Policy Decision State Machine, which SPEC-PG-004
+    did not touch) surfaced one real, narrow gap: the state machine names EVALUATING ->
+    EVALUATION_FAILED as a terminal outcome distinct from EVALUATING -> DENIED, and api-contract
+    itself says "conflict, denied, expired, cancelled, and evaluation failed must remain
+    distinguishable" — but the existing fail-safe path (PolicyDecisionService#failSafeDecision,
+    triggered when no effective policy version is found) only ever set effect=DENY, with the
+    distinction buried in a reason code. Added PolicyDecision#evaluationFailed (boolean,
+    deliberately NOT a fifth DecisionEffect value, since 01-domain-model's own Value Objects list
+    freezes that enum at exactly ALLOW/DENY/REQUIRE_APPROVAL/ALLOW_WITH_CONSTRAINTS) — true only
+    on the fail-safe path; effect still stays DENY either way so a caller reading only effect
+    still fails closed. Propagated through the JPA entity (new evaluation_failed column, migration
+    V011), mapper, and PolicyDecisionResponse. The state machine's other non-final edge,
+    APPROVAL_REQUIRED -> APPROVAL_LINKED, is deliberately NOT modeled here — 03-state-machine's own
+    words are "approval lifecycle is represented by ApprovalRequest," so giving ApprovalRequest a
+    reference back to the PolicyDecision that spawned it (if any) is SPEC-PG-009's job (Approval
+    Request Aggregate), not this one's; noted explicitly in PolicyDecision's own javadoc so the
+    boundary doesn't get re-litigated. Also deliberately left alone: the race window between "no
+    existing decisionKey found" and the INSERT for two truly concurrent identical retries — that's
+    09-concurrency-and-idempotency (SPEC-PG-003's mapping, not this spec's), already degrades
+    safely to a 409 via the existing DataIntegrityViolationException fallback handler rather than
+    silently double-processing. 63/63 tests pass (`./mvnw verify`): 54 unit (2 new assertions in
+    PolicyDecisionServiceTest for the fail-safe-vs-evaluated evaluationFailed distinction) + 9
+    Testcontainers integration (unchanged from PG-004, including the V011 migration applying
+    cleanly against a fresh Postgres).
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+    - 07-data-model
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyDecisionServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/decision/PolicyDecisionTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "63 passed (54 unit + 9 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

@@ -1,0 +1,45 @@
+SPEC-TG-008:
+  domain: 05-tool-integration-gateway
+  name: Approval Required Linkage
+  cn_name: Approval Required Linkage
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-02-policy-approval-mediation
+  tech_stack: "Python 3.13+ / FastAPI / SQLAlchemy, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    SPEC-TG-001 already built the WAITING_APPROVAL transition and an
+    InMemoryApprovalAdapter recording linkage locally, but nothing ever published
+    06-event-contracts' own tool.approval.required.v1 ("Published when approval is
+    required, so domain 06 can create or link an approval request") — the whole point
+    of that event, since no live domain-06 service exists yet in this monorepo to poll
+    for waiting requests any other way. Fixed: evaluate_tool_request.py now publishes it
+    via the new application.outbox_events.build_approval_required_event helper
+    (approvalRequestId/capabilityName/riskLevel/ticketId/workflowInstanceId/
+    agentTaskId/reason). Also closed the matching denial-side gap: approve_tool_request.py's
+    APPROVAL_DENIED branch never published tool.completed.v1 either (10-failure-handling
+    §"Policy / Approval Failure" — same shared build_denied_completed_event helper
+    SPEC-TG-007's POLICY_DENIED path uses). Found and fixed a real Postgres round-trip
+    bug while wiring this: adapters.db.postgres_repositories._row_to_tool_request
+    always set approval_ref=None on reload (a gap this spec's own predecessor
+    documented as "no current caller reads this back" — no longer true once SPEC-TG-009's
+    linkage-matching check needs it) — added _row_to_approval_ref reconstructing
+    approval_request_id from its own column (status/requested_at stay best-effort
+    placeholders; no column exists for those). Verified against a real, migrated
+    Postgres schema in tests/integration/test_app_postgres_integration.py's own
+    container-rebuild test.
+  lld_mapping:
+    - 03-state-machine
+    - 06-event-contracts
+    - 08-transaction-and-outbox
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py
+    integration: services/tool-integration-gateway/tests/integration/test_app_postgres_integration.py
+    result: "68 passed (52 unit/application/architecture/e2e + 16 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

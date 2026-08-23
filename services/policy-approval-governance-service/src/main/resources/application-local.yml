@@ -1,0 +1,33 @@
+spring:
+  datasource:
+    # Same shared Postgres instance/database as ticket-workflow-service and
+    # agent-runtime-service (infrastructure/docker-compose/local-platform.yml);
+    # this service owns the `governance` schema within it, not a separate database.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ticket_workflow}
+    username: ${DB_USERNAME:ticket_workflow}
+    password: ${DB_PASSWORD:ticket_workflow}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
+
+server:
+  port: ${SERVER_PORT:8086}
+
+management:
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+
+logging:
+  level:
+    com.opsmind.policygovernance: DEBUG

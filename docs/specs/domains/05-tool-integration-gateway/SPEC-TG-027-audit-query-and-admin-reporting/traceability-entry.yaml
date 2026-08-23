@@ -1,0 +1,44 @@
+SPEC-TG-027:
+  domain: 05-tool-integration-gateway
+  name: Audit Query And Admin Reporting
+  cn_name: Audit Query 与 Admin Reporting
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-07-observability-audit-admin
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Auditing this spec against 12-observability §"Audit Observability" surfaced a recurring
+    finding this engagement keeps hitting: tool_audit_records.tool_request_id/execution_id/
+    connector_id have been real 07-data-model columns since SPEC-TG-002, but the domain
+    AuditRecordEntry never carried fields for them, so every write silently persisted NULL.
+    Added the three fields to AuditRecordEntry (optional, populated only at the call sites
+    where the association is genuinely available — execute_tool_request/
+    reconcile_execution), threaded through AuditRecorder.record() and
+    PostgresAuditRecordRepository.append(). New application/query_audit.py::AuditQueryService
+    wraps four repository query methods (find_recent/find_by_ticket_id/find_by_actor_id/
+    find_by_connector_id) added to the AuditRecordRepository port (and both the in-memory and
+    Postgres adapters). find_by_ticket_id uses the real Postgres JSONB `.astext` comparator
+    (ToolAuditRecordRow.metadata_json["ticketId"].astext == ticket_id) since ticket_id lives
+    inside metadata_json, not a dedicated column. New GET /internal/tool-gateway/v1/admin/audit
+    (api/admin_routes.py) applies at most one of ticket_id/actor_id/connector_id per call,
+    falling back to find_recent. Explicitly deferred and documented (not silently dropped):
+    12-observability also names "all execution attempts by workflow" and "execution results by
+    approval request" — neither workflow_instance_id nor approval_request_id exists as an
+    audit column, and threading them through every remaining call site was judged out of scope
+    for this pass; recorded in query_audit.py's own module docstring.
+  lld_mapping:
+    - 12-observability
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    application: services/tool-integration-gateway/tests/application/test_full_flow.py (test_audit_query_find_by_ticket_id, test_audit_query_find_by_actor_id, test_audit_query_find_by_connector_id)
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py (test_audit_record_tool_request_execution_connector_ids_round_trip_against_real_postgres, test_audit_record_find_by_ticket_id_against_real_postgres [real JSONB .astext query], test_audit_record_find_by_actor_id_and_connector_id_against_real_postgres)
+    http: services/tool-integration-gateway/tests/test_app.py (test_admin_audit_query_and_outbox_dead_letter_replay_via_http)
+    result: "156 passed (130 unit/application/architecture/e2e/contract + 26 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs"

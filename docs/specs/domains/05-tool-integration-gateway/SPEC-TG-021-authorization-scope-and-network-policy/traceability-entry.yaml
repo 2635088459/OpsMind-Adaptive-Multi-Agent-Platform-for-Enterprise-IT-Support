@@ -1,0 +1,53 @@
+SPEC-TG-021:
+  domain: 05-tool-integration-gateway
+  name: Authorization Scope And Network Policy
+  cn_name: 授权 Scope 与 Network Policy
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-05-security-and-credential-boundary
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    11-security §"Authorization Model" names 8 axes (tenant, actor type/id, ticket scope,
+    workflow purpose, capability risk, connector policy, approval decision, credential
+    binding scope) — before this spec only capability risk/approval decision/credential
+    binding scope were ever actually checked; actor type was captured but never
+    enforced, and tenant/ticket-scope/workflow-purpose have no concept anywhere in this
+    platform's own domain model to check against (no TenantId exists in 01-domain-model
+    or any sibling domain's own schema, and Gateway has no client to validate
+    cross-domain ticket/workflow context). Rather than inventing an ungrounded
+    authorization model for those three, this spec implements the two axes concretely
+    buildable from what already exists: (1) "connector policy" — new
+    ``ToolConnector.allowed_requester_types`` (empty = unrestricted, backward compatible)
+    + ``is_requester_allowed()``, enforced in ``create_tool_request``'s own capability-
+    resolution step (a connector may now refuse AGENT/SYSTEM callers, matching
+    INV-TG-009's own "Runtime visibility of a capability does not mean an Agent may
+    execute it"), REJECTED + audited + ``tool.request.rejected.v1`` published exactly
+    like the existing capability-not-found path (refactored both into a shared
+    ``_reject()`` helper). Also closed a real persistence gap while wiring this:
+    ``tool_connectors.manifest_json`` had been written as an always-empty ``{}`` since
+    SPEC-TG-002 — ``allowed_requester_types`` now actually uses it, proven by a new
+    "survives a container rebuild" Postgres integration test (this domain's own
+    established pattern for catching exactly this class of round-trip bug, first used by
+    SPEC-TG-009's own approval_ref fix). (2) 11-security §"Network Policy": "Connector
+    manifest must declare allowed host... Undeclared endpoints are denied by default" —
+    new ``ToolConnector.is_host_allowed(host)`` enforcement primitive. No connector
+    adapter in this codebase makes a real outbound network call yet (every one is an
+    honest in-process placeholder), so there is no generic HTTP client layer to
+    centrally intercept; this is the primitive a future real network-calling connector
+    is expected to call itself before any outbound request, honestly documented as such
+    rather than a synthetic enforcement point with nothing real behind it.
+  lld_mapping:
+    - 11-security
+    - 02-business-invariants
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/domain/test_connector.py (is_requester_allowed/is_host_allowed tests), services/tool-integration-gateway/tests/application/test_full_flow.py (requester-type authorization tests)
+    integration: services/tool-integration-gateway/tests/integration/test_app_postgres_integration.py::test_allowed_requester_types_survives_a_container_rebuild_against_real_postgres
+    result: "128 passed (107 unit/application/architecture/e2e + 21 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

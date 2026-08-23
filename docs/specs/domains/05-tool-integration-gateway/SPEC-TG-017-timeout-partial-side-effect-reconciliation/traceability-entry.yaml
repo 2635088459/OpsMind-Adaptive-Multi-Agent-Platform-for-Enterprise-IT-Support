@@ -1,0 +1,43 @@
+SPEC-TG-017:
+  domain: 05-tool-integration-gateway
+  name: Timeout Partial Side Effect Reconciliation
+  cn_name: Timeout 与 Partial Side Effect 对账
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-04-retry-reconciliation-cancellation
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    UC-TG-005's own steps 1-4 (mark TIMED_OUT/PARTIAL_SIDE_EFFECT, RECONCILING, query the
+    connector's status endpoint, confirmed-success -> COMPLETED) were already real and
+    working since SPEC-TG-001/reconcile_execution.py's original build. Two real gaps in
+    step 5 ("If failure is confirmed and retry is allowed, a new attempt is created")
+    closed by this spec: (1) the confirmed-failure branch always jumped straight to
+    TERMINAL_FAILED regardless of the connector's own retry policy, ignoring "if retry
+    is allowed" entirely — now shares application.retry_helpers's exact same decision
+    execute_tool_request's own FAILED branch uses (SPEC-TG-016); ToolExecution.
+    reconcile_terminal_fail() is always terminal for THIS attempt (no RECONCILING ->
+    RETRY_SCHEDULED edge exists in 03-state-machine), but the ToolRequest itself may
+    still return to QUEUED for a fresh attempt. (2) neither outcome of the confirmed-
+    failure branch ever published a tool.completed.v1 — now does, via the same
+    build_terminal_failed_completed_event/build_retry_scheduled_event shared builders
+    SPEC-TG-016 added. Also promoted adapters.connectors.builtin.fake_connector.
+    FakeConnectorAdapter with an independent reconcile_outcome (previously reconcile()
+    always re-invoked, returning the same outcome as invoke() — real connectors'
+    reconcile() performs a genuinely different status lookup), and wired the
+    pre-existing, unwired workers.reconciliation_worker.ReconciliationWorker (found
+    already written but never tested — no ``ReconcileExecutionUseCase`` caller existed
+    outside tests before this spec) with dedicated worker-level tests.
+  lld_mapping:
+    - 10-failure-handling
+    - 03-state-machine
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_reconciliation_worker.py, services/tool-integration-gateway/tests/application/test_full_flow.py (reconciliation-after-cancel tests)
+    result: "115 passed (95 unit/application/architecture/e2e + 20 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

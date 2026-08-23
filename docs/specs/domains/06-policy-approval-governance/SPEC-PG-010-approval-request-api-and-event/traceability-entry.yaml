@@ -1,0 +1,76 @@
+SPEC-PG-010:
+  domain: 06-policy-approval-governance
+  name: Approval Request API And Event
+  cn_name: Approval Request API 与事件
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-02-approval-lifecycle
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    This spec's own goal ("implement approval request creation API and publish approval.requested.v1
+    through outbox") had two real, substantial gaps — unlike most prior specs in this domain, this
+    one was not "already built."
+
+    (1) POST /approval-requests already existed (SPEC-PG-001), but every governance action —
+    including APPROVAL_REQUESTED — staged a generic placeholder event via
+    domain.shared.SimpleGovernanceEvent named "governance.audit." + action + ".v1"
+    (e.g. "governance.audit.approval_requested.v1"), never the real "approval.requested.v1"
+    06-event-contracts names. SimpleGovernanceEvent's own javadoc had explicitly flagged this as
+    intentional and named SPEC-PG-010/013 (approvals) and phase-04 (policy lifecycle) as the
+    owning specs for each real event — confirming this was in-scope, not an accidental gap. Also
+    found: OutboxDispatchService#stage hardcoded aggregateType="Governance" and
+    aggregateId=<the outbox row's own eventId> for every event, even though outbox_events
+    (07-data-model) already has first-class aggregate_type/aggregate_id columns meant to identify
+    the real aggregate — so even a correctly-named event would have carried the wrong identity.
+
+    Fixed both, narrowly scoped to the one event this spec owns: extended domain.shared.DomainEvent
+    with aggregateType()/aggregateId()/ticketId()/payload() (06-event-contracts' own envelope
+    fields); added domain.approval.ApprovalRequestedEvent, the first real, non-placeholder event
+    this service publishes, carrying the ApprovalRequest's real identity and business payload;
+    rewrote OutboxDispatchService#buildPayload to emit the full shared envelope
+    (eventId/eventType/producer/schemaVersion/aggregateId/ticketId/correlationId/causationId/
+    occurredAt/payload) 06-event-contracts' own "Envelope" section defines for every published
+    event — this is a domain-wide fix (08-transaction-and-outbox is this spec's own LLD mapping),
+    but only ApprovalRequestedEvent's payload is real; every other action still uses
+    SimpleGovernanceEvent's honest empty-payload placeholder, now upgraded with correct
+    aggregateType/aggregateId defaults ("Governance"/self, preserving exact prior behavor) rather
+    than fabricating business content. Added GovernanceAuditService#record(..., DomainEvent) — an
+    overload letting a caller stage a real event instead of the auto-generated placeholder,
+    without touching the other ~8 existing call sites. SimpleGovernanceEvent's own javadoc updated
+    to no longer claim SPEC-PG-005/006 already built policy.decision.created.v1 (they didn't; that
+    remains open, owned by nobody in the current roadmap — flagged for whoever picks it up next).
+
+    (2) Added GET /approval-requests/{approvalRequestId} (05-api-contracts lists it; SPEC-PG-009
+    deliberately deferred it to this spec) via new ApprovalService#findById (read-only tx, reuses
+    the existing ApprovalRequestNotFoundException/404 handler from SPEC-PG-001).
+
+    Found and fixed one real bug while adding test coverage: ApprovalRequestedEvent's payload
+    map used Map.copyOf, which throws NullPointerException on any null value — but
+    workflowInstanceId/toolRequestId/policyDecisionId/expiresAt are all legitimately null on many
+    real ApprovalRequests. Caught immediately by ApprovalServiceTest once request() started
+    building a real event; fixed with Collections.unmodifiableMap(new LinkedHashMap<>(...))
+    instead, which tolerates null values as this codebase's DTOs already do elsewhere (no
+    @JsonInclude(NON_NULL) convention exists in this codebase).
+
+    92/92 tests pass (`./mvnw verify`): 80 unit (2 new ApprovalRequestedEventTest cases; 3 new
+    ApprovalServiceTest cases — real event staged with correct aggregate identity, findById
+    success/not-found; 4 new ApprovalControllerTest cases — POST happy path/conflict, GET
+    success/404) + 12 Testcontainers integration (1 new GovernanceOutboxIT case verifying the
+    real envelope's producer/schemaVersion/aggregateId/ticketId/payload fields over a live
+    RabbitMQ round trip).
+  lld_mapping:
+    - 05-api-contracts
+    - 06-event-contracts
+    - 08-transaction-and-outbox
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalRequestedEventTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/ApprovalControllerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/GovernanceOutboxIT.java
+    result: "92 passed (80 unit + 12 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

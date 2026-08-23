@@ -1,0 +1,51 @@
+SPEC-PG-004:
+  domain: 06-policy-approval-governance
+  name: Policy Rule Domain Model
+  cn_name: Policy 与 Rule 领域模型
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-01-policy-model-and-decision-engine
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Data JPA (Hibernate JdbcTypeCode JSON, unchanged) / PostgreSQL"
+  implementation_notes: >
+    Narrow, honestly-scoped gap-fill on top of phase-00: by the time this spec started, Policy
+    (header + PolicyLifecycleStatus), PolicyVersion (full 03-state-machine transitions,
+    reviewedBy/publishedBy/publishedAt, immutability guard), and PolicyRule's
+    effect/riskLevel/approvalRequired/constraints fields were already real, properly-typed
+    domain objects from SPEC-PG-001/002/003 — not stubs. The one remaining gap against this
+    spec's own goal ("Implement domain model for Policy, PolicyRule, PolicyVersion, rule
+    condition/effect/risk/constraints") was `PolicyRule.condition`: still an opaque `String`
+    placeholder. Added `domain.policy.RuleCondition` (attribute/operator/value predicate,
+    `Operator` enum: EQUALS/NOT_EQUALS/IN/NOT_IN/GREATER_THAN_OR_EQUAL/LESS_THAN_OR_EQUAL/MATCHES)
+    and changed `PolicyRule.condition` to `List<RuleCondition> conditions` (implicit AND,
+    mirroring how `constraints`/`reasonCodes` are already flat lists rather than an expression
+    tree) — giving `condition` the same structural rigor as its three siblings. Deliberately
+    stops at the structural/data-shape half: interpreting a `RuleCondition` against real decision
+    input (what `MATCHES` means, multi-condition combination beyond flat AND, an actual rule
+    condition language/grammar) stays SPEC-PG-007's job (Rule Evaluator And Risk Mapping) exactly
+    as SPEC-PG-001's own `PolicyRule`/`DefaultRuleEvaluatorAdapter` javadoc already said —
+    `DefaultRuleEvaluatorAdapter` now carries `conditions` through unread, same fail-safe
+    behavior as before (still never returns ALLOW on no matching rule). Propagated the shape
+    change through `RuleConditionDto`/`PolicyRuleDto` (API layer) and every call site that
+    constructs a `PolicyRule` (all test fixtures) — no persistence/migration change needed since
+    `policy_versions.rules` is already a generic `jsonb` column serializing whatever
+    `PolicyRule` shape Jackson is given. No new invariant, exception, or use case — 02-business-invariants
+    (INV-PG-001 through INV-PG-008) was already fully, structurally enforced by SPEC-PG-001/002/003;
+    re-verified true, nothing left to add. 63/63 tests pass (`./mvnw verify`): 54 unit
+    (2 new: RuleConditionTest, PolicyRuleTest) + 9 Testcontainers integration (unchanged from
+    PG-003, including the real Postgres round-trip of a `PolicyVersion` carrying the new
+    `List<RuleCondition>` shape through its `jsonb` column).
+  lld_mapping:
+    - 01-domain-model
+    - 02-business-invariants
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/policy/RuleConditionTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/policy/PolicyRuleTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "63 passed (54 unit + 9 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

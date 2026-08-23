@@ -1,0 +1,63 @@
+SPEC-PG-001:
+  domain: 06-policy-approval-governance
+  name: Policy Governance Module And Package Boundaries
+  cn_name: Policy Governance 模块与包边界
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Jakarta Validation / springdoc-openapi / Micrometer + OpenTelemetry Java / JUnit 5 / ArchUnit (per this domain's own 13-package-and-class-design LLD §Technology Stack)"
+  implementation_notes: >
+    Hexagonal skeleton delivered under services/policy-approval-governance-service
+    (package com.opsmind.policygovernance), following 13-package-and-class-design's
+    literal package tree (domain/application/infrastructure/api/config) and literal
+    class list almost exactly. Layer boundaries enforced via ArchUnit
+    (tests/architecture/LayerDependencyTest: domain -> no Spring/JPA/AMQP,
+    application -> no infrastructure/api, api -> no infrastructure.persistence, plus an
+    INV-PG-001-specific rule forbidding any dependency on another domain's own service
+    package name — ticketworkflow/toolgateway/agentruntime/memoryknowledge — so a
+    tool-execution or ticket/workflow-state-mutation dependency would fail the build,
+    not just a review). All six named application services (PolicyDecisionService,
+    ApprovalService, ApprovalExpiryService, PolicyAdminService, GovernanceAuditService,
+    OutboxDispatchService) are implemented with real, working logic against
+    SPEC-PG-001-scoped in-memory adapters — not stubs: full Policy/PolicyVersion and
+    ApprovalRequest state machines (03-state-machine, transcribed even though that
+    section is not itself in this spec's LLD mapping — the same extension
+    memory-knowledge-service's and tool-integration-gateway's own spec-1 precedents
+    made), INV-PG-002 (decision explainability) and INV-PG-004
+    (separation-of-duties-checked approval construction) enforced structurally in the
+    domain layer so they hold regardless of which future spec drives the surrounding
+    use case, decisionKey/requestKey idempotent-replay handling, and a fail-safe (never
+    ALLOW) evaluator/identity posture — DefaultRuleEvaluatorAdapter denies/requires
+    approval on no matching rule, StubIdentityAuthorizationAdapter denies every
+    approver — pending SPEC-PG-007 (Rule Evaluator And Risk Mapping) and phase-03
+    (Security / Separation Of Duties) respectively. Postgres/Flyway (07-data-model) and
+    the real RabbitMQ publisher/outbox table (08-transaction-and-outbox) are
+    intentionally deferred to SPEC-PG-002 (schema baseline) and SPEC-PG-003 (outbox/
+    idempotency/audit baseline) — see infrastructure/persistence's
+    InMemory*Repository classes and infrastructure/messaging/LoggingGovernanceEventPublisher's
+    own javadoc for the specific deferral and why; pom.xml deliberately omits
+    spring-boot-starter-data-jpa/flyway/amqp until then rather than booting behind
+    autoconfiguration exclusions those specs would immediately have to undo. The deep
+    01-domain-model aggregate builds (Policy Rule Domain Model, Policy Decision
+    Aggregate, Approval Request Aggregate), the real condition-matching rule engine,
+    full reviewer/publisher role model, and the scheduled approval-expiry trigger are
+    explicitly left to SPEC-PG-004/005/007/009/011/012 — see the relevant domain and
+    application classes' own javadoc for the specific boundary. 42/42 tests pass
+    (`./mvnw test`); `./mvnw package` builds a runnable jar.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 02-business-invariants
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain
+    application: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application
+    infrastructure: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure
+    architecture: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/architecture
+    result: "42 passed (JUnit 5 via ./mvnw test), BUILD SUCCESS, ArchUnit layering + INV-PG-001 cross-domain-dependency rules kept"

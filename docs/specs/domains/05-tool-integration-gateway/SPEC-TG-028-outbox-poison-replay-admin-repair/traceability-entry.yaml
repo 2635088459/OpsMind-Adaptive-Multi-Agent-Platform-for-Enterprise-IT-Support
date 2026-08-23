@@ -1,0 +1,40 @@
+SPEC-TG-028:
+  domain: 05-tool-integration-gateway
+  name: Outbox Poison Replay Admin Repair
+  cn_name: Outbox Poison、Replay 与 Admin Repair
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-07-observability-audit-admin
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    10-failure-handling §"Poison Request": "Poison requests are not executed automatically
+    again and require admin audit." mark_dead_letter/mark_failed machinery has existed since
+    SPEC-TG-002/003, and find_dead_letter() was already implemented on both OutboxRepository
+    adapters — but never declared on the OutboxRepository Protocol itself (a variant of the
+    "adapter has it, port doesn't declare it" pattern this engagement keeps finding), and there
+    was no admin-facing repair capability at all. Added find_dead_letter/find_by_id/requeue to
+    the OutboxRepository port; requeue() resets attempts to 0 (not continuing the exhausted
+    backoff schedule) and sets status=PENDING, available_at=now. New
+    application/admin_outbox.py::AdminOutboxService.replay() validates the record exists
+    (OutboxRecordNotFoundException -> 404) and is currently DEAD_LETTER
+    (OutboxRecordNotDeadLetterException -> 409), then requeues and writes a mandatory
+    outbox_event_replayed audit record before returning the requeued view — satisfying "require
+    admin audit" as real behavior, not just a docstring. New endpoints (api/admin_routes.py):
+    GET /internal/tool-gateway/v1/admin/outbox/dead-letter, POST
+    /internal/tool-gateway/v1/admin/outbox/{outboxId}/replay.
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    application: services/tool-integration-gateway/tests/application/test_full_flow.py (test_admin_outbox_replay_moves_dead_letter_back_to_pending, test_admin_outbox_replay_raises_for_unknown_outbox_id, test_admin_outbox_replay_raises_for_non_dead_letter_record)
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py (test_outbox_find_by_id_and_requeue_against_real_postgres)
+    http: services/tool-integration-gateway/tests/test_app.py (test_admin_audit_query_and_outbox_dead_letter_replay_via_http)
+    result: "156 passed (130 unit/application/architecture/e2e/contract + 26 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs"

@@ -1,0 +1,45 @@
+SPEC-TG-010:
+  domain: 05-tool-integration-gateway
+  name: Execution Scheduling Worker Lease
+  cn_name: Execution Scheduling Worker Lease
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-03-execution-worker-and-connectors
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    09-concurrency-and-idempotency §"Worker Concurrent Claim": "Other workers may take
+    over after lease expiry" and 10-failure-handling §"Gateway Crash Recovery": "Scan
+    lease-expired executions. Move INVOKING executions with expired lease to
+    reconciliation" were entirely unimplemented — a worker that died between claim()
+    and resolution left its ToolExecution stuck CLAIMED/PREPARING/INVOKING forever, with
+    no scan ever picking it back up. Added ports.storage_port.ToolExecutionRepository.
+    find_lease_expired(now, limit) (in-memory + Postgres, new
+    "status IN (CLAIMED, PREPARING, INVOKING) AND lease_expires_at < now" index-backed
+    query) and application.reclaim_expired_leases.ReclaimExpiredLeasesService: CLAIMED
+    -> expire_lease() -> LEASE_EXPIRED and PREPARING -> fail_preparing() -> FAILED (no
+    connector call was ever made, so these are simple terminal fails, never routed
+    through reconciliation), while INVOKING -> time_out() -> TIMED_OUT (genuinely
+    uncertain outcome, feeds the existing ReconcileExecutionService pipeline exactly
+    like a connector-reported timeout would). Wired into workers.execution_worker.
+    ExecutionWorker as a new reclaim_expired_leases() method + optional reclaim_port
+    constructor param (backward compatible, defaults to None/no-op), called before each
+    run_once() pass inside run_forever(). What happens to the ToolRequest afterward
+    (retry vs terminal failure) is deliberately left alone here — automatic retry
+    scheduling is phase-04 SPEC-TG-016's job, exactly like execute_tool_request's own
+    FAILED branch already defers.
+  lld_mapping:
+    - 03-state-machine
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/domain/test_tool_execution.py, services/tool-integration-gateway/tests/application/test_full_flow.py, services/tool-integration-gateway/tests/application/test_execution_worker.py
+    integration: services/tool-integration-gateway/tests/integration/test_postgres_repositories.py::test_find_lease_expired_against_real_postgres
+    result: "86 passed (68 unit/application/architecture/e2e + 18 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

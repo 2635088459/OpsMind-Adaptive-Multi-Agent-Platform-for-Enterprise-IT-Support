@@ -1,0 +1,40 @@
+SPEC-TG-014:
+  domain: 05-tool-integration-gateway
+  name: Result Envelope Normalization Redaction
+  cn_name: Result Envelope 标准化与脱敏
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-03-execution-worker-and-connectors
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    11-security §"Output Redaction": "Every connector result must pass classification/
+    redaction ... Only redacted output may enter event payloads or Memory Knowledge."
+    SPEC-TG-001's own RedactionPort.redact() call was applied only to ExecutionOutcome.
+    summary; structured_output — a connector's untrusted free-form JSON — reached the
+    published event and the GET /tool-results API response completely unredacted, a real
+    security gap (a connector returning a secret-shaped string anywhere inside its
+    structured output leaked it verbatim). Added application.redaction_helpers.
+    redact_structured_output(), a recursive walker applied to every string leaf in dicts/
+    lists, wired into both execute_tool_request.py and reconcile_execution.py alongside
+    the existing summary redaction (result envelope's redaction_status now correctly
+    reflects either source). Also broadened adapters.redaction.redaction_service.
+    RegexRedactionAdapter._PATTERNS beyond the original bearer_token/api_key_pair/
+    aws_access_key set with private_key_block (PEM blocks), email_address (PII proxy),
+    and internal_ipv4 (RFC 1918 private ranges, the "infrastructure internal address"
+    example 11-security itself names) — still an honestly-labeled regex placeholder, not
+    a real DLP/classification pipeline (that stays phase-05 SPEC-TG-020~021 scope).
+  lld_mapping:
+    - 01-domain-model
+    - 11-security
+    - 05-api-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py::test_execute_redacts_secrets_nested_inside_structured_output
+    result: "86 passed (68 unit/application/architecture/e2e + 18 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

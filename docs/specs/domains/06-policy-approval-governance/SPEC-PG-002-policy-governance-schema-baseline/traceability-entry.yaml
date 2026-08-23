@@ -1,0 +1,66 @@
+SPEC-PG-002:
+  domain: 06-policy-approval-governance
+  name: Policy Governance Schema Baseline
+  cn_name: Policy Governance schema baseline
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Data JPA (Hibernate 6, JdbcTypeCode(SqlTypes.JSON) for jsonb columns) / Flyway / PostgreSQL (shared instance, dedicated `governance` schema) / Testcontainers"
+  implementation_notes: >
+    Real PostgreSQL schema baseline delivered: 9 Flyway migrations
+    (V001__create_governance_schema.sql creates a dedicated `governance` schema in the
+    same shared Postgres instance as ticket-workflow-service/agent-runtime-service, one
+    schema per service per that established convention; V002-V007 create policies,
+    policy_versions, policy_decisions, approval_requests, approval_decisions, and
+    governance_audit_records with every unique constraint/check constraint/index named
+    in 07-data-model; V008-V009 create outbox_events/processed_events as schema-only,
+    matching tool-integration-gateway's own TG-002/TG-003 split — SPEC-PG-003 owns the
+    real transactional-outbox write path and consumer dedup logic). All 6 aggregate
+    ports (PolicyRepository, PolicyVersionRepository, PolicyDecisionRepository,
+    ApprovalRequestRepository, ApprovalDecisionRepository, GovernanceAuditRepository)
+    now have real JPA entity/mapper/adapter trios
+    (infrastructure/persistence/jpa/entity, mapper, adapter) replacing SPEC-PG-001's
+    in-memory adapters, which moved to src/test/java/.../support as fast unit-test
+    doubles (kept, not deleted, so application-layer unit tests stay fast without
+    Testcontainers). Filling in the real schema surfaced 3 real gaps in SPEC-PG-001's
+    domain model that 07-data-model required but the domain objects never carried —
+    fixed properly rather than left as NULL columns (the recurring "DB column exists,
+    domain model never carries the field" bug pattern from this project's other
+    domains): Policy gained `status`/`updatedAt` (PolicyLifecycleStatus, distinct from
+    per-version PolicyStatus), PolicyVersion gained `reviewedBy`/`publishedAt`, and
+    PolicyDecision gained `sourceDomain`/`sourceRequestId`/`ticketId`/
+    `workflowInstanceId` (the SPEC-PG-002 Core Rule "facts must be traceable to source
+    domain, source request..." was not actually wired through
+    EvaluateDecisionCommand/PolicyDecisionService/the API layer in PG-001 — now is).
+    `requested_by_type`/`decided_by_type` columns are left nullable rather than
+    populated with a fake placeholder, deferred honestly to phase-03's real actor-type
+    model. Every application-service write method now carries a real
+    `@Transactional` boundary (audit record + domain state change commit atomically,
+    per the repeated "every governance state transition must write audit/outbox in the
+    same transaction" domain rule) — placed on each public entry point, not the
+    private `decide()` helper, since Spring AOP proxies don't intercept self-invocation.
+    Concurrent grant/deny safety (test-plan: "concurrent approval grant/deny") comes
+    from `approval_decisions`' own `UNIQUE (approval_request_id)` constraint plus
+    `ApprovalDecisionPersistenceAdapter` calling `saveAndFlush` so the losing thread's
+    constraint violation surfaces before the request-status write — verified with a
+    real 2-thread Testcontainers race test (exactly 1 success, 1
+    `DataIntegrityViolationException`), no `@Version`/optimistic-locking needed. Full
+    verification: `./mvnw verify` — 42 unit tests (in-memory doubles, no Postgres) +
+    7 Testcontainers integration tests (real Postgres 18.4, real Flyway migration run,
+    real unique-constraint and concurrency assertions) all green.
+  lld_mapping:
+    - 07-data-model
+    - 03-state-machine
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain,application,infrastructure
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    architecture: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/architecture
+    result: "49 passed (42 unit + 7 Testcontainers Postgres integration via ./mvnw verify), BUILD SUCCESS"

@@ -1,0 +1,37 @@
+SPEC-TG-024:
+  domain: 05-tool-integration-gateway
+  name: 04 Memory Evidence Contract
+  cn_name: 04 Memory Evidence Contract
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-06-cross-domain-contracts
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    04-memory-knowledge's own 06-event-contracts does not consume tool.completed.v1
+    directly — it consumes 03-agent-runtime-orchestration's own workflow.completed.v1
+    ("obtain ... tool evidence refs" via that event's taskResults), so Tool Gateway has no
+    direct event relationship with Memory Knowledge at all; this spec's real scope is TG's
+    own side of that indirect chain. Found ``ToolResultEnvelope.evidenceRefs`` had existed
+    since SPEC-TG-001 (round-tripped through Postgres/API/domain) but nothing ever populated
+    it — always ``()``. Populated it with the one evidence artifact this domain's actual
+    connector SDK produces today: the controlled ``raw_output_ref`` (SPEC-TG-020) itself,
+    when a connector produces raw output — never its content (INV-TG-007). A richer,
+    connector-declared evidence list is future scope once a real (non-placeholder) connector
+    adapter exists to produce one. New cross-domain contract test asserts both that
+    evidenceRefs is populated when raw output exists, and that the raw content marker never
+    appears in ANY outbox payload for that tool request, of any event type.
+  lld_mapping:
+    - 06-event-contracts
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py (test_execute_success_populates_evidence_refs_with_the_raw_output_reference, test_execute_success_without_raw_output_leaves_evidence_refs_empty)
+    contract: services/tool-integration-gateway/tests/contracts/test_cross_domain_contracts.py::test_evidence_refs_populated_and_raw_content_never_appears_in_any_outbox_payload
+    result: "141 passed (119 unit/application/architecture/e2e/contract + 22 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept"

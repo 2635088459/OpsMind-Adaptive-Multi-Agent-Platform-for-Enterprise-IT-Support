@@ -1,0 +1,75 @@
+SPEC-PG-003:
+  domain: 06-policy-approval-governance
+  name: Governance Outbox Idempotency Audit Baseline
+  cn_name: Governance Outbox、幂等与审计 baseline
+  status: implemented
+  service: policy-approval-governance-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring AMQP (RabbitTemplate) / Spring Data JPA / Flyway / PostgreSQL / Micrometer / Testcontainers (Postgres + RabbitMQ)"
+  implementation_notes: >
+    Closes phase-00 (engineering foundation), the last of SPEC-PG-001/002/003. Real
+    transactional outbox: OutboxDispatchService#stage now inserts a PENDING row into
+    outbox_events in the caller's own @Transactional boundary (GovernanceEventPublisherPort/
+    LoggingGovernanceEventPublisher from PG-001 removed entirely, replaced by
+    OutboxEventRepository + MessageBrokerPublisherPort); OutboxDispatchService#publishPending
+    drains due PENDING rows through a real RabbitGovernanceEventPublisher
+    (RabbitTemplate -> the same `opsmind.events` topic exchange ticket-workflow-service already
+    declares/consumes from), marking rows PUBLISHED on success or retrying with linear backoff
+    up to 5 attempts before marking FAILED (dead-letter) — verified end-to-end against a real
+    Testcontainers RabbitMQ (GovernanceOutboxIT binds a temp queue to the exchange and asserts
+    the message actually arrives). Per this codebase's own repeatedly-confirmed platform
+    convention (ticket-workflow-service's OutboxPersistenceAdapter is also append-only with no
+    in-process drain loop; same for every Python sibling's worker classes), publishPending is
+    deliberately never invoked by @Scheduled or any running background process — it is tested
+    and admin/scheduler-callable, not a gap. 09-concurrency-and-idempotency closed 3 real gaps
+    PG-001/002 left open: (1) PolicyDecisionService now distinguishes a same-inputHash replay
+    (returns existing decision) from a different-inputHash reuse of the same decisionKey (throws
+    DecisionKeyConflictException, 409) — previously any existing decisionKey silently returned
+    the old decision regardless of hash; (2) ApprovalService#decide now takes the
+    ApprovalRequest row via a real `SELECT ... FOR UPDATE` (new
+    ApprovalRequestRepository#findByIdForUpdate, `@Lock(PESSIMISTIC_WRITE)`) and checks for an
+    existing ApprovalDecision before building a new one — an identical retry (same outcome, same
+    decider) now returns the existing decision idempotently, a genuinely conflicting attempt
+    throws ApprovalAlreadyDecidedException (409) and writes a new
+    GovernanceAuditRecord.Action.APPROVAL_DECISION_CONFLICT audit row (migration V010 extends the
+    check constraint) — previously a losing concurrent request only got a raw unhandled
+    DataIntegrityViolationException; (3) added a defensive DataIntegrityViolationException ->
+    409 handler in GlobalRestExceptionHandler as a fallback for any future write path that adds
+    a unique constraint without the same explicit check. 12-observability: GovernanceMetricsPort
+    (implemented by MicrometerGovernanceMetrics) adds policy_decision_total,
+    policy_decision_latency_seconds, policy_evaluation_failure_total,
+    approval_request_created_total, approval_decision_total, approval_wait_seconds,
+    approval_expired_total, policy_publish_total, and a self-registered
+    governance_outbox_pending_count gauge — governance_override_total is intentionally not
+    implemented (no override use case exists yet, phase-05); structured SLF4J fluent logging
+    (correlationId/causationId/policyDecisionId/approvalRequestId/sourceDomain/sourceRequestId/
+    ticketId/workflowInstanceId/riskLevel/effect/policyVersion) added to
+    PolicyDecisionService/ApprovalService per the exact field list in 12-observability. Deferred
+    exactly as scoped in SPEC-PG-001/002: real condition-matching rule engine (SPEC-PG-007),
+    full reviewer/publisher/requester-executor-approver identity model (phase-03, SPEC-PG-011),
+    scheduled approval-expiry trigger (SPEC-PG-012), and any real consumer for
+    tool.approval.required.v1/workflow.approval.required.v1/ticket.approval.required.v1/
+    policy.evaluation.requested.v1 (06-event-contracts lists them, but building a live RabbitMQ
+    consumer for any of them is a phase-01/02 vertical-slice concern, not this baseline — this
+    spec only builds the reusable outbound publish mechanism). **This closes the entire phase-00
+    Engineering Foundation for domain 06 — all of SPEC-PG-001/002/003 are now
+    `status: implemented`.** 58/58 tests pass (`./mvnw verify`): 49 unit (in-memory doubles, no
+    Docker) + 9 Testcontainers integration (7 Postgres persistence/concurrency + 2 real
+    Postgres+RabbitMQ outbox round-trip).
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+    - 12-observability
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain,application,infrastructure
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/GovernanceOutboxIT.java
+    architecture: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/architecture
+    result: "58 passed (49 unit + 9 Testcontainers Postgres/RabbitMQ integration via ./mvnw verify), BUILD SUCCESS"

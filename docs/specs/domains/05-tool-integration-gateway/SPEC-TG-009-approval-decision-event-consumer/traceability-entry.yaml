@@ -1,0 +1,47 @@
+SPEC-TG-009:
+  domain: 05-tool-integration-gateway
+  name: Approval Decision Event Consumer
+  cn_name: Approval Decision Event Consumer
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-02-policy-approval-mediation
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    SPEC-TG-001 already built the core approval-decision state transition
+    (application.approve_tool_request.record_approval_decision), directly callable
+    with no event-level semantics at all. This spec built the real consumer around it:
+    ApproveToolRequestService.consume_approval_decision() adds (1) event-id dedup via
+    ProcessedEventRepository — 08-transaction-and-outbox §"Processed Events"; (2) an
+    idempotent skip when the ToolRequest is no longer WAITING_APPROVAL —
+    09-concurrency-and-idempotency §"Approval Event Idempotency": "If ToolRequest is
+    already QUEUED, EXECUTING, or final, skip"; (3) approval-linkage matching — the
+    event's own approvalRequestId must equal the ToolRequest's stored linkage or the
+    decision is rejected with a new ApprovalLinkageMismatchException + a
+    approval_linkage_mismatch security audit record ("If approval linkage does not
+    match, write security audit and reject"), mapped to a 403 APPROVAL_LINKAGE_MISMATCH
+    in api/errors.py. Added a new HTTP seam, api/event_routes.py (mirrors memory-
+    knowledge-service's own interfaces/event/router.py "manual/ops trigger until a real
+    RabbitMQ consumer exists" precedent exactly) exposing POST /internal/tool-gateway/v1/events/
+    {approval-granted,approval-denied,policy-rule-changed} — the real RabbitMQ
+    subscription loop itself (adapters.events.rabbitmq_consumer) stays deferred to
+    phase-06 (SPEC-TG-022~025) since no domain-06 service exists yet to actually publish
+    these events against. The linkage-matching check only works because SPEC-TG-008's
+    own approval_ref Postgres round-trip fix landed in the same pass — see that spec's
+    own traceability entry.
+  lld_mapping:
+    - 06-event-contracts
+    - 09-concurrency-and-idempotency
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py
+    end_to_end: services/tool-integration-gateway/tests/test_app.py
+    integration: services/tool-integration-gateway/tests/integration/test_app_postgres_integration.py
+    result: "68 passed (52 unit/application/architecture/e2e + 16 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

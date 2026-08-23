@@ -1,0 +1,44 @@
+SPEC-TG-004:
+  domain: 05-tool-integration-gateway
+  name: Tool Request Aggregate State Machine
+  cn_name: Tool Request 聚合与状态机
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-01-request-intake-and-registry
+  tech_stack: "Python 3.13+ / dataclasses, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    The ToolRequest aggregate, its full 03-state-machine transition table, and
+    02-business-invariants INV-TG-001~010 were already built end-to-end in SPEC-TG-001
+    (phase-00's own walking skeleton) — domain/tool_request.py, domain/state_machine.py,
+    domain/errors.py. Per this codebase's established scoping methodology (see
+    [[aro-spec-scoping-methodology]]-equivalent precedent), SPEC-TG-004's real
+    incremental scope in this phase was auditing invariant coverage and closing the one
+    real gap found: INV-TG-010 ("Connector timeout, policy denial, approval denial,
+    non-retryable failure, and partial side effect must remain distinguishable") was
+    only exercised at the pure domain layer (tests/domain/test_tool_execution.py) — no
+    test drove execute_tool_request's TIMED_OUT/PARTIAL_SIDE_EFFECT/FAILED branches
+    through the actual application service, since the only wired connector
+    (EchoConnectorAdapter) always returns SUCCESS. Added a
+    `_FixedOutcomeConnector` test double and three new
+    tests/application/test_full_flow.py cases proving each outcome stays
+    distinguishable (ToolRequest.EXECUTING for TIMED_OUT/PARTIAL_SIDE_EFFECT pending
+    reconciliation, ToolRequest.FAILED — not TERMINAL_FAILED — for a retryable
+    connector failure) all the way through the real service, not just the domain
+    object. All other INV-TG-0xx invariants were already covered by SPEC-TG-001's own
+    test suite; no other gap found.
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+    - 02-business-invariants
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/domain
+    application: services/tool-integration-gateway/tests/application/test_full_flow.py
+    result: "55 passed (40 unit/application/architecture/e2e + 15 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

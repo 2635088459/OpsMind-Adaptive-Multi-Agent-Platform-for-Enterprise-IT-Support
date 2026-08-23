@@ -1,0 +1,60 @@
+SPEC-TG-001:
+  domain: 05-tool-integration-gateway
+  name: Tool Gateway Module And Package Boundaries
+  cn_name: Tool Gateway 模块与包边界
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-00-engineering-foundation
+  tech_stack: "Python 3.13+ / FastAPI / Pydantic (per this domain's own 13-package-and-class-design LLD, which gives a concrete Python package tree with .py filenames throughout, e.g. src/tool_gateway/api/runtime_routes.py — the more specific, more recent source of truth for this one service; docs/low-level-design/shared/technology-baseline/README_EN.md's own service-boundary diagram lists a pre-domain-split 'tool-policy-gateway' name under Java, from before the LLD decomposed this platform capability into domain 05 (execution) and domain 06 (policy-approval-governance))"
+  implementation_notes: >
+    Domain/ports/application/adapters/api/workers package skeleton delivered under
+    services/tool-integration-gateway (Python package tool_gateway), following
+    13-package-and-class-design's own literal package tree (api/application/domain/
+    ports/adapters/workers as top-level siblings, not application-nested as in
+    memory-knowledge-service). Layer boundaries enforced via import-linter contracts
+    (pyproject.toml [tool.importlinter]: domain -> ports -> application, adapters
+    implement ports, api/workers depend on application) plus an AST-based pytest check
+    under tests/architecture/test_api_boundary.py (api/workers must reach adapters only
+    via tool_gateway.container), mirroring memory-knowledge-service's own SPEC-MK-001
+    precedent. All seven named application/ modules (create_tool_request,
+    evaluate_tool_request, approve_tool_request, cancel_tool_request,
+    execute_tool_request, reconcile_execution, publish_outbox) plus register_connector
+    (an LLD-list extension — connector_admin_routes.py needs an application service to
+    call) are implemented with real, working logic against SPEC-TG-001-scoped in-memory
+    adapters — not stubs: the full ToolRequest/ToolExecution/ApprovalLinkage/
+    ConnectorHealth state machines (domain/state_machine.py, transcribed from
+    03-state-machine even though that section is not itself in this spec's LLD mapping,
+    the same extension memory-knowledge-service's own SPEC-MK-001 made for its own
+    03-state-machine), a deterministic capability-keyword risk policy
+    (adapters/policy/policy_client.py), an in-memory approval-linkage adapter
+    (adapters/approval — added beyond 13-package-and-class-design's own adapters/ tree,
+    which lists ports/approval_port.py with no matching adapter directory), a
+    deterministic EchoConnectorAdapter every registered connector binds to pending
+    phase-03's real connector SDK loading, regex-based output redaction, and a working
+    outbox dispatch loop with backoff/dead-letter. Postgres/Alembic (07-data-model) and
+    the real RabbitMQ publisher/consumer (08-transaction-and-outbox) are intentionally
+    deferred to SPEC-TG-002 (schema baseline) and SPEC-TG-003 (outbox/processed-event/
+    audit baseline) respectively — see adapters/db/models.py and
+    adapters/events/rabbitmq_publisher.py's own module docstrings for the specific
+    deferral and why. Automatic retry scheduling on failure (phase-04, SPEC-TG-016) and
+    publishing tool.completed.v1 for policy/approval-denial paths with no execution
+    attempt behind them (phase-02, SPEC-TG-007~009) are explicitly left to those future
+    specs — see application/execute_tool_request.py and
+    application/approve_tool_request.py's own module docstrings.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 02-business-invariants
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/domain
+    application: services/tool-integration-gateway/tests/application
+    architecture: services/tool-integration-gateway/tests/architecture
+    end_to_end: services/tool-integration-gateway/tests/test_app.py
+    result: "30 passed (pytest), 4 import-linter contracts kept, 0 pyflakes warnings"

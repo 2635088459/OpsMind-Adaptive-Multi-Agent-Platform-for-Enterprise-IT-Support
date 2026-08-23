@@ -1,0 +1,46 @@
+SPEC-TG-031:
+  domain: 05-tool-integration-gateway
+  name: Contract E2E Harness
+  cn_name: Contract 与 E2E Harness
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-09-final-verification-release
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Audited 14-testing-strategy's own literal test-goal lists (Unit/Integration/Connector
+    Contract/Security/Recovery/Cross-Domain Contract) item by item against the existing
+    suite rather than assuming a rewrite; almost every item was already covered by a prior
+    phase's own tests (see each item's own home spec — TG-010/017 for recovery, TG-011 for
+    connector contracts, TG-021 for network policy, TG-022~025 for cross-domain). Two real
+    gaps closed as this spec's own harness additions: (1) "Agent cannot read credential/
+    vault ref" (Security Tests) had no direct HTTP-level regression guard — added
+    test_app.py::test_agent_facing_responses_never_include_a_credential_vault_reference,
+    which drives a real credential-binding-backed execution through the real HTTP app and
+    asserts neither GET /tool-requests/{id} nor GET /tool-results/{id} ever contains
+    "vault://" (InMemoryVaultCredentialAdapter's own real ref format), not just an
+    inspection of ConnectorRequestResponse/ToolResultResponse's own field list. (2) "duplicate
+    tool.completed.v1 does not complete AgentTask twice" (Cross-Domain Contract Tests) —
+    Agent Runtime's own consumer-side idempotency cannot be contract-tested (no live
+    consumer exists, per SPEC-TG-022's own traceability entry), but Tool Gateway's own half
+    of that guarantee — never *publishing* a second tool.completed.v1 for an already-
+    finalized ToolRequest even under a worker double-claim race — was never directly proven
+    end to end. Added test_full_flow.py::
+    test_re_executing_an_already_completed_request_raises_instead_of_republishing, proving
+    03-state-machine's own COMPLETED -> {} transition table (no outbound edges) makes a
+    second execute_tool_request() call raise InvalidToolRequestTransitionException before
+    ever reaching the outbox-append lines, and that exactly one tool.completed.v1 exists for
+    that ToolRequest afterward.
+  lld_mapping:
+    - 14-testing-strategy
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    http: "services/tool-integration-gateway/tests/test_app.py (test_agent_facing_responses_never_include_a_credential_vault_reference)"
+    application: "services/tool-integration-gateway/tests/application/test_full_flow.py (test_re_executing_an_already_completed_request_raises_instead_of_republishing)"
+    result: "165 passed (138 unit/application/architecture/e2e/contract + 27 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs"

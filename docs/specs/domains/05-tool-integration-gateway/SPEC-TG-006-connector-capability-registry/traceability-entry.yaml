@@ -1,0 +1,56 @@
+SPEC-TG-006:
+  domain: 05-tool-integration-gateway
+  name: Connector Capability Registry
+  cn_name: Connector 与 Capability Registry
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-01-request-intake-and-registry
+  tech_stack: "Python 3.13+ / FastAPI / SQLAlchemy, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    SPEC-TG-001 already built the connector registry (adapters/connectors/registry.py),
+    manifest registration (UC-TG-007), and POST/GET /connectors. This spec's real,
+    concrete scope — closing gaps against 01-domain-model, 05-api-contracts, and
+    07-data-model — delivered three things: (1) INV-TG-008 "Every connector
+    input/output schema must be versioned. Tool Request records the schema version
+    used at submission time" was NOT implemented — ToolRequest gained
+    resolved_connector_id/resolved_connector_version fields plus a
+    ToolRequest.bind_connector() domain method, called from create_tool_request at
+    intake; execute_tool_request was changed to resolve the connector via that bound
+    id (ConnectorRegistryPort.find_by_id) instead of re-resolving by capability name
+    — a real correctness fix, not just a schema addition: re-resolving by capability
+    name at execution time would let a connector upgrade registered between accept and
+    execute silently swap in a different schema/version than what was actually
+    validated at submission time. Also added a schedulability re-check at execute time
+    (the bound connector could have been disabled by an admin after accept, in which
+    case execution now fails with CAPABILITY_NOT_FOUND rather than silently running
+    against a disabled connector) — new Postgres columns via migration
+    690b98c93f9e_tool_requests_resolved_connector_binding.py. (2) `PATCH /connectors/
+    {connectorId}/status` (05-api-contracts §"Connector Admin API": "Enable, disable,
+    or deprecate a connector") did not exist — added
+    RegisterConnectorService.update_connector_status() driving
+    ToolConnector.reactivate()/disable()/deprecate() (already built in SPEC-TG-001,
+    previously unwired to any API), with the INV-TG-006-mandated
+    connector_enabled/connector_disabled/connector_deprecated audit actions. (3) `GET
+    /capabilities` (05-api-contracts: "Return capability registry visible to Runtime")
+    did not exist — added RegisterConnectorService.list_capabilities(), deduplicated
+    by capability name, returning only ACTIVE-schedulable connectors' capabilities.
+    Tenant/actor/policy visibility filtering is explicitly out of this spec's own LLD
+    mapping (11-security scope) — phase-05 SPEC-TG-020~021 owns that; documented in
+    list_capabilities()'s own docstring.
+  lld_mapping:
+    - 01-domain-model
+    - 05-api-contracts
+    - 07-data-model
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py
+    end_to_end: services/tool-integration-gateway/tests/test_app.py
+    integration: services/tool-integration-gateway/tests/integration
+    result: "55 passed (40 unit/application/architecture/e2e + 15 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"

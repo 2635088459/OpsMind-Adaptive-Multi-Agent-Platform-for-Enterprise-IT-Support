@@ -1,0 +1,10 @@
+SPEC-TG-002: real Alembic migrations live in `migrations/` at the service root
+(sibling to `src/`, i.e. `services/tool-integration-gateway/migrations/`), not
+nested under this directory — `alembic.ini`'s `script_location` and every other
+Python service in this monorepo (memory-knowledge-service, agent-runtime-service)
+use that same top-level layout, which is also Alembic's own tooling convention
+for a `src/` package layout. 13-package-and-class-design's own package tree
+lists `adapters/db/migrations/` literally, but following that literally here
+would fight Alembic's own `prepend_sys_path`/`script_location` conventions for
+no benefit; this directory is kept only as the package-boundary placeholder
+SPEC-TG-001 established, pointing to where the real thing actually lives.

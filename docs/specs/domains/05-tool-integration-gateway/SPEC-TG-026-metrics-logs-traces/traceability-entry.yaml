@@ -1,0 +1,49 @@
+SPEC-TG-026:
+  domain: 05-tool-integration-gateway
+  name: Metrics Logs Traces
+  cn_name: Metrics、Logs 与 Traces
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-07-observability-audit-admin
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    Mirrors memory-knowledge-service's/agent-runtime-service's own OpenTelemetry pattern
+    exactly: adapters/observability/otel_setup.py holds a single idempotent
+    configure_observability(settings) (module-level _configured flag) called once from
+    main.py::create_app(), with a "console" exporter (ConsoleSpanExporter +
+    PeriodicExportingMetricReader/ConsoleMetricExporter) as the genuinely-functional safe
+    default and "otlp" (OTLPSpanExporter/OTLPMetricExporter over grpc) as explicit opt-in via
+    new settings (otel_exporter/otel_exporter_otlp_endpoint/otel_service_name).
+    application/telemetry.py's ToolGatewayTelemetry holds the 12 vendor-neutral instrument
+    names 12-observability's own metrics list names verbatim (tool_request_created_total,
+    tool_request_completed_total, tool_execution_latency_seconds, tool_approval_wait_seconds,
+    tool_connector_error_total, tool_connector_timeout_total, tool_execution_retry_total,
+    tool_reconciliation_total, tool_outbox_pending_count [observable gauge callback reading
+    the outbox repository directly], tool_outbox_publish_failure_total,
+    tool_credential_access_total, tool_redaction_failure_total), threaded into every
+    application service that owns the relevant transition
+    (create/evaluate/approve/cancel/execute_tool_request, reconcile_execution,
+    publish_outbox). All labels are low-cardinality (connector *name*, capability name,
+    status/outcome enum) — never an id, matching the same discipline MK/ARO's own telemetry
+    already established. execute_tool_request wraps the connector adapter.invoke() call in an
+    OTel span (tool_gateway.connector_invoke, attributes limited to connector.name/
+    capability.name — never spec.input_payload, since "External connector spans must not
+    record sensitive payloads"). Also converts "redaction failure must prevent publishing raw
+    content" from a metric-only concern into real behavior: redact()/redact_structured_output()
+    calls in both execute_tool_request's SUCCESS branch and reconcile_execution are wrapped in
+    try/except -> record_redaction_failure() -> re-raise, so a redaction bug cannot silently
+    publish raw connector output.
+  lld_mapping:
+    - 12-observability
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_telemetry.py (smoke-tests every ToolGatewayTelemetry instrument)
+    application: services/tool-integration-gateway/tests/application/test_full_flow.py (redaction-failure-prevents-publish coverage threaded through the existing execute/reconcile flow tests)
+    result: "156 passed (130 unit/application/architecture/e2e/contract + 26 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings, 4/4 import-linter contracts kept, dev Postgres left with 0 rows in every tool.* table after integration runs"

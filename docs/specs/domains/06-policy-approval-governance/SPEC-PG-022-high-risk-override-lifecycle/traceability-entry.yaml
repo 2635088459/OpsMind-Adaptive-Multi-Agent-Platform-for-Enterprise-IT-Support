@@ -1,0 +1,27 @@
+SPEC-PG-022:
+  domain: 06-policy-approval-governance
+  name: High Risk Override Lifecycle
+  cn_name: High Risk Override 生命周期
+  status: planned
+  service: policy-approval-governance-service
+  phase: phase-05-override-and-exception-governance
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
+  implementation_notes: >
+    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
+    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
+    policy version/input hash/reason codes/constraints; enforce approver authorization and
+    separation of duties; and publish approval/policy events through transactional outbox.
+  lld_mapping:
+    - 03-state-machine
+    - 04-use-cases
+    - 11-security
+  forbidden:
+    - direct_tool_execution
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - memory_content_write
+    - approval_forgery
+    - separation_of_duties_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    status: pending

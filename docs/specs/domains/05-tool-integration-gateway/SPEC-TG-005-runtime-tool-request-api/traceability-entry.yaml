@@ -1,0 +1,57 @@
+SPEC-TG-005:
+  domain: 05-tool-integration-gateway
+  name: Runtime Tool Request API
+  cn_name: Runtime Tool Request API
+  status: implemented
+  service: tool-integration-gateway
+  phase: phase-01-request-intake-and-registry
+  tech_stack: "Python 3.13+ / FastAPI, per this domain's own SPEC-TG-001 resolution"
+  implementation_notes: >
+    SPEC-TG-001 already built the Runtime API's routes (api/runtime_routes.py) and
+    basic idempotency-key dedup. This spec's real, concrete scope — auditing the wired
+    routes against 05-api-contracts' own literal request/response JSON examples and
+    09-concurrency-and-idempotency's own text — found and closed four real gaps:
+    (1) no structured Error Model existed at all (every domain/application exception
+    propagated raw through FastAPI, with no exception-handling middleware
+    registered) — built api/errors.py (mirrors memory-knowledge-service's own
+    interfaces/errors.py exactly), mapping to the 05-api-contracts-named codes
+    (VALIDATION_FAILED, CAPABILITY_NOT_FOUND, CONNECTOR_UNAVAILABLE,
+    IDEMPOTENCY_CONFLICT) plus reasonable additions for *_NOT_FOUND/
+    INVALID_STATE_TRANSITION/TOOL_REQUEST_STATE_CONFLICT, every response carrying
+    correlationId (from the `X-Correlation-Id` header) and an auditable code, with a
+    500 INTERNAL_ERROR catch-all; (2) the accept/query response was missing
+    `requiresApproval`/`approvalRequestId`, both explicitly named in 05-api-contracts'
+    own POST /tool-requests response example — added to ToolRequestView/
+    ToolRequestResponse; (3) `POST /tool-requests/{id}/cancel` did not require
+    idempotencyKey (05-api-contracts: cancel "Requires idempotencyKey and requester")
+    and, worse, a *repeat* cancel call on an already-CANCELLED request raised
+    InvalidToolRequestTransitionException instead of idempotently returning the
+    existing fact — fixed by requiring the field and short-circuiting
+    CancelToolRequestService on an already-CANCELLED status; (4) the Result API was
+    keyed by `tool_request_id` (`GET /tool-requests/{id}/result`) instead of
+    05-api-contracts' own `GET /tool-results/{resultEnvelopeId}` — rekeyed
+    ExecuteToolRequestService.find_result() and the route to take a result_envelope_id
+    directly. `GET /tool-results/{resultEnvelopeId}/raw` ("Controlled raw output
+    access. Requires privileged RBAC, audit reason, and policy check") is deliberately
+    not implemented — that gate is 11-security scope, out of this spec's own LLD
+    mapping; phase-05 SPEC-TG-020 owns it (documented in result_routes.py's own module
+    docstring). `contextRefs` (a 05-api-contracts request-example field with no
+    01-domain-model field slot) is accepted for wire compatibility and intentionally
+    not threaded further — phase-06 SPEC-TG-024 "memory-evidence-contract" is expected
+    to define what it does.
+  lld_mapping:
+    - 05-api-contracts
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - agent_direct_tool_call
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - credential_leakage
+    - raw_output_event_publication
+    - approval_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/tool-integration-gateway/tests/application/test_full_flow.py
+    end_to_end: services/tool-integration-gateway/tests/test_app.py
+    integration: services/tool-integration-gateway/tests/integration/test_app_postgres_integration.py
+    result: "55 passed (40 unit/application/architecture/e2e + 15 integration against real Postgres/RabbitMQ via testcontainers), 0 pyflakes warnings"
