@@ -1,6 +1,7 @@
 package com.opsmind.policygovernance.platform.error;
 
 import com.opsmind.policygovernance.api.exception.RequestValidationException;
+import com.opsmind.policygovernance.application.exception.ApprovalAlreadyCancelledException;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyDecidedException;
 import com.opsmind.policygovernance.application.exception.ApprovalNotAuthorizedException;
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
@@ -109,6 +110,12 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(ApprovalAlreadyDecidedException.class)
     public ResponseEntity<ErrorResponse> handleApprovalAlreadyDecided(ApprovalAlreadyDecidedException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "APPROVAL_ALREADY_DECIDED", "The approval request already has a final decision that does not match this request.", request);
+    }
+
+    /** SPEC-PG-012: the cancel-command analog of {@link #handleApprovalAlreadyDecided}. */
+    @ExceptionHandler(ApprovalAlreadyCancelledException.class)
+    public ResponseEntity<ErrorResponse> handleApprovalAlreadyCancelled(ApprovalAlreadyCancelledException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "APPROVAL_ALREADY_CANCELLED", "The approval request is already cancelled by a different attempt.", request);
     }
 
     /**

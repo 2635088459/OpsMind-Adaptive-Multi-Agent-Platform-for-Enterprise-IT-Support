@@ -38,6 +38,10 @@ public class ApprovalRequestJpaEntity {
     @Column(name = "tool_request_id")
     private String toolRequestId;
 
+    /** SPEC-PG-015: nullable — the principal assigned to execute {@code toolRequestId}, if the caller supplied one. */
+    @Column(name = "executor_id")
+    private String executorId;
+
     /** SPEC-PG-009: nullable back-reference to the PolicyDecision this request originated from, if any. */
     @Column(name = "policy_decision_id")
     private String policyDecisionId;
@@ -71,14 +75,18 @@ public class ApprovalRequestJpaEntity {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /** SPEC-PG-012: null unless {@code status == CANCELLED} — see {@code domain.approval.ApprovalRequest#cancelCommandIdempotencyKey}. */
+    @Column(name = "cancel_command_idempotency_key")
+    private String cancelCommandIdempotencyKey;
+
     protected ApprovalRequestJpaEntity() {
     }
 
     public ApprovalRequestJpaEntity(
         String approvalRequestId, String requestKey, String requestHash, String sourceDomain, String sourceRequestId,
-        String ticketId, String workflowInstanceId, String toolRequestId, String policyDecisionId, String requestedByType,
+        String ticketId, String workflowInstanceId, String toolRequestId, String executorId, String policyDecisionId, String requestedByType,
         String requestedById, String approvalType, String riskLevel, String constraintsJson, String status, Instant expiresAt,
-        Instant createdAt, Instant updatedAt
+        Instant createdAt, Instant updatedAt, String cancelCommandIdempotencyKey
     ) {
         this.approvalRequestId = approvalRequestId;
         this.requestKey = requestKey;
@@ -88,6 +96,7 @@ public class ApprovalRequestJpaEntity {
         this.ticketId = ticketId;
         this.workflowInstanceId = workflowInstanceId;
         this.toolRequestId = toolRequestId;
+        this.executorId = executorId;
         this.policyDecisionId = policyDecisionId;
         this.requestedByType = requestedByType;
         this.requestedById = requestedById;
@@ -98,6 +107,7 @@ public class ApprovalRequestJpaEntity {
         this.expiresAt = expiresAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
+        this.cancelCommandIdempotencyKey = cancelCommandIdempotencyKey;
     }
 
     public String getApprovalRequestId() {
@@ -136,6 +146,10 @@ public class ApprovalRequestJpaEntity {
         return toolRequestId;
     }
 
+    public String getExecutorId() {
+        return executorId;
+    }
+
     public String getRequestedByType() {
         return requestedByType;
     }
@@ -170,5 +184,9 @@ public class ApprovalRequestJpaEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getCancelCommandIdempotencyKey() {
+        return cancelCommandIdempotencyKey;
     }
 }

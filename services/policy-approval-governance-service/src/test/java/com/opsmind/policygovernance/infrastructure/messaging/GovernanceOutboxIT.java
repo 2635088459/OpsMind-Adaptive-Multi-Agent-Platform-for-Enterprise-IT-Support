@@ -4,9 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opsmind.policygovernance.application.OutboxDispatchService;
 import com.opsmind.policygovernance.config.RabbitConfig;
+import com.opsmind.policygovernance.domain.approval.ApprovalDecision;
+import com.opsmind.policygovernance.domain.approval.ApprovalGrantedEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequestedEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalType;
+import com.opsmind.policygovernance.domain.decision.Constraint;
 import com.opsmind.policygovernance.domain.decision.RiskLevel;
 import com.opsmind.policygovernance.domain.shared.SimpleGovernanceEvent;
 import com.opsmind.policygovernance.support.PostgresContainerSupport;
@@ -120,7 +123,7 @@ class GovernanceOutboxIT implements PostgresContainerSupport, RabbitMqContainerS
 
         ApprovalRequest request = ApprovalRequest.requested(
             "ar-envelope", "rk-envelope", "hash-1", "tool-gateway", "src-req-envelope", "ticket-1", null,
-            "tool-req-1", "pd-1", "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(),
+            "tool-req-1", null, "pd-1", "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(),
             Instant.now().plusSeconds(3600), Instant.now()
         );
         outboxDispatchService.stage(ApprovalRequestedEvent.from(request, "corr-envelope", "cause-envelope"));
@@ -147,5 +150,49 @@ class GovernanceOutboxIT implements PostgresContainerSupport, RabbitMqContainerS
         assertThat(envelope.get("ticketId").asText()).isEqualTo("ticket-1");
         assertThat(envelope.get("payload").get("approvalRequestId").asText()).isEqualTo("ar-envelope");
         assertThat(envelope.get("payload").get("policyDecisionId").asText()).isEqualTo("pd-1");
+    }
+
+    /**
+     * SPEC-PG-013: the real {@code approval.granted.v1} event round-trips
+     * through the real broker the same way SPEC-PG-010's {@code
+     * approval.requested.v1} does above — including its {@code conditions}
+     * list, a nested structure none of the earlier events carry, so this is
+     * the first proof that shape survives real JSON serialization over AMQP.
+     */
+    @Test
+    void approvalGrantedEventPublishesWithTheRealAggregateIdentityAndFullEnvelope() throws Exception {
+        Queue tempQueue = amqpAdmin.declareQueue();
+        Binding binding = BindingBuilder.bind(tempQueue)
+            .to(new TopicExchange(RabbitConfig.GOVERNANCE_EVENTS_EXCHANGE))
+            .with("#");
+        amqpAdmin.declareBinding(binding);
+
+        ApprovalRequest requested = ApprovalRequest.requested(
+            "ar-granted-envelope", "rk-granted-envelope", "hash-1", "tool-gateway", "src-req-granted-envelope",
+            "ticket-1", null, "tool-req-1", null, "pd-1", "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH,
+            List.of(), Instant.now().plusSeconds(3600), Instant.now()
+        );
+        ApprovalDecision decision = new ApprovalDecision(
+            "ad-envelope", requested.approvalRequestId(), ApprovalDecision.Outcome.APPROVED, "approver-1", Instant.now(),
+            "looks fine", List.of(new Constraint(Constraint.Type.TIME_WINDOW, "business-hours")), true, "cik-1"
+        );
+        ApprovalRequest granted = requested.approve(decision, Instant.now());
+        outboxDispatchService.stage(ApprovalGrantedEvent.from(granted, decision, "corr-granted-envelope", "cause-granted-envelope"));
+
+        OutboxDispatchService.DrainResult result = outboxDispatchService.publishPending();
+        assertThat(result.published()).isEqualTo(1);
+
+        Message message = rabbitTemplate.receive(tempQueue.getName(), 5000);
+        assertThat(message).isNotNull();
+        assertThat(message.getMessageProperties().getHeaders().get("eventType")).isEqualTo("approval.granted.v1");
+        assertThat(message.getMessageProperties().getHeaders().get("aggregateType")).isEqualTo("ApprovalRequest");
+        assertThat(message.getMessageProperties().getHeaders().get("aggregateId")).isEqualTo("ar-granted-envelope");
+
+        JsonNode envelope = new ObjectMapper().readTree(message.getBody());
+        assertThat(envelope.get("payload").get("approvalRequestId").asText()).isEqualTo("ar-granted-envelope");
+        assertThat(envelope.get("payload").get("decidedBy").asText()).isEqualTo("approver-1");
+        assertThat(envelope.get("payload").get("separationOfDutiesCheck").asBoolean()).isTrue();
+        assertThat(envelope.get("payload").get("conditions").get(0).get("type").asText()).isEqualTo("TIME_WINDOW");
+        assertThat(envelope.get("payload").get("conditions").get(0).get("detail").asText()).isEqualTo("business-hours");
     }
 }

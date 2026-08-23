@@ -2,15 +2,62 @@ SPEC-PG-015:
   domain: 06-policy-approval-governance
   name: Separation Of Duties Check
   cn_name: 职责分离检查
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-03-security-separation-of-duties
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement separation-of-duties rules across requester, approver, executor, and policy
+    author." 11-security §Separation Of Duties names exactly four forbidden defaults; this spec's
+    real, honestly-scoped job was to check each against what already existed in the codebase and
+    close only the genuine gap.
+
+    (1) "requester approving their own request" — already correctly enforced since
+    SPEC-PG-001/003 (ApprovalService#decide's requestedBy==decidedBy guard). Confirmed via the
+    pre-existing requesterCannotApproveTheirOwnRequest test; no new code needed.
+
+    (2) "policy author publishing their own unreviewed policy" — already correctly enforced since
+    SPEC-PG-001/003 (PolicyAdminService#publish's createdBy==publisherId guard,
+    PolicyPublishSeparationOfDutiesException). Confirmed via the pre-existing
+    theAuthorCannotPublishTheirOwnPolicyVersion test; no new code needed.
+
+    (3) "tool execution worker approving the corresponding tool request" — this had NO code path
+    at all: ApprovalRequest never tracked who was assigned to execute a tool request, so there was
+    nothing to compare an approver against. Added ApprovalRequest#executorId (new migration V016
+    column on approval_requests, nullable — 06 must not fabricate an executor identity it was never
+    given; mirrors how policyDecisionId stays null when a request never went through a policy
+    evaluation, INV-PG-001's "06 has no visibility into 05's own execution assignment beyond what
+    the request explicitly carries"), threaded end-to-end through RequestApprovalCommand,
+    RequestApprovalRequest (new optional API field), ApprovalController#request,
+    ApprovalRequestResponse, the JPA entity/mapper/adapter trio, and ApprovalRequest's constructor/
+    requested()/reconstruct()/cancel()/transitionTo(). ApprovalService#decide gained a new
+    structural guard immediately beside the pre-existing requester self-approval check: if
+    executorId is non-null and equals decidedBy, the grant/deny is rejected with
+    ApprovalNotAuthorizedException — a no-op (not a false denial) whenever executorId was never
+    supplied, since 06 cannot know an executor identity 05 Tool Gateway never sent it.
+
+    (4) "admin repair initiator approving the high-risk override directly" — deliberately NOT
+    implemented. The override feature this rule refers to does not exist anywhere in this codebase
+    yet (phase-05 — Override And Exception Governance, SPEC-PG-022 onward); there is no override
+    request domain concept to check separation of duties against. Implementing this now would mean
+    inventing override semantics this spec's own lld_mapping (11-security, 02-business-invariants —
+    no 01-domain-model, no phase-05 spec number) does not name.
+
+    No schema/API/event changes beyond the one new nullable column and the one new optional
+    request field — grant/deny/cancel/expiry's own locking, idempotency, and event-publication
+    logic (SPEC-PG-011/012/013) and the RBAC/ABAC gate (SPEC-PG-014) were untouched; the new
+    executor guard runs as a structural pre-check before IdentityAuthorizationPort is ever
+    consulted, exactly mirroring how the pre-existing requester self-approval guard is structured.
+
+    121/121 unit tests pass (./mvnw test, up from 116 after SPEC-PG-014 — 5 new tests): 3 new
+    ApprovalServiceTest cases (executor cannot approve their own execution, a different actor
+    still can, no-executor-supplied is unaffected) + 2 new ApprovalRequestTest cases (executorId
+    carries through construction/transitions, stays null when never supplied). Full verification
+    (./mvnw verify, Docker available) also passed: 136/136 total (121 unit + 4 GovernanceOutboxIT +
+    11 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration — the +1
+    GovernancePersistenceIT case is the new approvalRequestExecutorIdRoundTripsThroughPostgres,
+    confirming migration V016 applies cleanly and the new nullable column round-trips correctly
+    against a real Postgres 18.4 instance). BUILD SUCCESS.
   lld_mapping:
     - 11-security
     - 02-business-invariants
@@ -23,4 +70,6 @@ SPEC-PG-015:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalRequestTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "136 passed (./mvnw verify: 121 unit + 4 GovernanceOutboxIT + 11 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

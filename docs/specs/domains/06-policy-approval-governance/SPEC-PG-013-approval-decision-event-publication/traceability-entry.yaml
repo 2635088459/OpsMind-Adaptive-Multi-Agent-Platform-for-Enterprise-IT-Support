@@ -2,15 +2,55 @@ SPEC-PG-013:
   domain: 06-policy-approval-governance
   name: Approval Decision Event Publication
   cn_name: Approval Decision Event Publication
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-02-approval-lifecycle
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Closed the last gap SPEC-PG-010's own README note named by number: "the SPEC-PG-013-owned
+    approval decision events" still used the generic SimpleGovernanceEvent placeholder. By the
+    time this spec started, SPEC-PG-012 had already graduated approval.expired.v1/
+    approval.cancelled.v1 (its own named goal, confirmed against event-contract.md and 06's
+    phase-spec-coverage-matrix), leaving only approval.granted.v1/approval.denied.v1 as this
+    spec's real remaining scope — matching its own narrower lld_mapping
+    (06-event-contracts, 08-transaction-and-outbox only, no 03-state-machine/
+    09-concurrency-and-idempotency/10-failure-handling), since the grant/deny idempotency,
+    locking, and conflict-handling logic those aspects govern was already built by SPEC-PG-011.
+
+    Added ApprovalGrantedEvent/ApprovalDeniedEvent (domain.approval), mirroring how
+    ApprovalRequestedEvent (SPEC-PG-010) and ApprovalExpiredEvent/ApprovalCancelledEvent
+    (SPEC-PG-012) graduated their own events off the placeholder. Both carry
+    approvalRequestId/sourceDomain/sourceRequestId/requestHash per 06-event-contracts
+    §Idempotency, plus the ApprovalDecision's own decidedBy/reason/conditions (the constraints an
+    approver attached at decision time, distinct from ApprovalRequest#constraints — a downstream
+    consumer resuming a waiting state, e.g. 05 Tool Gateway executing a tool, needs the granted
+    conditions to enforce, not just the bare outcome). ApprovalGrantedEvent additionally carries
+    separationOfDutiesCheck (INV-PG-004); ApprovalDeniedEvent omits it since ApprovalDecision's own
+    constructor only ever sets that flag meaningfully for an APPROVED outcome.
+    ApprovalService#decide() now stages these via the auditService.record(..., DomainEvent)
+    overload instead of the auto-generating placeholder overload, in the same transaction as
+    before — no change to the decide() method's own locking/idempotency/conflict logic.
+
+    No schema, API, or state-machine changes were needed: no new migration, no new DTO/command
+    field, no new exception. domain.shared.SimpleGovernanceEvent's own javadoc updated to reflect
+    that every approval-lifecycle event has now graduated — only the two policy-side events
+    (policy.decision.created.v1/policy.published.v1) remain on it, honestly, since no spec in the
+    current roadmap yet owns them.
+
+    Deliberately NOT touched: policy.decision.created.v1/policy.published.v1 (no owning spec
+    exists yet); any change to grant/deny's existing locking, idempotency-key matching, or
+    conflict-audit behavior (SPEC-PG-011's own scope, unaffected here).
+
+    101/101 unit tests pass (./mvnw test, up from 95 after SPEC-PG-012 — 6 new tests): 2 new
+    ApprovalServiceTest cases (grant/deny each stage the real event with correct aggregate
+    identity), a new ApprovalGrantedEventTest and ApprovalDeniedEventTest (payload shape,
+    conditions list, absent-optional-field tolerance) mirroring the existing
+    ApprovalRequestedEventTest. Full verification (./mvnw verify, Docker available) also passed:
+    115/115 total (101 unit + 4 GovernanceOutboxIT + 10 GovernancePersistenceIT — one new
+    GovernanceOutboxIT case, approvalGrantedEventPublishesWithTheRealAggregateIdentityAndFullEnvelope,
+    proving the event's nested conditions list survives a real RabbitMQ publish round trip against
+    Postgres/RabbitMQ Testcontainers — the first event payload in this codebase with a nested
+    structure). BUILD SUCCESS.
   lld_mapping:
     - 06-event-contracts
     - 08-transaction-and-outbox
@@ -23,4 +63,6 @@ SPEC-PG-013:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalGrantedEventTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalDeniedEventTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/GovernanceOutboxIT.java
+    result: "115 passed (./mvnw verify: 101 unit + 4 GovernanceOutboxIT + 10 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

@@ -12,6 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,6 +55,8 @@ public class PolicyAdminController {
         return ResponseEntity.ok(PolicyVersionResponse.from(reviewed));
     }
 
+    /** SPEC-PG-014 (11-security §Permission Model): "RBAC decides whether a user can ... publish policy." */
+    @PreAuthorize("hasAuthority('SCOPE_policy:publish')")
     @PostMapping("/api/v1/policy-versions/{policyVersionId}:publish")
     public ResponseEntity<PolicyVersionResponse> publish(
         @PathVariable String policyVersionId, @RequestBody(required = false) PublishPolicyVersionRequest request,

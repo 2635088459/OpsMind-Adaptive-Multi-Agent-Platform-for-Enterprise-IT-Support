@@ -16,6 +16,7 @@ public record ApprovalRequestResponse(
     String ticketId,
     String workflowInstanceId,
     String toolRequestId,
+    String executorId,
     String policyDecisionId,
     String requestedBy,
     ApprovalType approvalType,
@@ -30,7 +31,7 @@ public record ApprovalRequestResponse(
     public static ApprovalRequestResponse from(ApprovalRequest request) {
         return new ApprovalRequestResponse(
             request.approvalRequestId(), request.requestKey(), request.sourceDomain(), request.sourceRequestId(),
-            request.ticketId(), request.workflowInstanceId(), request.toolRequestId(), request.policyDecisionId(),
+            request.ticketId(), request.workflowInstanceId(), request.toolRequestId(), request.executorId(), request.policyDecisionId(),
             request.requestedBy(), request.approvalType(), request.riskLevel(),
             request.constraints().stream().map(ConstraintDto::from).toList(),
             request.status(), request.expiresAt(), request.createdAt(), request.updatedAt()

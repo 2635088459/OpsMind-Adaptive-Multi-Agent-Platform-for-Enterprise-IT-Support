@@ -15,8 +15,9 @@ themselves.
 
 **Phase 00 — Engineering Foundation — complete (SPEC-PG-001/002/003).
 Phase 01 — Policy Model And Decision Engine — complete (SPEC-PG-004 through
-SPEC-PG-008). Phase 02 — Approval Lifecycle — SPEC-PG-009/010/011 done,
-SPEC-PG-012 onward pending.**
+SPEC-PG-008). Phase 02 — Approval Lifecycle — complete (SPEC-PG-009 through
+SPEC-PG-013). Phase 03 — Security Separation Of Duties — SPEC-PG-014/015 done,
+SPEC-PG-016 onward pending.**
 
 SPEC-PG-001 delivered the hexagonal service skeleton — layered package
 boundaries, ports/adapters, and the ArchUnit-enforced architecture
@@ -84,9 +85,83 @@ distinct "approval command" idempotency key, required on every grant/deny reques
 that happens to share an outcome and actor is correctly rejected as a conflict instead of being
 silently treated as a replay.
 
-The full identity/separation-of-duties model
-(phase-03) is still a fail-closed placeholder — see `StubIdentityAuthorizationAdapter`'s own
-javadoc for what it defers and to which future spec. See
+SPEC-PG-012 closed out the two gaps its own predecessor named as out of scope: cancel had no
+idempotency guard at all (`ApprovalService#cancel` threw `IllegalApprovalTransitionException` on
+any retry) and the expiry worker had no invocation surface. `ApprovalRequest#cancelCommandIdempotencyKey`
+(new migration V014 column, nullable — only ever set once a request is `CANCELLED`) gives cancel
+its own idempotency key, distinct from the grant/deny `commandIdempotencyKey` on
+`ApprovalDecision` since cancel never creates a decision row: a retry with the same key now
+returns the existing `CANCELLED` state instead of throwing, a different key against an
+already-cancelled request is a real conflict (audited as the new `APPROVAL_CANCEL_CONFLICT`
+action, migration V015, and rejected with `ApprovalAlreadyCancelledException`), and
+`CancelApprovalRequest`/`CancelApprovalCommand` now carry `sourceRequestId`/`requestHash` so
+INV-PG-005 request-linkage validation applies to cancel the same way it already does to
+grant/deny. `cancel()` and `expireDue()` both now stage their own real, versioned events
+(`ApprovalCancelledEvent`/`ApprovalExpiredEvent` — `approval.cancelled.v1`/`approval.expired.v1`)
+instead of the generic outbox placeholder, mirroring how SPEC-PG-010 graduated
+`approval.requested.v1`. `ApprovalExpiryService#expireDue()` isolates a single row's save failure
+(e.g. a concurrent grant/deny racing the scan) so it no longer fails the rest of the batch —
+mirroring `OutboxDispatchService#publishPending`'s own established per-item catch-and-continue
+pattern rather than a literal per-row transaction. The expiry worker itself gets a real invocation
+surface, `POST /api/v1/approval-requests:expire-due` (`ApprovalExpiryController`), following the
+exact same "admin endpoint or external scheduler, never a `@Scheduled` trigger" convention
+`OutboxDispatchService`'s own javadoc already established for this codebase — an external
+scheduler (e.g. a Kubernetes CronJob) is expected to call it on a fixed cadence.
+
+SPEC-PG-013 closed out phase-02 by graduating the last two approval-lifecycle events off the
+generic outbox placeholder: `ApprovalService#decide()` now stages the real, versioned
+`ApprovalGrantedEvent`/`ApprovalDeniedEvent` (`approval.granted.v1`/`approval.denied.v1`) instead
+of `governance.audit.approval_granted.v1`/`governance.audit.approval_denied.v1`, mirroring how
+SPEC-PG-010 graduated `approval.requested.v1` and SPEC-PG-012 graduated
+`approval.expired.v1`/`approval.cancelled.v1`. Both carry the same
+approvalRequestId/sourceDomain/sourceRequestId/requestHash 06-event-contracts §Idempotency
+requires on every approval decision event, plus the `ApprovalDecision`'s own `decidedBy`/`reason`/
+`conditions`; `approval.granted.v1` additionally carries `separationOfDutiesCheck` (INV-PG-004) —
+`approval.denied.v1` omits it since `ApprovalDecision`'s own constructor only ever sets that flag
+meaningfully for an `APPROVED` outcome. No schema, API, or state-machine changes were needed —
+SPEC-PG-013's own lld_mapping (`06-event-contracts, 08-transaction-and-outbox`) is narrower than
+SPEC-PG-011/012's, and the grant/deny idempotency/locking/conflict logic those specs already built
+was untouched. `domain.shared.SimpleGovernanceEvent` now only backs the two policy-side events
+(`policy.decision.created.v1`/`policy.published.v1`) that still have no owning spec — every
+approval-lifecycle event has graduated to a real type.
+
+SPEC-PG-014 opened phase-03 by retiring `StubIdentityAuthorizationAdapter` — the fail-closed
+placeholder that denied every approval unconditionally — for a real RBAC + ABAC implementation,
+`JwtIdentityAuthorizationAdapter`. RBAC: an approver's OAuth2 JWT must carry the
+`SCOPE_approval:decide` authority (Spring's default `JwtAuthenticationConverter`, already wired by
+`SecurityConfig`, maps a `scope`/`scp` claim entry to a `SCOPE_*` `GrantedAuthority` — the same
+convention ticket-workflow-service already uses for `SCOPE_tickets:create`). ABAC: the token's
+`risk_clearance` claim (a list of `RiskLevel` names) must include a level at or above the specific
+request's own `riskLevel`, using `RiskLevel`'s own intentionally-ordered `compareTo`.
+`IdentityAuthorizationPort#isAuthorizedApprover` gained a `riskLevel` parameter to carry this
+through; `isIndependentApprover` also got a real (if intentionally basic — simple identity
+inequality) implementation, deferring the fuller requester/executor/approver relationship model to
+SPEC-PG-015 (Separation Of Duties Check) by name. Two more RBAC gates were added directly as
+`@PreAuthorize("hasAuthority(...)")` on the controller methods that needed no request-specific
+ABAC context: `PolicyAdminController#publish` now requires `SCOPE_policy:publish`, and
+`GovernanceAuditController#findByCorrelationId` now requires `SCOPE_governance:audit:read` — both
+named explicitly by 11-security's own Permission Model wording ("RBAC decides whether a user can
+approve, publish policy, or view audit"). Per-ticket/tenant/resource ABAC (11-security's other
+three named dimensions) remains deferred — no attribute for any of them is modeled anywhere in
+this service yet (`ApprovalRequest` carries no tenant, for instance), so claiming to enforce them
+now would be dishonest; only the risk-level dimension, which the domain model already supports, is
+real.
+
+SPEC-PG-015 closed out 11-security's own §Separation Of Duties list of forbidden defaults that
+were still open: "requester approving their own request" and "policy author publishing their own
+unreviewed policy" were already correctly enforced since SPEC-PG-001/003 (confirmed, not
+re-implemented); "tool execution worker approving the corresponding tool request" had no code path
+at all, since nothing tracked who was assigned to execute a tool request. Added
+`ApprovalRequest#executorId` (new migration V016 column, nullable — 06 must not fabricate an
+executor identity it was never given, mirroring how `policyDecisionId` stays `null` when a request
+never went through a policy evaluation) threaded through `RequestApprovalCommand`/
+`RequestApprovalRequest`/`ApprovalRequestResponse`, and a new structural guard in
+`ApprovalService#decide` — right beside the existing requester self-approval check — rejecting a
+grant/deny whose `decidedBy` matches the request's own `executorId`. "Admin repair initiator
+approving the high-risk override directly" (11-security's fourth listed rule) remains
+unimplemented: the override feature it refers to does not exist in this codebase yet
+(phase-05 — Override And Exception Governance, SPEC-PG-022 onward) — there is no override request
+to check separation of duties against. See
 [SPEC-PG-001](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-001-policy-governance-module-and-package-boundaries/README_EN.md),
 [SPEC-PG-002](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-002-policy-governance-schema-baseline/README_EN.md),
 [SPEC-PG-003](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-003-governance-outbox-idempotency-audit-baseline/README_EN.md),
@@ -96,6 +171,10 @@ javadoc for what it defers and to which future spec. See
 [SPEC-PG-009](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-009-approval-request-aggregate/README_EN.md),
 [SPEC-PG-010](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-010-approval-request-api-and-event/README_EN.md),
 [SPEC-PG-011](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-011-approval-grant-deny-api/README_EN.md),
+[SPEC-PG-012](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-012-approval-expiry-cancel/README_EN.md),
+[SPEC-PG-013](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-013-approval-decision-event-publication/README_EN.md),
+[SPEC-PG-014](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-014-rbac-abac-authorization/README_EN.md),
+[SPEC-PG-015](../../docs/specs/domains/06-policy-approval-governance/SPEC-PG-015-separation-of-duties-check/README_EN.md),
 and the domain's
 [13-package-and-class-design](../../docs/low-level-design/domains/06-policy-approval-governance/13-package-and-class-design/README_EN.md) /
 [07-data-model](../../docs/low-level-design/domains/06-policy-approval-governance/07-data-model/README_EN.md).
@@ -155,7 +234,10 @@ a running Keycloak realm.
 Draining the outbox (`OutboxDispatchService#publishPending`) is intentionally
 never invoked by a `@Scheduled` trigger in this codebase — call it from an
 admin endpoint or an external scheduler once one exists; see that class's
-own javadoc for why.
+own javadoc for why. The approval expiry worker follows the same
+convention and now has its own endpoint: `POST /api/v1/approval-requests:expire-due`
+(`ApprovalExpiryController`) — an external scheduler (e.g. a Kubernetes
+CronJob) should call it on a fixed cadence.
 
 ## Package Layout
 
@@ -169,10 +251,10 @@ src/main/java/com/opsmind/policygovernance/
     messaging/    Real RabbitGovernanceEventPublisher (RabbitTemplate) behind MessageBrokerPublisherPort
     observability/ MicrometerGovernanceMetrics behind GovernanceMetricsPort
     evaluator/    Real rule-condition-matching evaluator (SPEC-PG-007)
-    identity/     Fail-closed identity/authorization placeholder (real model is phase-03)
+    identity/     Real RBAC/ABAC IdentityAuthorizationPort adapter (JWT scopes + risk-clearance claim, SPEC-PG-014)
   config/         Security, OpenAPI, observability, Rabbit exchange topology, clock
   platform/error/ Shared error envelope + global exception handler
-src/main/resources/db/migration/  Flyway migrations (V001-V013)
+src/main/resources/db/migration/  Flyway migrations (V001-V016)
 src/test/java/com/opsmind/policygovernance/support/  In-memory port doubles for fast unit tests
 ```
 

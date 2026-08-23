@@ -8,6 +8,7 @@ import com.opsmind.policygovernance.application.port.PolicyRepository;
 import com.opsmind.policygovernance.application.port.PolicyVersionRepository;
 import com.opsmind.policygovernance.domain.approval.ApprovalDecision;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
+import com.opsmind.policygovernance.domain.approval.ApprovalStatus;
 import com.opsmind.policygovernance.domain.approval.ApprovalType;
 import com.opsmind.policygovernance.domain.audit.GovernanceAuditRecord;
 import com.opsmind.policygovernance.domain.decision.Constraint;
@@ -159,7 +160,7 @@ class GovernancePersistenceIT implements PostgresContainerSupport {
         policyDecisionRepository.save(decision);
 
         ApprovalRequest request = ApprovalRequest.requested(
-            "ar-linked", "rk-linked", "hash-1", "tool-gateway", "src-req-linked", null, null, "tool-req-1",
+            "ar-linked", "rk-linked", "hash-1", "tool-gateway", "src-req-linked", null, null, "tool-req-1", null,
             decision.policyDecisionId(), "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(),
             Instant.now().plusSeconds(3600), Instant.now()
         );
@@ -169,12 +170,48 @@ class GovernancePersistenceIT implements PostgresContainerSupport {
         assertThat(loaded.policyDecisionId()).isEqualTo(decision.policyDecisionId());
 
         ApprovalRequest dangling = ApprovalRequest.requested(
-            "ar-dangling", "rk-dangling", "hash-1", "tool-gateway", "src-req-dangling", null, null, "tool-req-1",
+            "ar-dangling", "rk-dangling", "hash-1", "tool-gateway", "src-req-dangling", null, null, "tool-req-1", null,
             "does-not-exist", "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(),
             Instant.now().plusSeconds(3600), Instant.now()
         );
         assertThatThrownBy(() -> approvalRequestRepository.save(dangling))
             .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    /**
+     * SPEC-PG-012 (migration V014): cancel's own idempotency key round-trips
+     * through the real {@code cancel_command_idempotency_key} column, and is
+     * still {@code null} on a request nobody has cancelled — mirroring how
+     * SPEC-PG-011 exercised {@code command_idempotency_key} on {@code
+     * approval_decisions}.
+     */
+    @Test
+    void approvalRequestCancelCommandIdempotencyKeyRoundTripsThroughPostgres() {
+        ApprovalRequest request = approvalRequest("ar-cancel", "rk-cancel", "src-req-cancel");
+        approvalRequestRepository.save(request);
+        assertThat(approvalRequestRepository.findById("ar-cancel").orElseThrow().cancelCommandIdempotencyKey()).isNull();
+
+        ApprovalRequest cancelled = request.cancel(Instant.now(), "cik-cancel-1");
+        approvalRequestRepository.save(cancelled);
+
+        ApprovalRequest loaded = approvalRequestRepository.findById("ar-cancel").orElseThrow();
+        assertThat(loaded.status()).isEqualTo(ApprovalStatus.CANCELLED);
+        assertThat(loaded.cancelCommandIdempotencyKey()).isEqualTo("cik-cancel-1");
+    }
+
+    /** SPEC-PG-015 (migration V016): {@code executor_id} round-trips through the real column, nullable when the caller never supplied one. */
+    @Test
+    void approvalRequestExecutorIdRoundTripsThroughPostgres() {
+        ApprovalRequest withExecutor = ApprovalRequest.requested(
+            "ar-executor", "rk-executor", "hash-1", "tool-gateway", "src-req-executor", null, null, "tool-req-1",
+            "executor-1", null, "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(),
+            Instant.now().plusSeconds(3600), Instant.now()
+        );
+        approvalRequestRepository.save(withExecutor);
+        assertThat(approvalRequestRepository.findById("ar-executor").orElseThrow().executorId()).isEqualTo("executor-1");
+
+        approvalRequestRepository.save(approvalRequest("ar-no-executor", "rk-no-executor", "src-req-no-executor"));
+        assertThat(approvalRequestRepository.findById("ar-no-executor").orElseThrow().executorId()).isNull();
     }
 
     @Test
@@ -287,14 +324,14 @@ class GovernancePersistenceIT implements PostgresContainerSupport {
 
     private ApprovalRequest approvalRequest(String id, String requestKey, String sourceRequestId) {
         return ApprovalRequest.requested(
-            id, requestKey, "hash-1", "tool-gateway", sourceRequestId, null, null, "tool-req-1", null,
+            id, requestKey, "hash-1", "tool-gateway", sourceRequestId, null, null, "tool-req-1", null, null,
             "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(), Instant.now().plusSeconds(3600), Instant.now()
         );
     }
 
     private ApprovalRequest approvalRequestWithExpiry(String id, String requestKey, String sourceRequestId, Instant expiresAt) {
         return ApprovalRequest.requested(
-            id, requestKey, "hash-1", "tool-gateway", sourceRequestId, null, null, "tool-req-1", null,
+            id, requestKey, "hash-1", "tool-gateway", sourceRequestId, null, null, "tool-req-1", null, null,
             "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(), expiresAt, Instant.now()
         );
     }

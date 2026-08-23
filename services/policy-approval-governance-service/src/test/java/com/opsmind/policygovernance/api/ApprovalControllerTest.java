@@ -1,8 +1,10 @@
 package com.opsmind.policygovernance.api;
 
 import com.opsmind.policygovernance.application.ApprovalService;
+import com.opsmind.policygovernance.application.command.CancelApprovalCommand;
 import com.opsmind.policygovernance.application.command.DecideApprovalCommand;
 import com.opsmind.policygovernance.application.command.RequestApprovalCommand;
+import com.opsmind.policygovernance.application.exception.ApprovalAlreadyCancelledException;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyDecidedException;
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
 import com.opsmind.policygovernance.application.exception.DuplicateApprovalRequestException;
@@ -158,6 +160,47 @@ class ApprovalControllerTest {
             .andExpect(jsonPath("$.error.code").value("APPROVAL_ALREADY_DECIDED"));
     }
 
+    /** SPEC-PG-012: {@code :cancel} previously had zero MockMvc-level coverage, mirroring SPEC-PG-011's own gap for grant/deny. */
+    @Test
+    void cancelsAnApprovalRequestAndReturnsItsUpdatedStatus() throws Exception {
+        approvalService.nextCancelResult = command -> approvalRequestFixture();
+
+        mockMvc.perform(post("/api/v1/approval-requests/ar-1:cancel")
+                .principal(actor())
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(cancelRequestBody()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.approvalRequestId").value("ar-1"));
+    }
+
+    /** SPEC-PG-012: a cancel retry reusing a different commandIdempotencyKey than an already-final cancel is a conflict. */
+    @Test
+    void mapsApprovalAlreadyCancelledToConflictErrorEnvelope() throws Exception {
+        approvalService.nextCancelResult = command -> {
+            throw new ApprovalAlreadyCancelledException("ar-1");
+        };
+
+        mockMvc.perform(post("/api/v1/approval-requests/ar-1:cancel")
+                .principal(actor())
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(cancelRequestBody()))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("APPROVAL_ALREADY_CANCELLED"));
+    }
+
+    private static String cancelRequestBody() {
+        return """
+            {
+              "sourceRequestId": "src-req-1",
+              "requestHash": "hash-1",
+              "reason": "no longer needed",
+              "commandIdempotencyKey": "cik-1"
+            }
+            """;
+    }
+
     private static String decideRequestBody() {
         return """
             {
@@ -184,7 +227,7 @@ class ApprovalControllerTest {
 
     private static ApprovalRequest approvalRequestFixture() {
         return ApprovalRequest.requested(
-            "ar-1", "rk-1", "hash-1", "tool-gateway", "src-req-1", null, null, "tool-req-1",
+            "ar-1", "rk-1", "hash-1", "tool-gateway", "src-req-1", null, null, "tool-req-1", null,
             null, "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(),
             Instant.now().plusSeconds(3600), Instant.now()
         );
@@ -221,9 +264,11 @@ class ApprovalControllerTest {
             return nextDenyResult.apply(command);
         }
 
+        private Function<CancelApprovalCommand, ApprovalRequest> nextCancelResult = command -> approvalRequestFixture();
+
         @Override
-        public ApprovalRequest cancel(String approvalRequestId, String cancelledBy, String reason, String correlationId) {
-            throw new UnsupportedOperationException("not exercised by this controller test");
+        public ApprovalRequest cancel(CancelApprovalCommand command) {
+            return nextCancelResult.apply(command);
         }
 
         void reset() {
@@ -231,6 +276,7 @@ class ApprovalControllerTest {
             nextFindByIdResult = id -> approvalRequestFixture();
             nextGrantResult = command -> approvalRequestFixture();
             nextDenyResult = command -> approvalRequestFixture();
+            nextCancelResult = command -> approvalRequestFixture();
         }
     }
 

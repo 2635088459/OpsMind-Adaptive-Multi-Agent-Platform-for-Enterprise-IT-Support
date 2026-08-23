@@ -3,6 +3,7 @@ package com.opsmind.policygovernance.api;
 import com.opsmind.policygovernance.api.dto.GovernanceAuditRecordResponse;
 import com.opsmind.policygovernance.application.GovernanceAuditService;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -19,6 +20,8 @@ public class GovernanceAuditController {
         this.governanceAuditService = governanceAuditService;
     }
 
+    /** SPEC-PG-014 (11-security §Permission Model): "RBAC decides whether a user can ... view audit." */
+    @PreAuthorize("hasAuthority('SCOPE_governance:audit:read')")
     @GetMapping("/api/v1/governance-audit-records")
     public ResponseEntity<List<GovernanceAuditRecordResponse>> findByCorrelationId(@RequestParam String correlationId) {
         List<GovernanceAuditRecordResponse> records = governanceAuditService.findByCorrelationId(correlationId).stream()

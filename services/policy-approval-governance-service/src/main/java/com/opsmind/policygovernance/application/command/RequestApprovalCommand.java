@@ -17,6 +17,7 @@ public record RequestApprovalCommand(
     String ticketId,
     String workflowInstanceId,
     String toolRequestId,
+    String executorId,
     String policyDecisionId,
     String requestedBy,
     ApprovalType approvalType,

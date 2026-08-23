@@ -27,6 +27,18 @@ import java.util.Objects;
  * approval request may exist without ever having gone through a policy
  * evaluation first (04-use-cases §UC-PG-002: "05/02/03 submits approval
  * request" names no such prerequisite).
+ *
+ * <p>{@code executorId} is SPEC-PG-015's own addition (11-security
+ * §Separation Of Duties: "forbid ... tool execution worker approving the
+ * corresponding tool request"): the identity of the principal that will
+ * carry out {@code toolRequestId} once approved, if the requesting domain
+ * (05 Tool Gateway) knows and supplies it. It is nullable for the same
+ * reason {@code policyDecisionId} is — 06 must not fabricate an executor
+ * identity it was never given (INV-PG-001: 06 performs no business side
+ * effects and has no visibility into 05's own execution assignment beyond
+ * what the request explicitly carries), so the separation-of-duties check
+ * it enables in {@code ApprovalService#decide} is a no-op whenever it is
+ * absent rather than a false negative.
  */
 public final class ApprovalRequest {
 
@@ -38,6 +50,7 @@ public final class ApprovalRequest {
     private final String ticketId;
     private final String workflowInstanceId;
     private final String toolRequestId;
+    private final String executorId;
     private final String policyDecisionId;
     private final String requestedBy;
     private final ApprovalType approvalType;
@@ -47,6 +60,7 @@ public final class ApprovalRequest {
     private final Instant expiresAt;
     private final Instant createdAt;
     private final Instant updatedAt;
+    private final String cancelCommandIdempotencyKey;
 
     private ApprovalRequest(
         String approvalRequestId,
@@ -57,6 +71,7 @@ public final class ApprovalRequest {
         String ticketId,
         String workflowInstanceId,
         String toolRequestId,
+        String executorId,
         String policyDecisionId,
         String requestedBy,
         ApprovalType approvalType,
@@ -65,7 +80,8 @@ public final class ApprovalRequest {
         ApprovalStatus status,
         Instant expiresAt,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        String cancelCommandIdempotencyKey
     ) {
         this.approvalRequestId = Objects.requireNonNull(approvalRequestId, "approvalRequestId");
         this.requestKey = Objects.requireNonNull(requestKey, "requestKey");
@@ -75,6 +91,7 @@ public final class ApprovalRequest {
         this.ticketId = ticketId;
         this.workflowInstanceId = workflowInstanceId;
         this.toolRequestId = toolRequestId;
+        this.executorId = executorId;
         this.policyDecisionId = policyDecisionId;
         this.requestedBy = Objects.requireNonNull(requestedBy, "requestedBy");
         this.approvalType = Objects.requireNonNull(approvalType, "approvalType");
@@ -84,6 +101,7 @@ public final class ApprovalRequest {
         this.expiresAt = expiresAt;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
+        this.cancelCommandIdempotencyKey = cancelCommandIdempotencyKey;
     }
 
     public static ApprovalRequest requested(
@@ -95,6 +113,7 @@ public final class ApprovalRequest {
         String ticketId,
         String workflowInstanceId,
         String toolRequestId,
+        String executorId,
         String policyDecisionId,
         String requestedBy,
         ApprovalType approvalType,
@@ -105,8 +124,8 @@ public final class ApprovalRequest {
     ) {
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
-            ticketId, workflowInstanceId, toolRequestId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, ApprovalStatus.REQUESTED, expiresAt, createdAt, createdAt
+            ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
+            constraints, ApprovalStatus.REQUESTED, expiresAt, createdAt, createdAt, null
         );
     }
 
@@ -125,6 +144,7 @@ public final class ApprovalRequest {
         String ticketId,
         String workflowInstanceId,
         String toolRequestId,
+        String executorId,
         String policyDecisionId,
         String requestedBy,
         ApprovalType approvalType,
@@ -133,12 +153,13 @@ public final class ApprovalRequest {
         ApprovalStatus status,
         Instant expiresAt,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        String cancelCommandIdempotencyKey
     ) {
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
-            ticketId, workflowInstanceId, toolRequestId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, status, expiresAt, createdAt, updatedAt
+            ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
+            constraints, status, expiresAt, createdAt, updatedAt, cancelCommandIdempotencyKey
         );
     }
 
@@ -163,8 +184,26 @@ public final class ApprovalRequest {
         return transitionTo(ApprovalStatus.DENIED, now);
     }
 
-    public ApprovalRequest cancel(Instant now) {
-        return transitionTo(ApprovalStatus.CANCELLED, now);
+    /**
+     * SPEC-PG-012: {@code commandIdempotencyKey} is cancel's own idempotency
+     * guard (09-concurrency-and-idempotency), distinct from the grant/deny
+     * {@code commandIdempotencyKey} on {@link ApprovalDecision} — cancel
+     * never creates a decision row, so the key is carried on the request
+     * itself instead. {@code ApprovalService#cancel} compares an incoming
+     * key against this one to tell a genuine retry of the same cancel
+     * command apart from a conflicting second cancel attempt once the
+     * request is already {@code CANCELLED}.
+     */
+    public ApprovalRequest cancel(Instant now, String commandIdempotencyKey) {
+        Objects.requireNonNull(commandIdempotencyKey, "commandIdempotencyKey");
+        if (status != ApprovalStatus.REQUESTED) {
+            throw new IllegalApprovalTransitionException(status, ApprovalStatus.CANCELLED);
+        }
+        return new ApprovalRequest(
+            approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
+            ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
+            constraints, ApprovalStatus.CANCELLED, expiresAt, createdAt, Objects.requireNonNull(now, "now"), commandIdempotencyKey
+        );
     }
 
     public ApprovalRequest expire(Instant now) {
@@ -188,8 +227,8 @@ public final class ApprovalRequest {
         }
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
-            ticketId, workflowInstanceId, toolRequestId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, target, expiresAt, createdAt, Objects.requireNonNull(now, "now")
+            ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
+            constraints, target, expiresAt, createdAt, Objects.requireNonNull(now, "now"), cancelCommandIdempotencyKey
         );
     }
 
@@ -229,6 +268,11 @@ public final class ApprovalRequest {
         return toolRequestId;
     }
 
+    /** SPEC-PG-015: nullable — see this class's own javadoc for why. */
+    public String executorId() {
+        return executorId;
+    }
+
     public String requestedBy() {
         return requestedBy;
     }
@@ -259,5 +303,10 @@ public final class ApprovalRequest {
 
     public Instant updatedAt() {
         return updatedAt;
+    }
+
+    /** SPEC-PG-012: null unless {@code status == CANCELLED} — see {@link #cancel(Instant, String)}. */
+    public String cancelCommandIdempotencyKey() {
+        return cancelCommandIdempotencyKey;
     }
 }

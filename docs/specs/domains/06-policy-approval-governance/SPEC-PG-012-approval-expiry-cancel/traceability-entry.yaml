@@ -2,15 +2,73 @@ SPEC-PG-012:
   domain: 06-policy-approval-governance
   name: Approval Expiry Cancel
   cn_name: Approval Expiry 与 Cancel
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-02-approval-lifecycle
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Closed the two gaps SPEC-PG-011's own traceability entry explicitly named as out of its
+    scope: "CancelApprovalRequest/ApprovalService#cancel ... cancel() has no idempotency guard at
+    all today and would throw IllegalApprovalTransitionException on a retry" and the expiry
+    worker's dormant invocation surface.
+
+    (1) Cancel idempotency and request-linkage validation. Added
+    ApprovalRequest#cancelCommandIdempotencyKey (new migration V014 column on approval_requests,
+    nullable — only ever set once a request transitions to CANCELLED; lives on the request itself
+    rather than on a decision row because cancel never creates an ApprovalDecision, unlike
+    grant/deny's own commandIdempotencyKey added by SPEC-PG-011). ApprovalService#cancel now takes
+    a CancelApprovalCommand (mirroring DecideApprovalCommand's shape) carrying
+    sourceRequestId/requestHash (INV-PG-005 linkage, now enforced on cancel exactly like
+    grant/deny) and commandIdempotencyKey, locks the row via findByIdForUpdate (matching decide()'s
+    own concurrency reasoning), and treats a request already CANCELLED as an idempotent replay
+    when the incoming key matches the stored one, or a genuine conflict otherwise — audited as the
+    new APPROVAL_CANCEL_CONFLICT action (migration V015 CHECK constraint, mirroring V010's
+    APPROVAL_DECISION_CONFLICT) and rejected via the new ApprovalAlreadyCancelledException (409
+    APPROVAL_ALREADY_CANCELLED). CancelApprovalRequest/ApprovalController/GlobalRestExceptionHandler
+    threaded through end-to-end; ApprovalRequestMismatchException's message generalized from
+    "decision does not match" to "command does not match" since it is now shared by cancel too.
+
+    (2) Real approval.expired.v1/approval.cancelled.v1 events. Added ApprovalExpiredEvent and
+    ApprovalCancelledEvent (domain.approval), replacing the generic SimpleGovernanceEvent
+    placeholder for these two aggregate actions — mirroring how SPEC-PG-010 graduated
+    approval.requested.v1. Both carry approvalRequestId/sourceDomain/sourceRequestId/requestHash
+    per 06-event-contracts §Idempotency; ApprovalCancelledEvent additionally carries
+    cancelledBy/reason. ApprovalService#cancel and ApprovalExpiryService#expireDue now stage these
+    real events instead of the governance.audit.*.v1 placeholder.
+
+    (3) Expiry worker failure isolation and invocation surface. ApprovalExpiryService#expireDue
+    now catches a single row's save failure (e.g. a concurrent grant/deny racing the scan) and
+    continues the batch instead of letting one bad row fail the whole scan — mirroring
+    OutboxDispatchService#publishPending's own established per-item catch-and-continue pattern in
+    this codebase (a caught exception never propagates out to mark the ambient @Transactional
+    rollback-only), rather than introducing per-row REQUIRES_NEW transactions, which no test-plan
+    line names and no precedent in this codebase uses. Added ApprovalExpiryController exposing
+    POST /api/v1/approval-requests:expire-due — the same "admin endpoint or external scheduler,
+    never @Scheduled" convention OutboxDispatchService's own javadoc already established
+    platform-wide, now given a concrete implementation for the expiry worker specifically; an
+    external scheduler (e.g. a Kubernetes CronJob) is expected to call it on a fixed cadence.
+
+    Deliberately NOT touched: approval.granted.v1/approval.denied.v1 real event payloads (named by
+    SPEC-PG-013 "Approval Decision Event Publication" per SPEC-PG-010's own README note, not this
+    spec); any metric for cancel/expire beyond the existing recordApprovalExpired() (12-observability
+    is not in this spec's own lld_mapping); per-row database-transaction isolation for the expiry
+    scan (no test-plan line requires it over the catch-and-continue approach already established
+    for outbox drain).
+
+    95/95 unit tests pass (./mvnw test, up from 85 before this spec — net 10 new test methods):
+    new ApprovalServiceTest cases (cancel retry idempotent, conflicting cancel rejected, mismatched
+    linkage rejected, real event staged) plus the existing cancelIsIrreversible updated to the new
+    CancelApprovalCommand signature; new ApprovalExpiryServiceTest cases (real event staged,
+    per-request failure isolation via a save-throwing repository double); new ApprovalControllerTest
+    cases (cancel happy path, cancel-conflict -> 409 mapping); a new ApprovalExpiryControllerTest;
+    new ApprovalRequestTest cases (cancel signature, cancelCommandIdempotencyKey persists through
+    the transition); plus the full existing suite (including LayerDependencyTest) unaffected.
+
+    Full verification (./mvnw verify, Docker available) also passed: 108/108 total (95 unit + 13
+    Testcontainers integration — GovernanceOutboxIT 3/3, GovernancePersistenceIT 10/10 including
+    the new approvalRequestCancelCommandIdempotencyKeyRoundTripsThroughPostgres case, which
+    confirms migrations V014/V015 apply cleanly and the new column/CHECK constraint work against a
+    real Postgres 18.4 instance). BUILD SUCCESS.
   lld_mapping:
     - 03-state-machine
     - 10-failure-handling
@@ -24,4 +82,6 @@ SPEC-PG-012:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalExpiryServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/ApprovalControllerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/ApprovalExpiryControllerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalRequestTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "108 passed (./mvnw verify: 95 unit + 13 Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

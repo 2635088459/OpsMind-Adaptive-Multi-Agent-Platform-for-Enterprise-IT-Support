@@ -20,11 +20,22 @@ import java.io.IOException;
 
 /**
  * Every governance API requires an authenticated actor (api-contract §API
- * Impact). Fine-grained per-endpoint authorization (approver role,
- * reviewer/publisher separation of duties) is enforced in the application
- * layer ({@code IdentityAuthorizationPort}, {@code PolicyAdminService}) —
- * see those types' javadoc for which future spec owns the full permission
- * model; this filter chain only establishes the authentication baseline.
+ * Impact); {@code @EnableMethodSecurity} is what makes {@code @PreAuthorize}
+ * enforceable on individual controller methods. SPEC-PG-014 (11-security
+ * §Permission Model) gave this two real homes, split by whether the check
+ * needs business context beyond the actor's own claims: approval grant/deny
+ * needs the request's own {@code riskLevel} (ABAC), so it stays in the
+ * application layer behind {@code IdentityAuthorizationPort} (see {@code
+ * infrastructure.identity.JwtIdentityAuthorizationAdapter}'s own javadoc);
+ * policy publish and audit view are pure RBAC on the actor's own OAuth2
+ * scope, so they use {@code @PreAuthorize("hasAuthority(...)")} directly on
+ * {@code PolicyAdminController#publish}/{@code GovernanceAuditController#findByCorrelationId}
+ * — this filter chain still only establishes the authentication baseline.
+ * The fuller reviewer/publisher role separation and requester/executor/
+ * approver relationship model (beyond simple identity inequality) remain
+ * deferred — see {@code PolicyAdminService}'s and {@code
+ * IdentityAuthorizationPort#isIndependentApprover}'s own javadoc for which
+ * spec owns each.
  */
 @Configuration
 @EnableWebSecurity

@@ -2,15 +2,85 @@ SPEC-PG-014:
   domain: 06-policy-approval-governance
   name: RBAC ABAC Authorization
   cn_name: RBAC/ABAC 授权
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-03-security-separation-of-duties
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Opened phase-03 by giving IdentityAuthorizationPort (defined since SPEC-PG-001, previously
+    backed only by StubIdentityAuthorizationAdapter — a fail-closed placeholder that denied every
+    approval unconditionally, blocking real production use of grant/deny entirely) a real
+    implementation, per 11-security §Permission Model: "RBAC decides whether a user can approve,
+    publish policy, or view audit. ABAC decides whether that principal may act for a specific
+    ticket, tenant, resource, and risk level."
+
+    RBAC + ABAC for approval decisions: JwtIdentityAuthorizationAdapter reads the current request's
+    Authentication from SecurityContextHolder (populated by the same OAuth2 resource-server filter
+    chain SecurityConfig already wires; the port itself only carries a String actorId, so the
+    adapter confirms that string matches the authenticated principal's own name before trusting its
+    authorities/claims — refusing to authorize on behalf of a different principal than the one
+    actually authenticated on this thread). RBAC: the SCOPE_approval:decide OAuth2 scope (Spring's
+    default JwtAuthenticationConverter maps a scope/scp claim entry to a SCOPE_* GrantedAuthority —
+    the same convention ticket-workflow-service already established for SCOPE_tickets:create).
+    ABAC: a risk_clearance claim (a list of RiskLevel names) must include a level at or above the
+    specific request's own riskLevel, using RiskLevel's own javadoc-documented
+    "intentionally low-to-high" ordinal order via compareTo. IdentityAuthorizationPort#
+    isAuthorizedApprover gained a riskLevel parameter to carry this through (previously only
+    actorId + approvalType); ApprovalService#decide's call site and every implementer
+    (FakeIdentityAuthorizationPort, the new adapter) updated to match.
+
+    isIndependentApprover also got a real implementation — simple identity inequality
+    (requesterId != approverId) — replacing the stub's hardcoded false. This is deliberately basic:
+    the fuller requester/executor/approver relationship model 11-security names ("tool execution
+    worker approving the corresponding tool request", "admin repair initiator approving the
+    high-risk override directly") is SPEC-PG-015's own named job (Separation Of Duties Check), not
+    this spec's.
+
+    RBAC for policy publish and audit view: unlike approval decide, these need no request-specific
+    ABAC context, so they use @PreAuthorize("hasAuthority(...)") directly on the controller method
+    instead of going through IdentityAuthorizationPort — PolicyAdminController#publish now requires
+    SCOPE_policy:publish, GovernanceAuditController#findByCorrelationId now requires
+    SCOPE_governance:audit:read. Both are the other two actions 11-security's own Permission Model
+    sentence names by name ("approve, publish policy, or view audit") — draft/review/deprecate and
+    the cancel endpoint are deliberately NOT gated here since 11-security's sentence does not name
+    them, and PolicyAdminService's own pre-existing javadoc already defers "the fuller
+    reviewer/publisher role model" to phase-04.
+
+    Per-ticket/tenant/resource ABAC (11-security's other three named dimensions) remains
+    deliberately unimplemented: no attribute for any of them is modeled anywhere in this service
+    yet (ApprovalRequest carries no tenant field, and no resource-scope model exists) — claiming to
+    enforce them now would be dishonest. Only the risk-level dimension, which the domain model
+    already supports via RiskLevel, is real.
+
+    StubIdentityAuthorizationAdapter deleted (zero remaining callers once the real adapter replaced
+    it as the sole @Component behind IdentityAuthorizationPort — two @Component beans for the same
+    interface would have failed Spring's autowiring). ApprovalServiceTest's
+    productionIdentityAdapterFailsClosedOnGrant rewritten to exercise the real adapter with an
+    empty SecurityContext instead of the deleted stub's hardcoded false, proving the real adapter's
+    default posture is still fail-closed, not just tested via a placeholder.
+
+    New tests: JwtIdentityAuthorizationAdapterTest (9 cases — RBAC pass/fail, ABAC risk-clearance
+    pass/fail at the exact boundary and above it, missing claim, wrong principal, no security
+    context, non-JWT Authentication, isIndependentApprover) is the first genuinely thorough unit
+    suite for this port's real behavior. PolicyAdminControllerSecurityTest and
+    GovernanceAuditControllerSecurityTest (3 cases each) are this service's first @WebMvcTest-based
+    security tests exercising the real Spring Security filter chain and @PreAuthorize end to end —
+    mirroring ticket-workflow-service's own CreateTicketSecurityTest pattern, previously absent from
+    this service entirely (every existing controller test here used standalone MockMvc, which never
+    runs method security).
+
+    Deliberately NOT touched: SPEC-PG-011/012/013's own grant/deny/cancel/expiry locking,
+    idempotency, and event-publication logic (unaffected — only the authorization gate itself
+    changed); PolicyAdminService's own reviewer/publisher role separation beyond the publish scope
+    gate (phase-04's job per that service's own pre-existing javadoc); SPEC-PG-015's separation-of-
+    duties relationship model; SPEC-PG-016's step-up/MFA marker; SPEC-PG-017's redaction.
+
+    116/116 unit tests pass (./mvnw test, up from 101 after SPEC-PG-013 — 15 new tests: 9
+    JwtIdentityAuthorizationAdapterTest + 3 PolicyAdminControllerSecurityTest + 3
+    GovernanceAuditControllerSecurityTest). Full verification (./mvnw verify, Docker available) also
+    passed: 130/130 total (116 unit + 4 GovernanceOutboxIT + 10 GovernancePersistenceIT
+    Testcontainers Postgres/RabbitMQ integration, both unaffected by this spec's own changes — no
+    schema or event-contract change here). BUILD SUCCESS.
   lld_mapping:
     - 11-security
     - 02-business-invariants
@@ -23,4 +93,5 @@ SPEC-PG-014:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/identity/JwtIdentityAuthorizationAdapterTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/PolicyAdminControllerSecurityTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/GovernanceAuditControllerSecurityTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java
+    result: "130 passed (./mvnw verify: 116 unit + 4 GovernanceOutboxIT + 10 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

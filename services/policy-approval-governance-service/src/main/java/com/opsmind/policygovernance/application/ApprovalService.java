@@ -1,7 +1,9 @@
 package com.opsmind.policygovernance.application;
 
+import com.opsmind.policygovernance.application.command.CancelApprovalCommand;
 import com.opsmind.policygovernance.application.command.DecideApprovalCommand;
 import com.opsmind.policygovernance.application.command.RequestApprovalCommand;
+import com.opsmind.policygovernance.application.exception.ApprovalAlreadyCancelledException;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyDecidedException;
 import com.opsmind.policygovernance.application.exception.ApprovalNotAuthorizedException;
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
@@ -11,10 +13,14 @@ import com.opsmind.policygovernance.application.port.ApprovalNotificationPort;
 import com.opsmind.policygovernance.application.port.ApprovalRequestRepository;
 import com.opsmind.policygovernance.application.port.GovernanceMetricsPort;
 import com.opsmind.policygovernance.application.port.IdentityAuthorizationPort;
+import com.opsmind.policygovernance.domain.approval.ApprovalCancelledEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalDecision;
+import com.opsmind.policygovernance.domain.approval.ApprovalDeniedEvent;
+import com.opsmind.policygovernance.domain.approval.ApprovalGrantedEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequestMismatchException;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequestedEvent;
+import com.opsmind.policygovernance.domain.approval.ApprovalStatus;
 import com.opsmind.policygovernance.domain.audit.GovernanceAuditRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -79,7 +85,7 @@ public class ApprovalService {
         ApprovalRequest approvalRequest = ApprovalRequest.requested(
             UUID.randomUUID().toString(), command.requestKey(), command.requestHash(),
             command.sourceDomain(), command.sourceRequestId(), command.ticketId(),
-            command.workflowInstanceId(), command.toolRequestId(), command.policyDecisionId(), command.requestedBy(),
+            command.workflowInstanceId(), command.toolRequestId(), command.executorId(), command.policyDecisionId(), command.requestedBy(),
             command.approvalType(), command.riskLevel(), command.constraints(),
             command.expiresAt(), clock.instant()
         );
@@ -125,6 +131,22 @@ public class ApprovalService {
      * idempotency key 09-concurrency-and-idempotency names distinguishes a
      * genuine retry of the same command from two different attempts that
      * merely happen to agree on outcome and actor.
+     *
+     * <p>SPEC-PG-013: stages the real, versioned {@code approval.granted.v1}/
+     * {@code approval.denied.v1} event ({@link ApprovalGrantedEvent}/{@link
+     * ApprovalDeniedEvent}) instead of the generic outbox placeholder — the
+     * last two approval-lifecycle actions still on it after SPEC-PG-010
+     * graduated {@code approval.requested.v1} and SPEC-PG-012 graduated
+     * {@code approval.expired.v1}/{@code approval.cancelled.v1}.
+     *
+     * <p>SPEC-PG-015 (11-security §Separation Of Duties: "forbid ... tool
+     * execution worker approving the corresponding tool request"): rejects
+     * the request's own {@code executorId}, mirroring the pre-existing
+     * requester self-approval guard immediately above it — a structural
+     * check ahead of {@link com.opsmind.policygovernance.application.port.IdentityAuthorizationPort}'s
+     * RBAC/ABAC check, not delegated to it, since the request itself (not
+     * an external identity provider) is the only source of truth for who is
+     * assigned to execute it.
      */
     private ApprovalRequest decide(DecideApprovalCommand command, ApprovalDecision.Outcome outcome) {
         ApprovalRequest approvalRequest = approvalRequestRepository.findByIdForUpdate(command.approvalRequestId())
@@ -153,8 +175,11 @@ public class ApprovalService {
         if (approvalRequest.requestedBy().equals(command.decidedBy())) {
             throw new ApprovalNotAuthorizedException("requester cannot approve their own request");
         }
-        if (!identityAuthorizationPort.isAuthorizedApprover(command.decidedBy(), approvalRequest.approvalType())) {
-            throw new ApprovalNotAuthorizedException("actor is not an authorized approver for this approval type");
+        if (approvalRequest.executorId() != null && approvalRequest.executorId().equals(command.decidedBy())) {
+            throw new ApprovalNotAuthorizedException("the executor of this tool request cannot approve their own execution");
+        }
+        if (!identityAuthorizationPort.isAuthorizedApprover(command.decidedBy(), approvalRequest.approvalType(), approvalRequest.riskLevel())) {
+            throw new ApprovalNotAuthorizedException("actor is not an authorized approver for this approval type and risk level");
         }
 
         boolean separationOfDutiesCheck = outcome == ApprovalDecision.Outcome.APPROVED
@@ -177,7 +202,10 @@ public class ApprovalService {
         auditService.record(
             outcome == ApprovalDecision.Outcome.APPROVED ? GovernanceAuditRecord.Action.APPROVAL_GRANTED : GovernanceAuditRecord.Action.APPROVAL_DENIED,
             command.decidedBy(), approvalRequest.sourceDomain(), approvalRequest.sourceRequestId(),
-            null, null, command.reason(), command.correlationId(), null
+            null, null, command.reason(), command.correlationId(), null,
+            outcome == ApprovalDecision.Outcome.APPROVED
+                ? ApprovalGrantedEvent.from(saved, savedDecision, command.correlationId(), null)
+                : ApprovalDeniedEvent.from(saved, savedDecision, command.correlationId(), null)
         );
 
         Duration waitTime = Duration.between(approvalRequest.createdAt(), now);
@@ -193,16 +221,59 @@ public class ApprovalService {
         return saved;
     }
 
+    /**
+     * SPEC-PG-012: locks the request row first, mirroring {@link #decide}'s
+     * own reasoning (08-transaction-and-outbox, 09-concurrency-and-idempotency)
+     * — a concurrent grant/deny/cancel on the same request must block here
+     * instead of racing. Re-validates request linkage (INV-PG-005) the same
+     * way and in the same order {@link #decide} does — before any
+     * idempotency check, so a malformed retry can never slip through on a
+     * coincidentally-matching idempotency key. A request already {@code
+     * CANCELLED} is then idempotent on a matching {@code commandIdempotencyKey}
+     * (a genuine retry returns the existing final state unchanged); a
+     * different key against an already-cancelled request is a conflict,
+     * audited and rejected the same way {@link #decide} audits a
+     * conflicting grant/deny (SPEC-PG-011 named this exact gap as out of its
+     * own scope). Any other non-{@code REQUESTED} status
+     * (APPROVED/DENIED/EXPIRED/SUPERSEDED) falls through to {@link
+     * ApprovalRequest#cancel}, which throws {@code
+     * IllegalApprovalTransitionException} — final states stay irreversible.
+     */
     @Transactional
-    public ApprovalRequest cancel(String approvalRequestId, String cancelledBy, String reason, String correlationId) {
-        ApprovalRequest approvalRequest = approvalRequestRepository.findById(approvalRequestId)
-            .orElseThrow(() -> new ApprovalRequestNotFoundException(approvalRequestId));
-        ApprovalRequest saved = approvalRequestRepository.save(approvalRequest.cancel(clock.instant()));
+    public ApprovalRequest cancel(CancelApprovalCommand command) {
+        ApprovalRequest approvalRequest = approvalRequestRepository.findByIdForUpdate(command.approvalRequestId())
+            .orElseThrow(() -> new ApprovalRequestNotFoundException(command.approvalRequestId()));
+
+        if (!approvalRequest.matches(command.sourceRequestId(), command.requestHash())) {
+            throw new ApprovalRequestMismatchException(approvalRequest.approvalRequestId());
+        }
+
+        if (approvalRequest.status() == ApprovalStatus.CANCELLED) {
+            if (command.commandIdempotencyKey().equals(approvalRequest.cancelCommandIdempotencyKey())) {
+                return approvalRequest;
+            }
+            auditService.record(
+                GovernanceAuditRecord.Action.APPROVAL_CANCEL_CONFLICT, command.cancelledBy(), approvalRequest.sourceDomain(),
+                approvalRequest.sourceRequestId(), null, null,
+                "conflicting cancel rejected: request already cancelled by a different attempt", command.correlationId(), null
+            );
+            throw new ApprovalAlreadyCancelledException(approvalRequest.approvalRequestId());
+        }
+
+        Instant now = clock.instant();
+        ApprovalRequest saved = approvalRequestRepository.save(approvalRequest.cancel(now, command.commandIdempotencyKey()));
         notificationPort.notifyDecided(saved);
         auditService.record(
-            GovernanceAuditRecord.Action.APPROVAL_CANCELLED, cancelledBy, approvalRequest.sourceDomain(),
-            approvalRequest.sourceRequestId(), null, null, reason, correlationId, null
+            GovernanceAuditRecord.Action.APPROVAL_CANCELLED, command.cancelledBy(), approvalRequest.sourceDomain(),
+            approvalRequest.sourceRequestId(), null, null, command.reason(), command.correlationId(), null,
+            ApprovalCancelledEvent.from(saved, command.reason(), command.cancelledBy(), command.correlationId(), null)
         );
+        log.atInfo()
+            .addKeyValue("correlationId", command.correlationId())
+            .addKeyValue("approvalRequestId", saved.approvalRequestId())
+            .addKeyValue("sourceDomain", saved.sourceDomain())
+            .addKeyValue("sourceRequestId", saved.sourceRequestId())
+            .log("approval cancelled");
         return saved;
     }
 

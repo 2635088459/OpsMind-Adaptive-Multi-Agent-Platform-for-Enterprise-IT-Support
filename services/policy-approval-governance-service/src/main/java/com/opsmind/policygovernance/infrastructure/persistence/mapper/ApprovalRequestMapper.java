@@ -21,20 +21,21 @@ public final class ApprovalRequestMapper {
     public static ApprovalRequestJpaEntity toEntity(ApprovalRequest request) {
         return new ApprovalRequestJpaEntity(
             request.approvalRequestId(), request.requestKey(), request.requestHash(), request.sourceDomain(),
-            request.sourceRequestId(), request.ticketId(), request.workflowInstanceId(), request.toolRequestId(),
+            request.sourceRequestId(), request.ticketId(), request.workflowInstanceId(), request.toolRequestId(), request.executorId(),
             request.policyDecisionId(), null, request.requestedBy(), request.approvalType().name(), request.riskLevel().name(),
             JsonSupport.writeList(request.constraints()), request.status().name(), request.expiresAt(),
-            request.createdAt(), request.updatedAt()
+            request.createdAt(), request.updatedAt(), request.cancelCommandIdempotencyKey()
         );
     }
 
     public static ApprovalRequest toDomain(ApprovalRequestJpaEntity entity) {
         return ApprovalRequest.reconstruct(
             entity.getApprovalRequestId(), entity.getRequestKey(), entity.getRequestHash(), entity.getSourceDomain(),
-            entity.getSourceRequestId(), entity.getTicketId(), entity.getWorkflowInstanceId(), entity.getToolRequestId(),
+            entity.getSourceRequestId(), entity.getTicketId(), entity.getWorkflowInstanceId(), entity.getToolRequestId(), entity.getExecutorId(),
             entity.getPolicyDecisionId(), entity.getRequestedById(), ApprovalType.valueOf(entity.getApprovalType()),
             RiskLevel.valueOf(entity.getRiskLevel()), JsonSupport.readList(entity.getConstraintsJson(), CONSTRAINTS_TYPE),
-            ApprovalStatus.valueOf(entity.getStatus()), entity.getExpiresAt(), entity.getCreatedAt(), entity.getUpdatedAt()
+            ApprovalStatus.valueOf(entity.getStatus()), entity.getExpiresAt(), entity.getCreatedAt(), entity.getUpdatedAt(),
+            entity.getCancelCommandIdempotencyKey()
         );
     }
 }

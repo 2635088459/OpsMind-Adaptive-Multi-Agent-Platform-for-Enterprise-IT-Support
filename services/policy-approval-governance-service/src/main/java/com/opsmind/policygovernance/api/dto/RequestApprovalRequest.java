@@ -16,6 +16,8 @@ public record RequestApprovalRequest(
     String ticketId,
     String workflowInstanceId,
     String toolRequestId,
+    /** SPEC-PG-015: the principal that will execute {@code toolRequestId} once approved, if the caller knows it (11-security separation-of-duties). */
+    String executorId,
     String policyDecisionId,
     @NotNull ApprovalType approvalType,
     @NotNull RiskLevel riskLevel,

@@ -68,6 +68,8 @@ public record GovernanceAuditRecord(
         APPROVAL_CANCELLED,
         OVERRIDE_APPLIED,
         /** SPEC-PG-003 (09-concurrency-and-idempotency): "conflicting payload returns conflict and writes audit." */
-        APPROVAL_DECISION_CONFLICT
+        APPROVAL_DECISION_CONFLICT,
+        /** SPEC-PG-012: the cancel-command analog of {@link #APPROVAL_DECISION_CONFLICT} — a conflicting retry against an already-cancelled request. */
+        APPROVAL_CANCEL_CONFLICT
     }
 }

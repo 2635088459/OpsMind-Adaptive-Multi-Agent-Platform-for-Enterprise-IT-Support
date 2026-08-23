@@ -7,6 +7,7 @@ import com.opsmind.policygovernance.api.dto.DecideApprovalRequest;
 import com.opsmind.policygovernance.api.dto.RequestApprovalRequest;
 import com.opsmind.policygovernance.api.support.GovernanceRequestContext;
 import com.opsmind.policygovernance.application.ApprovalService;
+import com.opsmind.policygovernance.application.command.CancelApprovalCommand;
 import com.opsmind.policygovernance.application.command.DecideApprovalCommand;
 import com.opsmind.policygovernance.application.command.RequestApprovalCommand;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
@@ -40,7 +41,7 @@ public class ApprovalController {
         List<com.opsmind.policygovernance.domain.decision.Constraint> constraints = toDomainConstraints(request.constraints());
         RequestApprovalCommand command = new RequestApprovalCommand(
             request.requestKey(), request.requestHash(), request.sourceDomain(), request.sourceRequestId(),
-            request.ticketId(), request.workflowInstanceId(), request.toolRequestId(), request.policyDecisionId(),
+            request.ticketId(), request.workflowInstanceId(), request.toolRequestId(), request.executorId(), request.policyDecisionId(),
             GovernanceRequestContext.actorId(authentication), request.approvalType(), request.riskLevel(),
             constraints, request.expiresAt(),
             GovernanceRequestContext.correlationId(httpRequest), GovernanceRequestContext.causationId(httpRequest)
@@ -79,10 +80,12 @@ public class ApprovalController {
         @PathVariable String approvalRequestId, @Valid @RequestBody CancelApprovalRequest request,
         Authentication authentication, HttpServletRequest httpRequest
     ) {
-        ApprovalRequest cancelled = approvalService.cancel(
-            approvalRequestId, GovernanceRequestContext.actorId(authentication), request.reason(),
-            GovernanceRequestContext.correlationId(httpRequest)
+        CancelApprovalCommand command = new CancelApprovalCommand(
+            approvalRequestId, request.sourceRequestId(), request.requestHash(),
+            GovernanceRequestContext.actorId(authentication), request.reason(),
+            GovernanceRequestContext.correlationId(httpRequest), request.commandIdempotencyKey()
         );
+        ApprovalRequest cancelled = approvalService.cancel(command);
         return ResponseEntity.ok(ApprovalRequestResponse.from(cancelled));
     }
 
