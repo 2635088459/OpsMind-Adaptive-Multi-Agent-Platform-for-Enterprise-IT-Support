@@ -79,6 +79,14 @@ public class ApprovalRequestJpaEntity {
     @Column(name = "cancel_command_idempotency_key")
     private String cancelCommandIdempotencyKey;
 
+    /** SPEC-PG-022: null unless {@code status == USED} — see {@code domain.approval.ApprovalRequest#usedCommandIdempotencyKey}. */
+    @Column(name = "used_command_idempotency_key")
+    private String usedCommandIdempotencyKey;
+
+    /** SPEC-PG-022: null unless {@code status == REVOKED} — see {@code domain.approval.ApprovalRequest#revokedCommandIdempotencyKey}. */
+    @Column(name = "revoked_command_idempotency_key")
+    private String revokedCommandIdempotencyKey;
+
     protected ApprovalRequestJpaEntity() {
     }
 
@@ -86,7 +94,8 @@ public class ApprovalRequestJpaEntity {
         String approvalRequestId, String requestKey, String requestHash, String sourceDomain, String sourceRequestId,
         String ticketId, String workflowInstanceId, String toolRequestId, String executorId, String policyDecisionId, String requestedByType,
         String requestedById, String approvalType, String riskLevel, String constraintsJson, String status, Instant expiresAt,
-        Instant createdAt, Instant updatedAt, String cancelCommandIdempotencyKey
+        Instant createdAt, Instant updatedAt, String cancelCommandIdempotencyKey,
+        String usedCommandIdempotencyKey, String revokedCommandIdempotencyKey
     ) {
         this.approvalRequestId = approvalRequestId;
         this.requestKey = requestKey;
@@ -108,6 +117,8 @@ public class ApprovalRequestJpaEntity {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.cancelCommandIdempotencyKey = cancelCommandIdempotencyKey;
+        this.usedCommandIdempotencyKey = usedCommandIdempotencyKey;
+        this.revokedCommandIdempotencyKey = revokedCommandIdempotencyKey;
     }
 
     public String getApprovalRequestId() {
@@ -188,5 +199,13 @@ public class ApprovalRequestJpaEntity {
 
     public String getCancelCommandIdempotencyKey() {
         return cancelCommandIdempotencyKey;
+    }
+
+    public String getUsedCommandIdempotencyKey() {
+        return usedCommandIdempotencyKey;
+    }
+
+    public String getRevokedCommandIdempotencyKey() {
+        return revokedCommandIdempotencyKey;
     }
 }

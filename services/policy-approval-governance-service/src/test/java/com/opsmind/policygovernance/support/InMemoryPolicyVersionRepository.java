@@ -35,4 +35,18 @@ public class InMemoryPolicyVersionRepository implements PolicyVersionRepository 
             .filter(v -> v.effectiveTo() == null || v.effectiveTo().isAfter(asOf))
             .max(Comparator.comparingInt(PolicyVersion::versionNumber));
     }
+
+    @Override
+    public Optional<PolicyVersion> findLatestVersion(String policyId) {
+        return byId.values().stream()
+            .filter(v -> v.policyId().equals(policyId))
+            .max(Comparator.comparingInt(PolicyVersion::versionNumber));
+    }
+
+    @Override
+    public Optional<PolicyVersion> findByPolicyIdAndVersionNumber(String policyId, int versionNumber) {
+        return byId.values().stream()
+            .filter(v -> v.policyId().equals(policyId) && v.versionNumber() == versionNumber)
+            .findFirst();
+    }
 }

@@ -4,8 +4,10 @@ import com.opsmind.policygovernance.application.command.EvaluateDecisionCommand;
 import com.opsmind.policygovernance.application.exception.DecisionKeyConflictException;
 import com.opsmind.policygovernance.application.exception.PolicyDecisionNotFoundException;
 import com.opsmind.policygovernance.application.port.RuleEvaluatorPort;
+import com.opsmind.policygovernance.application.model.OutboxEventRecord;
 import com.opsmind.policygovernance.domain.decision.DecisionEffect;
 import com.opsmind.policygovernance.domain.decision.PolicyDecision;
+import com.opsmind.policygovernance.domain.decision.PolicyDecisionCreatedEvent;
 import com.opsmind.policygovernance.domain.decision.ReasonCode;
 import com.opsmind.policygovernance.domain.policy.PolicyRule;
 import com.opsmind.policygovernance.domain.policy.PolicyStatus;
@@ -18,6 +20,7 @@ import com.opsmind.policygovernance.support.InMemoryOutboxEventRepository;
 import com.opsmind.policygovernance.support.InMemoryPolicyDecisionRepository;
 import com.opsmind.policygovernance.support.InMemoryPolicyVersionRepository;
 import com.opsmind.policygovernance.support.NoOpGovernanceMetrics;
+import com.opsmind.policygovernance.support.RecordingGovernanceMetrics;
 import com.opsmind.policygovernance.domain.decision.RiskLevel;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -36,9 +39,10 @@ class PolicyDecisionServiceTest {
     private final Clock clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
     private final InMemoryPolicyVersionRepository versionRepository = new InMemoryPolicyVersionRepository();
     private final InMemoryPolicyDecisionRepository decisionRepository = new InMemoryPolicyDecisionRepository();
+    private final InMemoryOutboxEventRepository outboxEventRepository = new InMemoryOutboxEventRepository();
     private final GovernanceAuditService auditService = new GovernanceAuditService(
         new InMemoryGovernanceAuditRepository(), new SimpleAuditIntegrityAdapter(),
-        new OutboxDispatchService(new InMemoryOutboxEventRepository(), new FakeMessageBrokerPublisher(), clock), clock
+        new OutboxDispatchService(outboxEventRepository, new FakeMessageBrokerPublisher(), clock), clock
     );
     private final PolicyDecisionService service = new PolicyDecisionService(
         versionRepository, decisionRepository, new DefaultRuleEvaluatorAdapter(), auditService, new NoOpGovernanceMetrics(), clock
@@ -49,8 +53,12 @@ class PolicyDecisionServiceTest {
     }
 
     private EvaluateDecisionCommand command(String decisionKey, String inputHash) {
+        return command(decisionKey, inputHash, false);
+    }
+
+    private EvaluateDecisionCommand command(String decisionKey, String inputHash, boolean readOnly) {
         return new EvaluateDecisionCommand(
-            decisionKey, inputHash, "user", "user-1", "READ", "ticket", "ticket-1", "tenant-1",
+            decisionKey, inputHash, "user", "user-1", "READ", readOnly, "ticket", "ticket-1", "tenant-1",
             "tool-gateway", "src-req-1", "ticket-1", null, "policy-1", "corr-1", null
         );
     }
@@ -64,6 +72,9 @@ class PolicyDecisionServiceTest {
         assertThat(decision.evaluationFailed())
             .as("03-state-machine: no effective version is EVALUATION_FAILED, distinguishable from a rule-driven DENY")
             .isTrue();
+        assertThat(decision.degraded())
+            .as("SPEC-PG-021: no effective version at all is a harder failure than 'degraded' — 10-failure-handling names them separately")
+            .isFalse();
     }
 
     @Test
@@ -95,6 +106,7 @@ class PolicyDecisionServiceTest {
         assertThat(decision.effect()).isEqualTo(DecisionEffect.ALLOW);
         assertThat(decision.policyVersion()).isEqualTo("1");
         assertThat(decision.evaluationFailed()).isFalse();
+        assertThat(decision.degraded()).isFalse();
     }
 
     @Test
@@ -115,6 +127,118 @@ class PolicyDecisionServiceTest {
         assertThat(decision.evaluationFailed()).isTrue();
         assertThat(decision.reasonCodes()).containsExactly(ReasonCode.EVALUATOR_UNAVAILABLE);
         assertThat(decisionRepository.findByDecisionKey("dk-evaluator-failure")).contains(decision);
+        assertThat(decision.degraded())
+            .as("SPEC-PG-021 (10-failure-handling §Degraded Policy Mode): an effective version existed but the evaluator itself threw")
+            .isTrue();
+    }
+
+    /**
+     * SPEC-PG-032 (10-failure-handling §Degraded Policy Mode: "low-risk
+     * read-only may use latest published policy cache"). Unlike {@link
+     * #failClosesAndPersistsDecisionWhenEvaluatorThrows}, a caller that
+     * declared {@code readOnly = true} gets {@code ALLOW} bound to the
+     * already-fetched effective version, not a fail-closed {@code DENY} —
+     * still marked {@code degraded = true} and NOT {@code evaluationFailed}
+     * (a real, if degraded, judgment was rendered).
+     */
+    @Test
+    void readOnlyRequestsFallBackToTheCachedPolicyVersionInsteadOfFailingClosedWhenTheEvaluatorThrows() {
+        PolicyRule rule = new PolicyRule("rule-1", List.of(), DecisionEffect.ALLOW, RiskLevel.LOW, false, List.of());
+        PolicyVersion published = PolicyVersion.draft("pv-1", "policy-1", 1, List.of(rule), "author-1")
+            .transitionTo(PolicyStatus.REVIEWING, "reviewer-1", null, clock.instant())
+            .transitionTo(PolicyStatus.PUBLISHED, "publisher-1", clock.instant().minusSeconds(10), clock.instant());
+        versionRepository.save(published);
+
+        RecordingGovernanceMetrics recordingMetrics = new RecordingGovernanceMetrics();
+        PolicyDecisionService failingService = new PolicyDecisionService(
+            versionRepository, decisionRepository, new ThrowingRuleEvaluator(), auditService, recordingMetrics, clock
+        );
+
+        PolicyDecision decision = failingService.evaluate(command("dk-cache-fallback", "hash-1", true));
+
+        assertThat(decision.effect()).isEqualTo(DecisionEffect.ALLOW);
+        assertThat(decision.riskLevel()).isEqualTo(RiskLevel.LOW);
+        assertThat(decision.approvalRequired()).isFalse();
+        assertThat(decision.evaluationFailed()).isFalse();
+        assertThat(decision.degraded()).isTrue();
+        assertThat(decision.policyId()).isEqualTo("policy-1");
+        assertThat(decision.policyVersion())
+            .as("bound to the already-fetched effective version, not \"NONE\" — decisions without a policy version are never allowed")
+            .isEqualTo("1");
+        assertThat(decision.reasonCodes()).containsExactly(ReasonCode.EVALUATOR_UNAVAILABLE, ReasonCode.DEGRADED_CACHE_FALLBACK);
+        assertThat(recordingMetrics.degradedEffects())
+            .as("SPEC-PG-032 (goal: \"degraded metrics\")")
+            .containsExactly(DecisionEffect.ALLOW);
+    }
+
+    /** SPEC-PG-032: a caller that does not declare {@code readOnly} still fails closed exactly as before — the default must never silently start allowing anything. */
+    @Test
+    void nonReadOnlyRequestsStillFailClosedWhenTheEvaluatorThrows() {
+        PolicyRule rule = new PolicyRule("rule-1", List.of(), DecisionEffect.ALLOW, RiskLevel.LOW, false, List.of());
+        PolicyVersion published = PolicyVersion.draft("pv-1", "policy-1", 1, List.of(rule), "author-1")
+            .transitionTo(PolicyStatus.REVIEWING, "reviewer-1", null, clock.instant())
+            .transitionTo(PolicyStatus.PUBLISHED, "publisher-1", clock.instant().minusSeconds(10), clock.instant());
+        versionRepository.save(published);
+
+        PolicyDecisionService failingService = new PolicyDecisionService(
+            versionRepository, decisionRepository, new ThrowingRuleEvaluator(), auditService, new NoOpGovernanceMetrics(), clock
+        );
+
+        PolicyDecision decision = failingService.evaluate(command("dk-not-cache-fallback", "hash-1", false));
+
+        assertThat(decision.effect()).isEqualTo(DecisionEffect.DENY);
+        assertThat(decision.evaluationFailed()).isTrue();
+        assertThat(decision.reasonCodes()).containsExactly(ReasonCode.EVALUATOR_UNAVAILABLE);
+    }
+
+    /** SPEC-PG-032 (goal: "degraded metrics"): a non-degraded decision never fires {@code recordPolicyDegraded}. */
+    @Test
+    void doesNotRecordDegradedMetricForANormalSuccessfulDecision() {
+        PolicyRule rule = new PolicyRule("rule-1", List.of(), DecisionEffect.ALLOW, RiskLevel.LOW, false, List.of());
+        PolicyVersion published = PolicyVersion.draft("pv-1", "policy-1", 1, List.of(rule), "author-1")
+            .transitionTo(PolicyStatus.REVIEWING, "reviewer-1", null, clock.instant())
+            .transitionTo(PolicyStatus.PUBLISHED, "publisher-1", clock.instant().minusSeconds(10), clock.instant());
+        versionRepository.save(published);
+
+        RecordingGovernanceMetrics recordingMetrics = new RecordingGovernanceMetrics();
+        PolicyDecisionService normalService = new PolicyDecisionService(
+            versionRepository, decisionRepository, new DefaultRuleEvaluatorAdapter(), auditService, recordingMetrics, clock
+        );
+
+        normalService.evaluate(command("dk-not-degraded"));
+
+        assertThat(recordingMetrics.degradedEffects()).isEmpty();
+    }
+
+    /**
+     * SPEC-PG-028: {@code evaluate()} must stage the real {@code
+     * policy.decision.created.v1} event, not the generic {@code
+     * governance.audit.decision_evaluated.v1} placeholder — mirroring how
+     * SPEC-PG-010 graduated {@code approval.requested.v1}.
+     */
+    @Test
+    void evaluateStagesTheRealPolicyDecisionCreatedEventWithCorrectAggregateIdentity() {
+        PolicyDecision decision = service.evaluate(command("dk-event"));
+
+        OutboxEventRecord staged = outboxEventRepository.all().stream()
+            .filter(r -> r.eventType().equals(PolicyDecisionCreatedEvent.EVENT_TYPE))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("no policy.decision.created.v1 row was staged"));
+        assertThat(staged.aggregateType()).isEqualTo("PolicyDecision");
+        assertThat(staged.aggregateId()).isEqualTo(decision.policyDecisionId());
+        assertThat(staged.payloadJson()).contains("\"policyDecisionId\":\"" + decision.policyDecisionId() + "\"");
+    }
+
+    /** 08-transaction-and-outbox §Policy Decision: "does not create a new event" for a duplicate decisionKey + inputHash. */
+    @Test
+    void aDuplicateDecisionKeyDoesNotStageASecondEvent() {
+        service.evaluate(command("dk-event-dup"));
+        service.evaluate(command("dk-event-dup"));
+
+        long staged = outboxEventRepository.all().stream()
+            .filter(r -> r.eventType().equals(PolicyDecisionCreatedEvent.EVENT_TYPE))
+            .count();
+        assertThat(staged).isEqualTo(1);
     }
 
     @Test
@@ -130,6 +254,35 @@ class PolicyDecisionServiceTest {
     void findByIdThrowsWhenNoSuchDecisionExists() {
         assertThatThrownBy(() -> service.findById("does-not-exist"))
             .isInstanceOf(PolicyDecisionNotFoundException.class);
+    }
+
+    /** SPEC-PG-033 (goal: "poison decision review"): only genuinely {@code evaluationFailed} decisions are returned, never a healthy one. */
+    @Test
+    void findPoisonDecisionsReturnsOnlyEvaluationFailedDecisions() {
+        PolicyRule healthyRule = new PolicyRule("rule-1", List.of(), DecisionEffect.ALLOW, RiskLevel.LOW, false, List.of());
+        PolicyVersion healthyVersion = PolicyVersion.draft("pv-healthy", "policy-1", 1, List.of(healthyRule), "author-1")
+            .transitionTo(PolicyStatus.REVIEWING, "reviewer-1", null, clock.instant())
+            .transitionTo(PolicyStatus.PUBLISHED, "publisher-1", clock.instant().minusSeconds(10), clock.instant());
+        versionRepository.save(healthyVersion);
+        service.evaluate(command("dk-poison-1"));
+        PolicyDecisionService failingService = new PolicyDecisionService(
+            versionRepository, decisionRepository, new ThrowingRuleEvaluator(), auditService, new NoOpGovernanceMetrics(), clock
+        );
+        PolicyRule rule = new PolicyRule("rule-1", List.of(), DecisionEffect.ALLOW, RiskLevel.LOW, false, List.of());
+        PolicyVersion published = PolicyVersion.draft("pv-poison", "policy-poison", 1, List.of(rule), "author-1")
+            .transitionTo(PolicyStatus.REVIEWING, "reviewer-1", null, clock.instant())
+            .transitionTo(PolicyStatus.PUBLISHED, "publisher-1", clock.instant().minusSeconds(10), clock.instant());
+        versionRepository.save(published);
+        PolicyDecision poison = failingService.evaluate(
+            new EvaluateDecisionCommand(
+                "dk-poison-2", "hash-1", "user", "user-1", "READ", false, "ticket", "ticket-1", "tenant-1",
+                "tool-gateway", "src-req-2", "ticket-1", null, "policy-poison", "corr-1", null
+            )
+        );
+
+        assertThat(service.findPoisonDecisions())
+            .extracting(PolicyDecision::policyDecisionId)
+            .containsExactly(poison.policyDecisionId());
     }
 
     /**

@@ -11,10 +11,8 @@ import java.util.Objects;
  * (01-domain-model §ApprovalDecision).
  *
  * <p>INV-PG-003 ("Approval Must Be Unforgeable") requires {@code decidedBy}
- * to be present; the full signature/session step-up model is owned by
- * phase-03 (SPEC-PG-016 Approval Authenticity Step Up, 11-security).
- * INV-PG-004 ("Separation Of Duties Must Be Verified") is enforced
- * structurally here: an {@link Outcome#APPROVED} decision cannot be
+ * to be present. INV-PG-004 ("Separation Of Duties Must Be Verified") is
+ * enforced structurally here: an {@link Outcome#APPROVED} decision cannot be
  * constructed unless the caller has already set {@code
  * separationOfDutiesCheck}, so no code path can grant an approval without
  * that check having run.
@@ -28,6 +26,23 @@ import java.util.Objects;
  * key." {@code ApprovalService#decide} uses it, together with {@code
  * decision}/{@code decidedBy}, to tell a genuine retry of the same grant/deny
  * attempt apart from a different attempt that happens to share an outcome.
+ *
+ * <p>{@code sessionId}/{@code deviceId}/{@code stepUpVerified} are
+ * SPEC-PG-016's own addition — the "full signature/session step-up model"
+ * this type's javadoc used to defer, per 11-security §Approval Authenticity
+ * ("Approval command must include: authenticated actor; session/device
+ * metadata; idempotency key; reason; optional MFA/step-up marker;
+ * correlation id"). {@code sessionId}/{@code deviceId} are nullable and
+ * recorded verbatim for the audit trail — 06 has no session store of its
+ * own (the platform's OAuth2/JWT setup is stateless,
+ * {@code SessionCreationPolicy.STATELESS}), so it captures what an
+ * upstream identity provider reports rather than independently validating a
+ * live session. {@code stepUpVerified} defaults to {@code false} when the
+ * caller supplies none (an absent marker is never treated as "verified");
+ * {@code ApprovalService#decide} enforces it structurally for
+ * {@code CRITICAL}-risk grants (the narrowest, most defensible reading of
+ * "optional MFA/step-up marker" as a real security gate rather than inert
+ * data collection) — see that method's own javadoc.
  */
 public record ApprovalDecision(
     String approvalDecisionId,
@@ -38,7 +53,10 @@ public record ApprovalDecision(
     String reason,
     List<Constraint> conditions,
     boolean separationOfDutiesCheck,
-    String commandIdempotencyKey
+    String commandIdempotencyKey,
+    String sessionId,
+    String deviceId,
+    boolean stepUpVerified
 ) {
 
     public ApprovalDecision {

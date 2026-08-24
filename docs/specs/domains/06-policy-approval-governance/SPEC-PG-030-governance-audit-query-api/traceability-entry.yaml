@@ -2,15 +2,75 @@ SPEC-PG-030:
   domain: 06-policy-approval-governance
   name: Governance Audit Query API
   cn_name: Governance Audit Query API
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-07-observability-audit-compliance
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement governance audit chain queries by
+    ticket/source/decision/approval/policy." Before this spec
+    GovernanceAuditRecord carried only one per-action business key,
+    sourceRequestId, whose meaning already varies by action (the decision
+    key for DECISION_EVALUATED, the upstream request id for approval
+    actions) — there was no way to query "every audit record touching this
+    exact ticket/approval request/policy decision" directly, and
+    GovernanceAuditController exposed only findByCorrelationId.
+
+    Added three new nullable linkage columns to GovernanceAuditRecord / the
+    JPA entity / migration V024 (ticket_id, approval_request_id,
+    policy_decision_id, plus 5 new indexes) — nullable because only the
+    actions that genuinely carry them set them (a policy admin action sets
+    none of the three; an approval action sets ticketId/approvalRequestId
+    when the request itself carries them). All three are folded into
+    SimpleAuditIntegrityAdapter's SHA-256 canonical string alongside the
+    existing fields, since they are genuine facts and tampering with them
+    must invalidate the hash chain like any other field (11-security
+    §Tamper-Resistant Audit).
+
+    GovernanceAuditService#record (both overloads) gained the three as
+    required trailing parameters, and every one of the 18 existing
+    auditService.record(...) call sites across ApprovalService (9),
+    PolicyDecisionService (1), PolicyAdminService (6), ApprovalExpiryService
+    (1), and OutboxAdminService (1) was updated to pass the linkage ids that
+    genuinely apply at that call site (null for the ones that structurally
+    cannot, e.g. policy admin actions never touch a ticket/approval/decision
+    id). Added 5 new query methods to GovernanceAuditService /
+    GovernanceAuditRepository / the JPA repository / persistence adapter /
+    mapper: findByTicketId, findByApprovalRequestId, findByPolicyDecisionId,
+    findBySourceRequestId (the query the old single-purpose sourceRequestId
+    field could never answer across actions), and findByPolicyId.
+
+    GovernanceAuditController's existing GET /api/v1/governance-audit-records
+    endpoint now accepts 5 additional optional query params
+    (ticketId/approvalRequestId/policyDecisionId/sourceRequestId/policyId)
+    alongside the original correlationId — exactly one of the six is
+    required per call (RequestValidationException -> 400 otherwise), since
+    compounding filters was never named as a requirement and each dimension
+    already answers a complete, self-contained question.
+    GovernanceAuditRecordResponse now exposes all three new linkage ids
+    (api-contract: "Audit API returns metadata/hash by default, not
+    sensitive raw input" — still true, no raw-input field was added).
+
+    Also fixed the two remaining test call sites that raw-constructed
+    GovernanceAuditRecord or called the old GovernanceAuditService#record
+    arity (GovernancePersistenceIT, GovernanceAuditServiceTest) so the build
+    stays green against the new required constructor/method shape.
+
+    New tests: GovernanceAuditServiceTest gained 5 cases (one per new query
+    method, on top of its existing 2); GovernanceAuditControllerSecurityTest
+    gained 3 (all 5 new query dimensions reachable through the authorized
+    endpoint, zero-filter rejected, more-than-one-filter rejected);
+    GovernancePersistenceIT gained 1 round-tripping all 5 query dimensions
+    through the real Postgres columns; SimpleAuditIntegrityAdapterTest
+    gained 1 confirming a changed linkage field changes the computed hash.
+
+    253/253 unit tests pass (./mvnw test, up from 244 after SPEC-PG-029).
+    Full verification (./mvnw verify, Docker available) also passed: 293/293
+    total (253 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 23
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7.
   lld_mapping:
     - 12-observability
     - 05-api-contracts
@@ -24,4 +84,6 @@ SPEC-PG-030:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/GovernanceAuditServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "293 passed (./mvnw verify: 253 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 23 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

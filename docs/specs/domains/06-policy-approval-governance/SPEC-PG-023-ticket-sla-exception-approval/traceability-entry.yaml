@@ -1,16 +1,78 @@
 SPEC-PG-023:
   domain: 06-policy-approval-governance
   name: Ticket SLA Exception Approval
-  cn_name: Ticket SLA/Exception Approval
-  status: planned
+  cn_name: Ticket SLA Exception Approval
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-05-override-and-exception-governance
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Support 02 Ticket Workflow approvals for SLA exception, closure
+    override, and escalation exception." A narrow spec: request/grant/deny/
+    cancel, idempotency, audit, RBAC/ABAC, and separation-of-duties
+    enforcement were already generic across every ApprovalType since
+    phase-02/03 — nothing type-specific needed re-implementing there.
+
+    06-event-contracts' own ticket.approval.required.v1 purpose line names
+    three distinct sub-kinds ("closure override, escalation exception, or
+    SLA exception"), but ApprovalType only had one generic TICKET_ACTION
+    bucket for all of them — no way for audit, metrics, or a future RBAC
+    rule to tell an SLA-exception approval from an ordinary ticket action.
+    Added TICKET_SLA_EXCEPTION, TICKET_CLOSURE_OVERRIDE,
+    TICKET_ESCALATION_EXCEPTION to ApprovalType (migration V022 extends the
+    approval_type CHECK constraint on approval_requests) — TICKET_ACTION
+    itself is unchanged and still covers every other ticket-originated
+    approval that is none of these three named exceptions. All three flow
+    through the exact same ApprovalRequest/ApprovalService request/grant/
+    deny/cancel machinery every other type already uses (no code change
+    needed in ApprovalService, the JPA entity/mapper, or any DTO — approvalType
+    is already a generic enum field bound directly by Jackson and persisted
+    as a plain string column); no new endpoint, no new state, and no new
+    event was added — 06-event-contracts names no distinct state machine or
+    event for these three beyond the existing approval.* family, only the
+    classification itself. Confirmed none of the three are treated as an
+    override: ApprovalRequest#use/#revoke (SPEC-PG-022) still reject them
+    with NotAnOverrideRequestException, the same as any other non-POLICY_OVERRIDE
+    type. Nothing in 04-use-cases or 11-security names an expiry/scope
+    requirement for these three the way UC-PG-006 explicitly does for
+    POLICY_OVERRIDE, so none was added — inventing one would not be a real
+    gap this spec's own text supports.
+
+    Deliberately NOT built: the RabbitMQ consumer for
+    ticket.approval.required.v1 itself. RabbitConfig's own comment has named
+    this event (alongside tool.approval.required.v1/
+    workflow.approval.required.v1/policy.evaluation.requested.v1) as wired
+    by "the future specs that build each concrete request-creation use case"
+    since SPEC-PG-002, and the Phase 06 "Cross-Domain Contracts" specs
+    (SPEC-PG-025 through SPEC-PG-028, each titled "Freeze ... contract" for
+    one specific source domain, including SPEC-PG-027 "Ticket Workflow
+    Governance Contract") are where that wire-level consumer and its
+    contract test suite belong — every phase-05 spec's own test-plan already
+    defers "ticket approval shape with 02 Ticket Workflow" to a separate
+    Contract Tests section, confirming phase-05's job is the internal
+    governance capability (the classification and lifecycle rules), not the
+    cross-service wire contract (queue/exchange bindings, processed_events
+    dedup, payload schema). Until 02 Ticket Workflow calls the existing
+    synchronous POST /api/v1/approval-requests API (or its own RabbitMQ
+    consumer is built at SPEC-PG-027), these three types are usable but
+    unreached from 02's side — the same "supported but not yet exercised by
+    a real caller" state every other ApprovalType value was in immediately
+    after SPEC-PG-009 first introduced the enum.
+
+    New tests: ApprovalServiceTest gained 4 cases (aTicketSlaExceptionRequestCanBeRequestedAndGranted,
+    aTicketClosureOverrideRequestCanBeRequestedAndGranted,
+    aTicketEscalationExceptionRequestCanBeRequestedAndDenied — one per new
+    type through request/grant/deny — plus
+    ticketExceptionTypesAreNotOverridesAndCannotBeUsedOrRevoked);
+    GovernancePersistenceIT gained
+    ticketExceptionApprovalTypesRoundTripThroughPostgres, round-tripping all
+    three through the real CHECK constraint.
+
+    172/172 unit tests pass (./mvnw test, up from 168 after SPEC-PG-022).
+    Full verification (./mvnw verify, Docker available) also passed:
+    194/194 total (172 unit + 4 GovernanceOutboxIT + 18
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7.
   lld_mapping:
     - 04-use-cases
     - 06-event-contracts
@@ -23,4 +85,6 @@ SPEC-PG-023:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "194 passed (./mvnw verify: 172 unit + 4 GovernanceOutboxIT + 18 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

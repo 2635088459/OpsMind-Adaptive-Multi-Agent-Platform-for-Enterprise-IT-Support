@@ -7,10 +7,16 @@ import com.opsmind.policygovernance.application.exception.ApprovalNotAuthorizedE
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
 import com.opsmind.policygovernance.application.exception.DecisionKeyConflictException;
 import com.opsmind.policygovernance.application.exception.DuplicateApprovalRequestException;
+import com.opsmind.policygovernance.application.exception.InvalidOverrideRequestException;
+import com.opsmind.policygovernance.application.exception.OutboxEventNotFailedException;
+import com.opsmind.policygovernance.application.exception.OutboxEventNotFoundException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyRevokedException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyUsedException;
 import com.opsmind.policygovernance.application.exception.PolicyDecisionNotFoundException;
 import com.opsmind.policygovernance.application.exception.PolicyNotFoundException;
 import com.opsmind.policygovernance.application.exception.PolicyPublishSeparationOfDutiesException;
 import com.opsmind.policygovernance.application.exception.PolicyVersionNotFoundException;
+import com.opsmind.policygovernance.application.exception.ProcessedEventNotFoundException;
 import com.opsmind.policygovernance.domain.approval.SeparationOfDutiesNotVerifiedException;
 import com.opsmind.policygovernance.domain.shared.DomainException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -116,6 +122,41 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(ApprovalAlreadyCancelledException.class)
     public ResponseEntity<ErrorResponse> handleApprovalAlreadyCancelled(ApprovalAlreadyCancelledException ex, HttpServletRequest request) {
         return build(HttpStatus.CONFLICT, "APPROVAL_ALREADY_CANCELLED", "The approval request is already cancelled by a different attempt.", request);
+    }
+
+    /** SPEC-PG-022: the use-command analog of {@link #handleApprovalAlreadyCancelled}. */
+    @ExceptionHandler(OverrideAlreadyUsedException.class)
+    public ResponseEntity<ErrorResponse> handleOverrideAlreadyUsed(OverrideAlreadyUsedException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "OVERRIDE_ALREADY_USED", "The override is already used by a different attempt.", request);
+    }
+
+    /** SPEC-PG-022: the revoke-command analog of {@link #handleApprovalAlreadyCancelled}. */
+    @ExceptionHandler(OverrideAlreadyRevokedException.class)
+    public ResponseEntity<ErrorResponse> handleOverrideAlreadyRevoked(OverrideAlreadyRevokedException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "OVERRIDE_ALREADY_REVOKED", "The override is already revoked by a different attempt.", request);
+    }
+
+    /** SPEC-PG-022: a {@code POLICY_OVERRIDE} request missing its required scope/expiry binding (UC-PG-006). */
+    @ExceptionHandler(InvalidOverrideRequestException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidOverrideRequest(InvalidOverrideRequestException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "INVALID_OVERRIDE_REQUEST", ex.getMessage(), request);
+    }
+
+    /** SPEC-PG-024: requeue targets an outbox event id that does not exist. */
+    @ExceptionHandler(OutboxEventNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleOutboxEventNotFound(OutboxEventNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "OUTBOX_EVENT_NOT_FOUND", "The outbox event was not found.", request);
+    }
+
+    /** SPEC-PG-024: requeue targets an outbox event that is not currently FAILED (dead-lettered). */
+    @ExceptionHandler(OutboxEventNotFailedException.class)
+    public ResponseEntity<ErrorResponse> handleOutboxEventNotFailed(OutboxEventNotFailedException ex, HttpServletRequest request) {
+        return build(HttpStatus.CONFLICT, "OUTBOX_EVENT_NOT_FAILED", "Only a dead-lettered (FAILED) outbox event can be requeued.", request);
+    }
+
+    @ExceptionHandler(ProcessedEventNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleProcessedEventNotFound(ProcessedEventNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "PROCESSED_EVENT_NOT_FOUND", "That event was not recorded as processed by that consumer.", request);
     }
 
     /**

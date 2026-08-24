@@ -31,6 +31,8 @@ public class PolicyAdminController {
         this.policyAdminService = policyAdminService;
     }
 
+    /** SPEC-PG-018 (11-security §Permission Model, extended for the "draft" action this spec's own goal names alongside review/publish). */
+    @PreAuthorize("hasAuthority('SCOPE_policy:draft')")
     @PostMapping("/api/v1/policies:draft")
     public ResponseEntity<PolicyVersionResponse> draft(
         @Valid @RequestBody DraftPolicyRequest request, Authentication authentication, HttpServletRequest httpRequest
@@ -45,6 +47,8 @@ public class PolicyAdminController {
         return ResponseEntity.status(HttpStatus.CREATED).body(PolicyVersionResponse.from(saved));
     }
 
+    /** SPEC-PG-018 (11-security §Permission Model, extended: "reviewer/publisher separation of duties" needs review gated the same way publish already is). */
+    @PreAuthorize("hasAuthority('SCOPE_policy:review')")
     @PostMapping("/api/v1/policy-versions/{policyVersionId}:review")
     public ResponseEntity<PolicyVersionResponse> review(
         @PathVariable String policyVersionId, Authentication authentication, HttpServletRequest httpRequest
@@ -78,5 +82,17 @@ public class PolicyAdminController {
             policyVersionId, GovernanceRequestContext.actorId(authentication), GovernanceRequestContext.correlationId(httpRequest)
         );
         return ResponseEntity.ok(PolicyVersionResponse.from(deprecated));
+    }
+
+    /** SPEC-PG-020 (goal: "archive... states"), gated the same way every other named admin action is (SPEC-PG-014/018). */
+    @PreAuthorize("hasAuthority('SCOPE_policy:archive')")
+    @PostMapping("/api/v1/policy-versions/{policyVersionId}:archive")
+    public ResponseEntity<PolicyVersionResponse> archive(
+        @PathVariable String policyVersionId, Authentication authentication, HttpServletRequest httpRequest
+    ) {
+        PolicyVersion archived = policyAdminService.archive(
+            policyVersionId, GovernanceRequestContext.actorId(authentication), GovernanceRequestContext.correlationId(httpRequest)
+        );
+        return ResponseEntity.ok(PolicyVersionResponse.from(archived));
     }
 }

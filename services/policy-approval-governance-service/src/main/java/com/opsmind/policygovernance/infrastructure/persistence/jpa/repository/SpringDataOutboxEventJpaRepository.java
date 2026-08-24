@@ -22,6 +22,9 @@ public interface SpringDataOutboxEventJpaRepository extends JpaRepository<Outbox
 
     long countByStatus(String status);
 
+    /** SPEC-PG-033: "poison decision review" for outbox rows — see {@code application.port.OutboxEventRepository#findFailed}. */
+    List<OutboxEventJpaEntity> findByStatus(String status);
+
     @Modifying
     @Query("UPDATE OutboxEventJpaEntity o SET o.status = 'PUBLISHED', o.publishedAt = :publishedAt WHERE o.outboxId = :id")
     void markPublished(@Param("id") UUID id, @Param("publishedAt") Instant publishedAt);
@@ -33,4 +36,8 @@ public interface SpringDataOutboxEventJpaRepository extends JpaRepository<Outbox
     @Modifying
     @Query("UPDATE OutboxEventJpaEntity o SET o.status = 'FAILED' WHERE o.outboxId = :id")
     void markFailed(@Param("id") UUID id);
+
+    @Modifying
+    @Query("UPDATE OutboxEventJpaEntity o SET o.status = 'PENDING', o.attemptCount = 0, o.availableAt = :availableAt WHERE o.outboxId = :id")
+    void requeue(@Param("id") UUID id, @Param("availableAt") Instant availableAt);
 }

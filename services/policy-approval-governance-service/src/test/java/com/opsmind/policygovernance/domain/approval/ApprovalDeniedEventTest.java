@@ -21,7 +21,7 @@ class ApprovalDeniedEventTest {
         );
         ApprovalDecision decision = new ApprovalDecision(
             "ad-1", request.approvalRequestId(), ApprovalDecision.Outcome.DENIED, "approver-1", Instant.now(),
-            "too risky", List.of(), false, "cik-1"
+            "too risky", List.of(), false, "cik-1", null, null, false
         );
 
         ApprovalDeniedEvent event = ApprovalDeniedEvent.from(request, decision, "corr-1", "cause-1");
@@ -51,7 +51,7 @@ class ApprovalDeniedEventTest {
         );
         ApprovalDecision decision = new ApprovalDecision(
             "ad-2", request.approvalRequestId(), ApprovalDecision.Outcome.DENIED, "approver-1", Instant.now(),
-            "too risky", List.of(), false, "cik-1"
+            "too risky", List.of(), false, "cik-1", null, null, false
         );
 
         ApprovalDeniedEvent event = ApprovalDeniedEvent.from(request, decision, "corr-1", null);

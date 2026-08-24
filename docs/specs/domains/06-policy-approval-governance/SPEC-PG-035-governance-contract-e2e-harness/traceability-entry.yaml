@@ -1,16 +1,94 @@
 SPEC-PG-035:
   domain: 06-policy-approval-governance
   name: Governance Contract E2E Harness
-  cn_name: Governance Contract 与 E2E Harness
-  status: planned
+  cn_name: Governance Contract E2E Harness
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-09-final-verification-release
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Build cross-domain contract tests with 02/03/04/05 and approval
+    lifecycle e2e harness." Opens Phase 09. An audit against the
+    test-plan's own "Contract Tests" section (one line per upstream domain)
+    found the inbound half already fully covered — every one of the 4
+    consumed event shapes (05 Tool Gateway, 03 Agent Runtime, 02 Ticket
+    Workflow, 04 Memory Knowledge) already has both a pure mapper unit test
+    and a real RabbitMQ+Postgres consumer IT (SPEC-PG-025 through
+    SPEC-PG-028) — confirmed, not rebuilt.
+
+    The outbound half had a real, previously unnoticed gap: of the 7 real,
+    graduated domain events this service publishes, only 4
+    (ApprovalRequestedEvent/ApprovalGrantedEvent/ApprovalDeniedEvent/
+    PolicyDecisionCreatedEvent) had their own shape test proving their JSON
+    payload matches what 06-event-contracts documents — ApprovalExpiredEvent
+    (SPEC-PG-012), ApprovalCancelledEvent (SPEC-PG-012), and
+    PolicyPublishedEvent (SPEC-PG-020, the cache-invalidation signal
+    SPEC-PG-021 names by name) never did. Added
+    ApprovalExpiredEventTest/ApprovalCancelledEventTest/
+    PolicyPublishedEventTest, mirroring ApprovalGrantedEventTest's own
+    established shape (eventType/aggregateType/aggregateId/payload
+    field-by-field, plus a null-tolerance case for absent optional fields).
+
+    "Approval lifecycle e2e harness": every earlier integration test
+    exercises exactly one step of the lifecycle in isolation — a consumer
+    IT only the inbound consume, GovernanceOutboxIT only the outbox
+    stage-then-publish path, ApprovalServiceTest only the in-memory decide
+    step. New ApprovalLifecycleE2EIT is the first test in this service
+    chaining all three against real Postgres + RabbitMQ in one flow: a real
+    inbound tool.approval.required.v1 message creates a real
+    ApprovalRequest via the real @RabbitListener, a real
+    ApprovalService#grant/#deny call decides it (authenticating a real
+    JwtAuthenticationToken through SecurityContextHolder, since this test
+    calls the service bean directly under webEnvironment = NONE but must
+    still pass the real RBAC/ABAC check JwtIdentityAuthorizationAdapter
+    performs), and OutboxDispatchService#publishPending genuinely hands
+    both the resulting approval.requested.v1 and
+    approval.granted.v1/approval.denied.v1 events to the real broker.
+
+    Delivery is verified through outbox_events.status = 'PUBLISHED' plus
+    the row's own payload_json — SPEC-PG-003's own durability guarantee —
+    rather than a second ad-hoc consumer queue. This was a deliberate
+    design change made during verification: an anonymous drain queue
+    declared via amqpAdmin.declareQueue() (mirroring GovernanceOutboxIT's
+    own pattern) proved unreliable in this test specifically, because this
+    test's own real @RabbitListener containers are concurrently active on
+    the same shared connection factory — the broker repeatedly reclaimed
+    the ad-hoc queue mid-test regardless of exclusive/durable/auto-delete
+    combination tried (including hitting a RabbitMQ-version-specific
+    rejection of transient non-exclusive queues,
+    "transient_nonexcl_queues is deprecated"). GovernanceOutboxIT can
+    safely use an ad-hoc queue because its own tests never trigger inbound
+    consumption in parallel. Verifying through the outbox table's own
+    PUBLISHED status is equally valid and more robust: publishPending()
+    only flips a row to PUBLISHED after MessageBrokerPublisherPort#publish
+    genuinely succeeds against the real broker, which is the same
+    durability guarantee an AMQP-side receive would have proven.
+
+    Also fixed during the same debugging pass: the test's own
+    awaitApprovalRequestId helper originally called
+    jdbcTemplate.queryForObject selecting a column directly inside
+    Awaitility's untilAsserted, which throws
+    EmptyResultDataAccessException (not AssertionError) while no row
+    exists yet — Awaitility's default untilAsserted does not retry on
+    that, only propagates it immediately. Fixed by polling a COUNT(*)
+    first (matching ToolApprovalRequiredConsumerIT's own established
+    idiom), then fetching the actual value only once the row is confirmed
+    to exist.
+
+    New tests: ApprovalExpiredEventTest/ApprovalCancelledEventTest/
+    PolicyPublishedEventTest (new files) gained 2 cases each (6 total);
+    new ApprovalLifecycleE2EIT gained 2 (the full grant path and the full
+    deny path, each end to end).
+
+    302/302 unit tests pass (./mvnw test, up from 296 after SPEC-PG-034).
+    Full verification (./mvnw verify, Docker available) also passed:
+    349/349 total (302 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 28
+    GovernancePersistenceIT + 2 ApprovalLifecycleE2EIT Testcontainers
+    Postgres/RabbitMQ integration). BUILD SUCCESS. ArchUnit
+    LayerDependencyTest 7/7. No schema change — every change in this spec
+    was pure test code (still V001-V026).
   lld_mapping:
     - 14-testing-strategy
   forbidden:
@@ -22,4 +100,6 @@ SPEC-PG-035:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalExpiredEventTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/ApprovalLifecycleE2EIT.java
+    result: "349 passed (./mvnw verify: 302 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 28 GovernancePersistenceIT + 2 ApprovalLifecycleE2EIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

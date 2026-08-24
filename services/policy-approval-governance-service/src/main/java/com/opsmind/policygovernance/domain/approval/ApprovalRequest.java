@@ -39,6 +39,13 @@ import java.util.Objects;
  * what the request explicitly carries), so the separation-of-duties check
  * it enables in {@code ApprovalService#decide} is a no-op whenever it is
  * absent rather than a false negative.
+ *
+ * <p>{@code usedCommandIdempotencyKey}/{@code revokedCommandIdempotencyKey}
+ * are SPEC-PG-022's own addition, one per new terminal command the same way
+ * {@code cancelCommandIdempotencyKey} is one for cancel (SPEC-PG-012) —
+ * neither {@link #use} nor {@link #revoke} creates a new {@link
+ * ApprovalDecision} row (the request was already decided {@code APPROVED}),
+ * so each needs its own idempotency guard carried on the request itself.
  */
 public final class ApprovalRequest {
 
@@ -61,6 +68,8 @@ public final class ApprovalRequest {
     private final Instant createdAt;
     private final Instant updatedAt;
     private final String cancelCommandIdempotencyKey;
+    private final String usedCommandIdempotencyKey;
+    private final String revokedCommandIdempotencyKey;
 
     private ApprovalRequest(
         String approvalRequestId,
@@ -81,7 +90,9 @@ public final class ApprovalRequest {
         Instant expiresAt,
         Instant createdAt,
         Instant updatedAt,
-        String cancelCommandIdempotencyKey
+        String cancelCommandIdempotencyKey,
+        String usedCommandIdempotencyKey,
+        String revokedCommandIdempotencyKey
     ) {
         this.approvalRequestId = Objects.requireNonNull(approvalRequestId, "approvalRequestId");
         this.requestKey = Objects.requireNonNull(requestKey, "requestKey");
@@ -102,6 +113,8 @@ public final class ApprovalRequest {
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
         this.cancelCommandIdempotencyKey = cancelCommandIdempotencyKey;
+        this.usedCommandIdempotencyKey = usedCommandIdempotencyKey;
+        this.revokedCommandIdempotencyKey = revokedCommandIdempotencyKey;
     }
 
     public static ApprovalRequest requested(
@@ -125,7 +138,7 @@ public final class ApprovalRequest {
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
             ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, ApprovalStatus.REQUESTED, expiresAt, createdAt, createdAt, null
+            constraints, ApprovalStatus.REQUESTED, expiresAt, createdAt, createdAt, null, null, null
         );
     }
 
@@ -154,12 +167,15 @@ public final class ApprovalRequest {
         Instant expiresAt,
         Instant createdAt,
         Instant updatedAt,
-        String cancelCommandIdempotencyKey
+        String cancelCommandIdempotencyKey,
+        String usedCommandIdempotencyKey,
+        String revokedCommandIdempotencyKey
     ) {
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
             ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, status, expiresAt, createdAt, updatedAt, cancelCommandIdempotencyKey
+            constraints, status, expiresAt, createdAt, updatedAt, cancelCommandIdempotencyKey,
+            usedCommandIdempotencyKey, revokedCommandIdempotencyKey
         );
     }
 
@@ -202,7 +218,8 @@ public final class ApprovalRequest {
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
             ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, ApprovalStatus.CANCELLED, expiresAt, createdAt, Objects.requireNonNull(now, "now"), commandIdempotencyKey
+            constraints, ApprovalStatus.CANCELLED, expiresAt, createdAt, Objects.requireNonNull(now, "now"),
+            commandIdempotencyKey, usedCommandIdempotencyKey, revokedCommandIdempotencyKey
         );
     }
 
@@ -212,6 +229,68 @@ public final class ApprovalRequest {
 
     public ApprovalRequest supersede(Instant now) {
         return transitionTo(ApprovalStatus.SUPERSEDED, now);
+    }
+
+    /**
+     * SPEC-PG-022 (03-state-machine §Override State Machine: {@code
+     * OVERRIDE_APPROVED -> OVERRIDE_USED}). Legal only from {@code APPROVED},
+     * only for a {@link ApprovalType#POLICY_OVERRIDE} request, and only
+     * before {@code expiresAt} (UC-PG-006: "valid only within limited scope
+     * and time window") — {@link OverrideExpiredException} covers the case
+     * where the request is still {@code APPROVED} in the database but its
+     * time window has already lapsed (the expiry worker only scans {@code
+     * REQUESTED} rows, so this cannot be assumed to have already been
+     * caught). {@code commandIdempotencyKey} is this transition's own
+     * idempotency guard, the same reasoning {@link #cancel} documents for
+     * its own key.
+     */
+    public ApprovalRequest use(Instant now, String commandIdempotencyKey) {
+        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(commandIdempotencyKey, "commandIdempotencyKey");
+        requireOverrideType();
+        if (status != ApprovalStatus.APPROVED) {
+            throw new IllegalApprovalTransitionException(status, ApprovalStatus.USED);
+        }
+        if (expiresAt != null && now.isAfter(expiresAt)) {
+            throw new OverrideExpiredException(approvalRequestId);
+        }
+        return new ApprovalRequest(
+            approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
+            ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
+            constraints, ApprovalStatus.USED, expiresAt, createdAt, now,
+            cancelCommandIdempotencyKey, commandIdempotencyKey, revokedCommandIdempotencyKey
+        );
+    }
+
+    /**
+     * SPEC-PG-022 (03-state-machine §Override State Machine: {@code
+     * OVERRIDE_APPROVED -> OVERRIDE_REVOKED}). Legal only from {@code
+     * APPROVED} and only for a {@link ApprovalType#POLICY_OVERRIDE} request
+     * — governance withdrawing an approved-but-not-yet-used override before
+     * it is exercised. Unlike {@link #use}, an already-lapsed {@code
+     * expiresAt} does not block a revoke: formally closing out an override
+     * that is technically already past its window is still a legitimate
+     * governance action, not an error.
+     */
+    public ApprovalRequest revoke(Instant now, String commandIdempotencyKey) {
+        Objects.requireNonNull(now, "now");
+        Objects.requireNonNull(commandIdempotencyKey, "commandIdempotencyKey");
+        requireOverrideType();
+        if (status != ApprovalStatus.APPROVED) {
+            throw new IllegalApprovalTransitionException(status, ApprovalStatus.REVOKED);
+        }
+        return new ApprovalRequest(
+            approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
+            ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
+            constraints, ApprovalStatus.REVOKED, expiresAt, createdAt, now,
+            cancelCommandIdempotencyKey, usedCommandIdempotencyKey, commandIdempotencyKey
+        );
+    }
+
+    private void requireOverrideType() {
+        if (approvalType != ApprovalType.POLICY_OVERRIDE) {
+            throw new NotAnOverrideRequestException(approvalRequestId, approvalType);
+        }
     }
 
     private void requireDecisionMatches(ApprovalDecision decision) {
@@ -228,7 +307,8 @@ public final class ApprovalRequest {
         return new ApprovalRequest(
             approvalRequestId, requestKey, requestHash, sourceDomain, sourceRequestId,
             ticketId, workflowInstanceId, toolRequestId, executorId, policyDecisionId, requestedBy, approvalType, riskLevel,
-            constraints, target, expiresAt, createdAt, Objects.requireNonNull(now, "now"), cancelCommandIdempotencyKey
+            constraints, target, expiresAt, createdAt, Objects.requireNonNull(now, "now"),
+            cancelCommandIdempotencyKey, usedCommandIdempotencyKey, revokedCommandIdempotencyKey
         );
     }
 
@@ -308,5 +388,15 @@ public final class ApprovalRequest {
     /** SPEC-PG-012: null unless {@code status == CANCELLED} — see {@link #cancel(Instant, String)}. */
     public String cancelCommandIdempotencyKey() {
         return cancelCommandIdempotencyKey;
+    }
+
+    /** SPEC-PG-022: null unless {@code status == USED} — see {@link #use(Instant, String)}. */
+    public String usedCommandIdempotencyKey() {
+        return usedCommandIdempotencyKey;
+    }
+
+    /** SPEC-PG-022: null unless {@code status == REVOKED} — see {@link #revoke(Instant, String)}. */
+    public String revokedCommandIdempotencyKey() {
+        return revokedCommandIdempotencyKey;
     }
 }

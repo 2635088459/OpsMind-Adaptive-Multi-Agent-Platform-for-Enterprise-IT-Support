@@ -15,7 +15,7 @@ class ApprovalDecisionTest {
     void anApprovedOutcomeRequiresAPassedSeparationOfDutiesCheck() {
         assertThatThrownBy(() -> new ApprovalDecision(
             "ad-1", "ar-1", ApprovalDecision.Outcome.APPROVED,
-            "approver-1", Instant.now(), "reason", List.of(), false, "cik-1"
+            "approver-1", Instant.now(), "reason", List.of(), false, "cik-1", null, null, false
         )).isInstanceOf(SeparationOfDutiesNotVerifiedException.class);
     }
 
@@ -24,7 +24,7 @@ class ApprovalDecisionTest {
         // Should not throw.
         new ApprovalDecision(
             "ad-1", "ar-1", ApprovalDecision.Outcome.DENIED,
-            "approver-1", Instant.now(), "reason", List.of(), false, "cik-1"
+            "approver-1", Instant.now(), "reason", List.of(), false, "cik-1", null, null, false
         );
     }
 
@@ -32,7 +32,7 @@ class ApprovalDecisionTest {
     void requiresANonBlankDecidedBy() {
         assertThatThrownBy(() -> new ApprovalDecision(
             "ad-1", "ar-1", ApprovalDecision.Outcome.DENIED,
-            "  ", Instant.now(), "reason", List.of(), false, "cik-1"
+            "  ", Instant.now(), "reason", List.of(), false, "cik-1", null, null, false
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -40,7 +40,7 @@ class ApprovalDecisionTest {
     void requiresANonBlankReason() {
         assertThatThrownBy(() -> new ApprovalDecision(
             "ad-1", "ar-1", ApprovalDecision.Outcome.DENIED,
-            "approver-1", Instant.now(), "", List.of(), false, "cik-1"
+            "approver-1", Instant.now(), "", List.of(), false, "cik-1", null, null, false
         )).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -49,7 +49,7 @@ class ApprovalDecisionTest {
     void requiresANonBlankCommandIdempotencyKey() {
         assertThatThrownBy(() -> new ApprovalDecision(
             "ad-1", "ar-1", ApprovalDecision.Outcome.DENIED,
-            "approver-1", Instant.now(), "reason", List.of(), false, " "
+            "approver-1", Instant.now(), "reason", List.of(), false, " ", null, null, false
         )).isInstanceOf(IllegalArgumentException.class);
     }
 }

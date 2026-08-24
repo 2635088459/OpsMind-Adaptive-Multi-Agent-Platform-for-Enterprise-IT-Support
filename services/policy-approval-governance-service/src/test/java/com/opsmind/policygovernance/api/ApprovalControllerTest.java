@@ -4,10 +4,13 @@ import com.opsmind.policygovernance.application.ApprovalService;
 import com.opsmind.policygovernance.application.command.CancelApprovalCommand;
 import com.opsmind.policygovernance.application.command.DecideApprovalCommand;
 import com.opsmind.policygovernance.application.command.RequestApprovalCommand;
+import com.opsmind.policygovernance.application.command.RevokeOverrideCommand;
+import com.opsmind.policygovernance.application.command.UseOverrideCommand;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyCancelledException;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyDecidedException;
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
 import com.opsmind.policygovernance.application.exception.DuplicateApprovalRequestException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyUsedException;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
 import com.opsmind.policygovernance.domain.approval.ApprovalType;
 import com.opsmind.policygovernance.domain.decision.RiskLevel;
@@ -190,6 +193,61 @@ class ApprovalControllerTest {
             .andExpect(jsonPath("$.error.code").value("APPROVAL_ALREADY_CANCELLED"));
     }
 
+    /** SPEC-PG-022: {@code :use} had zero MockMvc-level coverage, mirroring SPEC-PG-012's own gap for cancel. */
+    @Test
+    void usesAnOverrideAndReturnsItsUpdatedStatus() throws Exception {
+        approvalService.nextUseResult = command -> approvalRequestFixture();
+
+        mockMvc.perform(post("/api/v1/approval-requests/ar-1:use")
+                .principal(actor())
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(useOrRevokeRequestBody()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.approvalRequestId").value("ar-1"));
+    }
+
+    /** SPEC-PG-022: a use retry reusing a different commandIdempotencyKey than an already-final use is a conflict. */
+    @Test
+    void mapsOverrideAlreadyUsedToConflictErrorEnvelope() throws Exception {
+        approvalService.nextUseResult = command -> {
+            throw new OverrideAlreadyUsedException("ar-1");
+        };
+
+        mockMvc.perform(post("/api/v1/approval-requests/ar-1:use")
+                .principal(actor())
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(useOrRevokeRequestBody()))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.error.code").value("OVERRIDE_ALREADY_USED"));
+    }
+
+    /** SPEC-PG-022: {@code :revoke} had zero MockMvc-level coverage, mirroring the {@code :use} gap immediately above. */
+    @Test
+    void revokesAnOverrideAndReturnsItsUpdatedStatus() throws Exception {
+        approvalService.nextRevokeResult = command -> approvalRequestFixture();
+
+        mockMvc.perform(post("/api/v1/approval-requests/ar-1:revoke")
+                .principal(actor())
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(useOrRevokeRequestBody()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.approvalRequestId").value("ar-1"));
+    }
+
+    private static String useOrRevokeRequestBody() {
+        return """
+            {
+              "sourceRequestId": "src-req-1",
+              "requestHash": "hash-1",
+              "reason": "exercising the override",
+              "commandIdempotencyKey": "cik-1"
+            }
+            """;
+    }
+
     private static String cancelRequestBody() {
         return """
             {
@@ -265,10 +323,22 @@ class ApprovalControllerTest {
         }
 
         private Function<CancelApprovalCommand, ApprovalRequest> nextCancelResult = command -> approvalRequestFixture();
+        private Function<UseOverrideCommand, ApprovalRequest> nextUseResult = command -> approvalRequestFixture();
+        private Function<RevokeOverrideCommand, ApprovalRequest> nextRevokeResult = command -> approvalRequestFixture();
 
         @Override
         public ApprovalRequest cancel(CancelApprovalCommand command) {
             return nextCancelResult.apply(command);
+        }
+
+        @Override
+        public ApprovalRequest use(UseOverrideCommand command) {
+            return nextUseResult.apply(command);
+        }
+
+        @Override
+        public ApprovalRequest revoke(RevokeOverrideCommand command) {
+            return nextRevokeResult.apply(command);
         }
 
         void reset() {
@@ -277,6 +347,8 @@ class ApprovalControllerTest {
             nextGrantResult = command -> approvalRequestFixture();
             nextDenyResult = command -> approvalRequestFixture();
             nextCancelResult = command -> approvalRequestFixture();
+            nextUseResult = command -> approvalRequestFixture();
+            nextRevokeResult = command -> approvalRequestFixture();
         }
     }
 

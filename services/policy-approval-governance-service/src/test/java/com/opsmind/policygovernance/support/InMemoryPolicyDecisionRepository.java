@@ -3,6 +3,7 @@ package com.opsmind.policygovernance.support;
 import com.opsmind.policygovernance.application.port.PolicyDecisionRepository;
 import com.opsmind.policygovernance.domain.decision.PolicyDecision;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,5 +29,10 @@ public class InMemoryPolicyDecisionRepository implements PolicyDecisionRepositor
     @Override
     public Optional<PolicyDecision> findByDecisionKey(String decisionKey) {
         return Optional.ofNullable(idByDecisionKey.get(decisionKey)).map(byId::get);
+    }
+
+    @Override
+    public List<PolicyDecision> findEvaluationFailed() {
+        return byId.values().stream().filter(PolicyDecision::evaluationFailed).toList();
     }
 }

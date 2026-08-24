@@ -2,15 +2,69 @@ SPEC-PG-017:
   domain: 06-policy-approval-governance
   name: Sensitive Input And Audit Redaction
   cn_name: Sensitive Input 与 Audit Redaction
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-03-security-separation-of-duties
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Ensure sensitive input does not enter audit/API/logs, storing hashes and metadata by
+    default." Audited every candidate leak surface in this service against 11-security §Sensitive
+    Data / §Tamper-Resistant Audit before writing any code, rather than assuming a gap existed.
+
+    Already true by construction, confirmed not re-implemented: no domain type in this service
+    (PolicyDecision, ApprovalRequest, ApprovalDecision, GovernanceAuditRecord) has ever had a raw
+    request-payload field — PolicyDecision has only inputHash (a hash), never raw input, since the
+    SPEC-PG-002 schema baseline. Every API response DTO follows the same rule
+    (PolicyDecisionResponse/GovernanceAuditRecordResponse expose only inputHash/integrityHash, the
+    latter's own pre-existing javadoc already said "No raw-input field exists to leak"). Every
+    structured log call site in ApprovalService/PolicyDecisionService (re-read all four .log(...)
+    calls in this service, not assumed) carries only the 12-observability field list
+    (correlationId/approvalRequestId/sourceDomain/sourceRequestId/riskLevel/effect) — never reason
+    or any free-text/raw field. There is no audit-record delete endpoint anywhere in this service,
+    so "ordinary admins cannot delete audit records" has nothing to guard against.
+
+    The one real, previously-missing piece: 11-security §Tamper-Resistant Audit says "Audit record
+    should include hash chain or append-only marker" — SimpleAuditIntegrityAdapter has computed a
+    real per-record SHA-256 fingerprint since SPEC-PG-003, but no record was ever linked to the
+    one before it, so altering or deleting an older record would only make that one record's own
+    hash look wrong, not visibly break anything else. Added GovernanceAuditRecord#previousHash (new
+    migration V018 column, nullable — null only for the very first record this service ever
+    appends) and GovernanceAuditRepository#findMostRecentIntegrityHash (a new port method).
+    GovernanceAuditService#record now looks up the chain's current tail before building each new
+    record; SimpleAuditIntegrityAdapter folds previousHash into the hash computation itself (not
+    just carried as an inert field) so altering or deleting an earlier record breaks every later
+    link, not just that record's own fingerprint. GovernanceAuditRecordResponse now exposes
+    previousHash alongside integrityHash so an external auditor can verify the chain.
+
+    Honestly scoped: findMostRecentIntegrityHash is ordered by recordedAt, not a dedicated
+    sequence — a best-effort chain, not a strictly serialized one (two audit writes committing in
+    the same instant could theoretically link to the same predecessor). A fully gap-free chain
+    would need a DB sequence plus a locked chain-head row, serializing every governance write in
+    the service through one lock — a real throughput cost this spec's own acceptance criteria do
+    not require paying, and the port's own javadoc says so explicitly rather than silently
+    overclaiming a stronger guarantee than what's actually implemented.
+
+    New tests: GovernanceAuditServiceTest (new file — the service had no dedicated test class
+    before this spec) proves the first record has no previousHash and each subsequent record
+    chains to its predecessor's own integrityHash. A new
+    changesWhenThePreviousHashChanges case in SimpleAuditIntegrityAdapterTest proves previousHash
+    actually participates in the hash, not just a stored-but-unused field. A new
+    governanceAuditPreviousHashRoundTripsAndChainsThroughPostgres case in GovernancePersistenceIT
+    exercises the chain lookup against a real Postgres instance for migration V018.
+
+    Deliberately NOT touched: no new redaction/masking logic was added anywhere, because nothing
+    needed it — inventing a redaction layer over data that was never stored raw in the first place
+    would be solving a problem this codebase doesn't have.
+
+    129/129 unit tests pass (./mvnw test, up from 121 after SPEC-PG-015 — 8 new tests total,
+    shared with SPEC-PG-016 implemented in the same pass: 5 in ApprovalServiceTest for that spec's
+    own step-up gate, 2 in the new GovernanceAuditServiceTest, 1 in SimpleAuditIntegrityAdapterTest
+    for this spec's own chain). Full verification (./mvnw verify, Docker available) also passed:
+    146/146 total (129 unit + 4 GovernanceOutboxIT + 13 GovernancePersistenceIT Testcontainers
+    Postgres/RabbitMQ integration — the +2 GovernancePersistenceIT cases over the SPEC-PG-015
+    baseline are shared with SPEC-PG-016: this spec's own
+    governanceAuditPreviousHashRoundTripsAndChainsThroughPostgres plus that spec's own
+    approvalDecisionAuthenticityFieldsRoundTripThroughPostgres). BUILD SUCCESS.
   lld_mapping:
     - 11-security
     - 12-observability
@@ -23,4 +77,6 @@ SPEC-PG-017:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/GovernanceAuditServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/audit/SimpleAuditIntegrityAdapterTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "146 passed (./mvnw verify: 129 unit + 4 GovernanceOutboxIT + 13 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration; shared tally with SPEC-PG-016), BUILD SUCCESS"

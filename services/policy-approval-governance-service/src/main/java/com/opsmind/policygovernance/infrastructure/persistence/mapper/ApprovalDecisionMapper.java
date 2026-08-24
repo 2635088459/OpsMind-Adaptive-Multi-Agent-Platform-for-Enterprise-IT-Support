@@ -19,7 +19,8 @@ public final class ApprovalDecisionMapper {
         return new ApprovalDecisionJpaEntity(
             decision.approvalDecisionId(), decision.approvalRequestId(), decision.decision().name(), null,
             decision.decidedBy(), decision.reason(), JsonSupport.writeList(decision.conditions()),
-            decision.separationOfDutiesCheck(), decision.decidedAt(), decision.commandIdempotencyKey()
+            decision.separationOfDutiesCheck(), decision.decidedAt(), decision.commandIdempotencyKey(),
+            decision.sessionId(), decision.deviceId(), decision.stepUpVerified()
         );
     }
 
@@ -28,7 +29,8 @@ public final class ApprovalDecisionMapper {
             entity.getApprovalDecisionId(), entity.getApprovalRequestId(),
             ApprovalDecision.Outcome.valueOf(entity.getDecision()), entity.getDecidedById(), entity.getDecidedAt(),
             entity.getReason(), JsonSupport.readList(entity.getConditionsJson(), CONDITIONS_TYPE),
-            entity.isSeparationOfDutiesResult(), entity.getCommandIdempotencyKey()
+            entity.isSeparationOfDutiesResult(), entity.getCommandIdempotencyKey(),
+            entity.getSessionId(), entity.getDeviceId(), entity.isStepUpVerified()
         );
     }
 }

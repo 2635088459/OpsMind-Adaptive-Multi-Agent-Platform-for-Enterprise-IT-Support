@@ -54,13 +54,25 @@ public class ApprovalDecisionJpaEntity {
     @Column(name = "command_idempotency_key", nullable = false)
     private String commandIdempotencyKey;
 
+    /** SPEC-PG-016: nullable — 06 has no session store of its own; captured verbatim for the audit trail. */
+    @Column(name = "session_id")
+    private String sessionId;
+
+    /** SPEC-PG-016: nullable — see {@link #sessionId}. */
+    @Column(name = "device_id")
+    private String deviceId;
+
+    /** SPEC-PG-016: {@code false} unless the caller supplied a verified MFA/step-up marker. */
+    @Column(name = "step_up_verified", nullable = false)
+    private boolean stepUpVerified;
+
     protected ApprovalDecisionJpaEntity() {
     }
 
     public ApprovalDecisionJpaEntity(
         String approvalDecisionId, String approvalRequestId, String decision, String decidedByType,
         String decidedById, String reason, String conditionsJson, boolean separationOfDutiesResult, Instant decidedAt,
-        String commandIdempotencyKey
+        String commandIdempotencyKey, String sessionId, String deviceId, boolean stepUpVerified
     ) {
         this.approvalDecisionId = approvalDecisionId;
         this.approvalRequestId = approvalRequestId;
@@ -72,6 +84,9 @@ public class ApprovalDecisionJpaEntity {
         this.separationOfDutiesResult = separationOfDutiesResult;
         this.decidedAt = decidedAt;
         this.commandIdempotencyKey = commandIdempotencyKey;
+        this.sessionId = sessionId;
+        this.deviceId = deviceId;
+        this.stepUpVerified = stepUpVerified;
     }
 
     public String getApprovalDecisionId() {
@@ -112,5 +127,17 @@ public class ApprovalDecisionJpaEntity {
 
     public String getCommandIdempotencyKey() {
         return commandIdempotencyKey;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    public boolean isStepUpVerified() {
+        return stepUpVerified;
     }
 }

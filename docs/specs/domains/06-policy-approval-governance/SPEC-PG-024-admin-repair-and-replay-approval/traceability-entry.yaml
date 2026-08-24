@@ -1,16 +1,111 @@
 SPEC-PG-024:
   domain: 06-policy-approval-governance
   name: Admin Repair And Replay Approval
-  cn_name: Admin Repair 与 Replay Approval
-  status: planned
+  cn_name: Admin Repair And Replay Approval
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-05-override-and-exception-governance
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Provide approval entry points for admin actions such as outbox
+    replay, poison repair, and manual override." Closes Phase 05. Maps onto
+    10-failure-handling §Recovery's own three concrete, buildable items:
+    "outbox replay," "poison repair" (via its own "dead-letter state" —
+    08-transaction-and-outbox §Outbox), and "manual override."
+
+    OutboxDispatchService#publishPending has existed since SPEC-PG-003,
+    deliberately never wired to a @Scheduled trigger — its own javadoc names
+    "an admin endpoint or an external scheduler" as the intended seam, but
+    no such endpoint existed anywhere in the codebase. Added
+    OutboxAdminService (a new class, not added to OutboxDispatchService
+    itself: GovernanceAuditService already depends on OutboxDispatchService
+    to stage its own outbox row, so OutboxDispatchService depending back on
+    GovernanceAuditService to audit a requeue would be a circular bean
+    dependency — OutboxAdminService sits above both instead, the only shape
+    that lets requeue be audited without introducing one) and
+    OutboxAdminController with POST /api/v1/admin/outbox:dispatch ("outbox
+    replay," a thin pass-through to the existing publishPending()) and
+    POST /api/v1/admin/outbox/{outboxId}:requeue ("poison repair": resets a
+    dead-lettered FAILED row to PENDING with a fresh attempt budget —
+    attempt_count reset to 0, not a continuation of the exhausted one —
+    rejects a row that is not currently FAILED with
+    OutboxEventNotFailedException, since resetting an already-PUBLISHED row
+    would risk a duplicate publish of an event that already delivered, and
+    a still-PENDING row needs no repair). Added
+    OutboxEventRepository#findById/#requeue (no schema change: requeue only
+    updates the existing status/attempt_count/available_at columns) and a
+    new OUTBOX_EVENT_REQUEUED audit action (migration V023) — requeue writes
+    an audit record (sourceDomain="06", the same self-domain convention
+    PolicyAdminService already uses for internal admin actions with no
+    external source domain) since it is exactly the kind of "admin change"
+    01-domain-model's own description of GovernanceAudit names as one of the
+    fact categories it covers; the routine :dispatch replay call is
+    deliberately not separately audited, consistent with publishPending
+    never having audited individual publish attempts before this spec
+    either — auditing every routine drain call would be new, unasked-for
+    scope, not a real gap. Neither endpoint carries a @PreAuthorize scope,
+    mirroring ApprovalExpiryController's own established precedent for this
+    exact category of admin/scheduler-triggered maintenance endpoint
+    (baseline authenticated actor only, per SecurityConfig's
+    anyRequest().authenticated()).
+
+    "Manual override" needed no new code: SPEC-PG-022 already built the full
+    POLICY_OVERRIDE request/approve/deny/use/revoke lifecycle,
+    independent-approver-gated by ApprovalDecision's own structural
+    separationOfDutiesCheck requirement since SPEC-PG-001 — an admin
+    performing a repair calls the exact same POST /api/v1/approval-requests
+    any other requester does. 11-security's own separation-of-duties line
+    for this spec — "forbid ... admin repair initiator approving the
+    high-risk override directly" — was therefore already true generically
+    the moment SPEC-PG-001 first required a passed separation-of-duties
+    check for every APPROVED decision: whoever calls the request-creation
+    endpoint becomes requestedBy, and the pre-existing self-approval guard
+    (ApprovalService#decide) already rejects requestedBy == decidedBy for
+    every approval type, POLICY_OVERRIDE included. Confirmed with an
+    explicit test (theAdminWhoInitiatesAnOverrideRepairCannotApproveItThemselves),
+    not rebuilt — the same "already true generically, confirmed not
+    reimplemented" pattern SPEC-PG-018/019/022 each used for their own
+    already-general mechanisms.
+
+    Deliberately NOT built: repair mechanisms for 10-failure-handling's
+    other three named poison scenarios (same request repeatedly crashes
+    evaluator; approval payload does not match source linkage; policy rule
+    incompatible with schema) — none of them persists a genuinely "stuck"
+    row anywhere in the schema the way a dead-lettered outbox event does. An
+    evaluator crash already fails closed and returns EVALUATION_FAILED
+    without ever getting stuck (10-failure-handling §Policy Evaluation
+    Failure); a payload/source-linkage mismatch already throws
+    ApprovalRequestMismatchException and is never persisted in the first
+    place (INV-PG-005); an incompatible policy rule would fail at
+    draft/publish time, not leave a stuck row either. Inventing a repair
+    mechanism for a stuck state that does not exist anywhere in this
+    codebase would not be closing a real gap.
+
+    New tests: OutboxAdminServiceTest (6 cases — dispatchPendingDrainsDuePendingRows,
+    requeueResetsADeadLetteredRowToPendingWithAFreshAttemptBudget,
+    requeueWritesAnAuditRecord, requeueThrowsWhenTheOutboxEventDoesNotExist,
+    requeueThrowsWhenTheOutboxEventIsNotFailed,
+    requeueThrowsWhenTheOutboxEventIsAlreadyPublished);
+    OutboxAdminControllerTest (4 cases, previously zero MockMvc-level
+    coverage for either new endpoint, mirroring the same gap SPEC-PG-011/012/022
+    each closed for their own first-time controller endpoints);
+    ApprovalServiceTest gained the explicit admin-repair-initiator
+    self-approval confirmation; GovernancePersistenceIT gained 2 cases
+    (outboxEventFindByIdAndRequeueRoundTripThroughPostgres,
+    outboxEventFindByIdReturnsEmptyWhenNoSuchRowExists) round-tripping the
+    new repository methods through a real Postgres instance — this surfaced
+    and fixed one real bug: OutboxEventPersistenceAdapter#requeue's
+    @Modifying JPQL query needs its own @Transactional boundary when invoked
+    without one already open (unlike #append, which rides on
+    JpaRepository#save's own built-in transaction); OutboxAdminService#requeue
+    already provided one for production use, but the adapter should not
+    depend on every future caller remembering to.
+
+    183/183 unit tests pass (./mvnw test, up from 172 after SPEC-PG-023 — 11
+    new tests total). Full verification (./mvnw verify, Docker available)
+    also passed: 207/207 total (183 unit + 4 GovernanceOutboxIT + 20
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7.
   lld_mapping:
     - 02-business-invariants
     - 11-security
@@ -24,4 +119,6 @@ SPEC-PG-024:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/OutboxAdminServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/OutboxAdminControllerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "207 passed (./mvnw verify: 183 unit + 4 GovernanceOutboxIT + 20 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

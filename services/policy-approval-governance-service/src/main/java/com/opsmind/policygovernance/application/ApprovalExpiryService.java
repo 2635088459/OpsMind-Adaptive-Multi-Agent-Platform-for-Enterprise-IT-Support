@@ -29,6 +29,11 @@ import java.util.List;
  * boundary: no in-process scheduled loop anywhere in this codebase) — an
  * external scheduler (e.g. a Kubernetes CronJob) is expected to call that
  * endpoint on a fixed cadence.
+ *
+ * <p>SPEC-PG-029 (12-observability §Logs): {@link #expireDue} now logs a
+ * structured "approval expired" event per successfully-expired row — this
+ * class previously only logged the failure path ({@code log.warn} on a
+ * per-row exception), with no success-path structured log at all.
  */
 @Service
 public class ApprovalExpiryService {
@@ -70,9 +75,18 @@ public class ApprovalExpiryService {
                 auditService.record(
                     GovernanceAuditRecord.Action.APPROVAL_EXPIRED, "system", request.sourceDomain(),
                     request.sourceRequestId(), null, null, "approval request expired", request.approvalRequestId(), null,
+                    saved.ticketId(), saved.approvalRequestId(), saved.policyDecisionId(),
                     ApprovalExpiredEvent.from(saved, request.approvalRequestId(), null)
                 );
                 metrics.recordApprovalExpired();
+                log.atInfo()
+                    .addKeyValue("approvalRequestId", saved.approvalRequestId())
+                    .addKeyValue("sourceDomain", saved.sourceDomain())
+                    .addKeyValue("sourceRequestId", saved.sourceRequestId())
+                    .addKeyValue("ticketId", saved.ticketId())
+                    .addKeyValue("workflowInstanceId", saved.workflowInstanceId())
+                    .addKeyValue("riskLevel", saved.riskLevel())
+                    .log("approval expired");
                 expired.add(saved);
             } catch (RuntimeException e) {
                 log.warn(

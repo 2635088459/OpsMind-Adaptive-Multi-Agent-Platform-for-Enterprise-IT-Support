@@ -1,0 +1,27 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # SPEC-UA-004 (OIDC Provider Discovery And Configuration) owns the real
+          # discovery/rotation contract; this issuer-uri is only what Spring's
+          # standard OAuth2 resource server needs to validate iss/aud/sig/exp on
+          # every request per the 02-business-invariants mandatory design rule
+          # ("Validate issuer, audience, signature, expiry, token type"). Same
+          # local Keycloak realm every other OpsMind service targets.
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
+
+server:
+  port: ${SERVER_PORT:8087}
+
+management:
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+
+logging:
+  level:
+    com.opsmind.identity: DEBUG

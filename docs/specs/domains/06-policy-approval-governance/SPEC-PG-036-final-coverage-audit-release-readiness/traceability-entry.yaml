@@ -1,16 +1,54 @@
 SPEC-PG-036:
   domain: 06-policy-approval-governance
   name: Final Coverage Audit Release Readiness
-  cn_name: 最终覆盖审计与发布准备
-  status: planned
+  cn_name: Final Coverage Audit Release Readiness
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-09-final-verification-release
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Complete LLD/phase/spec/implementation coverage audit, release
+    checklist, and residual risk register." Closes Phase 09 and the entire
+    domain 06 implementation roadmap. Unlike every prior spec, this one adds
+    no production code — its own deliverable IS the audit document itself:
+    docs/specs/domains/06-policy-approval-governance/SPEC-PG-036-final-coverage-audit-release-readiness/coverage-audit-and-release-readiness.md.
+
+    That document covers four things. (1) A spec coverage audit: pulled the
+    status field directly from all 36 SPEC-PG-001 through SPEC-PG-036
+    traceability-entry.yaml files across all 9 phases — 36/36 show status:
+    implemented, none planned or partial. (2) An LLD chapter coverage audit:
+    cross-referenced every spec's own lld_mapping against every chapter
+    under docs/low-level-design/domains/06-policy-approval-governance/ —
+    all 14 chapters (01-domain-model through 14-testing-strategy) are each
+    mapped by at least one implemented spec, none unaddressed. (3) A
+    release checklist covering build/test/ArchUnit/migrations/RBAC-ABAC/
+    separation-of-duties/idempotency/audit-trail/recovery/cross-domain-
+    contract items, every item passing, no open blocking item. (4) A
+    residual risk register consolidating every deliberate, previously-
+    documented scope boundary found by grepping "deliberately" across every
+    spec's own traceability-entry.yaml — 9 items total (e.g. ABAC's
+    risk-level-only enforcement from SPEC-PG-014, the never-built evaluator
+    cache from SPEC-PG-033 since no cache exists anywhere in this codebase,
+    the custom OTel spans deliberately not built in SPEC-PG-029, the
+    DB-level append-only trigger deliberately not built in SPEC-PG-031, a
+    test-infrastructure note from SPEC-PG-035 about anonymous AMQP queue
+    reliability), each with why it's open and what would trigger closing
+    it in a future spec. No item in the register is a release blocker —
+    each reflects a boundary this domain's own specs and LLD chapters do
+    not currently ask this service to cross.
+
+    Final verification, re-run at the end of this spec's own work (no code
+    changes since SPEC-PG-035, since this spec is documentation-only):
+    302/302 unit tests pass (./mvnw test). Full verification (./mvnw
+    verify, Docker available) also passed: 349/349 total (302 unit + 3
+    PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT
+    + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT
+    + 4 GovernanceOutboxIT + 28 GovernancePersistenceIT + 2
+    ApprovalLifecycleE2EIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7. Flyway migrations
+    V001 through V026 apply cleanly end to end. No schema change, no new
+    Java source — this spec's only artifact is the audit document plus its
+    own README/traceability-entry.yaml updates.
   lld_mapping:
     - 14-testing-strategy
   forbidden:
@@ -22,4 +60,6 @@ SPEC-PG-036:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: "N/A — documentation-only spec; final unit suite re-confirmed at 302/302 (./mvnw test), unchanged from SPEC-PG-035"
+    integration: "N/A — documentation-only spec; final integration suite re-confirmed at 349/349 total (./mvnw verify), unchanged from SPEC-PG-035"
+    result: "349 passed (./mvnw verify: 302 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 28 GovernancePersistenceIT + 2 ApprovalLifecycleE2EIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS. Domain 06: 36/36 specs implemented, 14/14 LLD chapters covered."

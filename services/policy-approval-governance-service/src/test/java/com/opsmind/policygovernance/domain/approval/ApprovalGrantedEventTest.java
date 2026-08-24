@@ -27,7 +27,7 @@ class ApprovalGrantedEventTest {
         ApprovalRequest request = requested();
         ApprovalDecision decision = new ApprovalDecision(
             "ad-1", request.approvalRequestId(), ApprovalDecision.Outcome.APPROVED, "approver-1", Instant.now(),
-            "looks fine", List.of(new Constraint(Constraint.Type.TIME_WINDOW, "business-hours")), true, "cik-1"
+            "looks fine", List.of(new Constraint(Constraint.Type.TIME_WINDOW, "business-hours")), true, "cik-1", null, null, true
         );
 
         ApprovalGrantedEvent event = ApprovalGrantedEvent.from(request, decision, "corr-1", "cause-1");
@@ -57,7 +57,7 @@ class ApprovalGrantedEventTest {
         );
         ApprovalDecision decision = new ApprovalDecision(
             "ad-2", request.approvalRequestId(), ApprovalDecision.Outcome.APPROVED, "approver-1", Instant.now(),
-            "looks fine", List.of(), true, "cik-1"
+            "looks fine", List.of(), true, "cik-1", null, null, true
         );
 
         ApprovalGrantedEvent event = ApprovalGrantedEvent.from(request, decision, "corr-1", null);

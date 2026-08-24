@@ -122,6 +122,15 @@
             <version>${archunit.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- SPEC-PG-025: polls for asynchronous @RabbitListener delivery in
+             integration tests, the same way ticket-workflow-service's own
+             consumer ITs already do (version managed by the inherited
+             spring-boot-starter-parent BOM). -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

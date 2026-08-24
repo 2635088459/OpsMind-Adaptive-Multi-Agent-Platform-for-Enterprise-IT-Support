@@ -1,0 +1,21 @@
+SPEC-UA-033:
+  domain: 01-user-access-authentication
+  name: Session Revocation Reconciliation
+  cn_name: Session 撤销对账
+  status: planned
+  service: user-access-authentication-service
+  phase: phase-08-failure-recovery-degraded-mode
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
+  lld_mapping:
+    - 09-concurrency-and-idempotency
+    - 10-failure-handling
+  forbidden:
+    - credential_storage
+    - custom_oidc_or_mfa_protocol
+    - client_forged_role_headers
+    - direct_cross_domain_state_write
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    result: pending

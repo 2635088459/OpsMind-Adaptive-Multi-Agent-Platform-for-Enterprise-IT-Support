@@ -8,6 +8,11 @@ import com.opsmind.policygovernance.application.exception.ApprovalAlreadyDecided
 import com.opsmind.policygovernance.application.exception.ApprovalNotAuthorizedException;
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
 import com.opsmind.policygovernance.application.exception.DuplicateApprovalRequestException;
+import com.opsmind.policygovernance.application.exception.InvalidOverrideRequestException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyRevokedException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyUsedException;
+import com.opsmind.policygovernance.application.command.RevokeOverrideCommand;
+import com.opsmind.policygovernance.application.command.UseOverrideCommand;
 import com.opsmind.policygovernance.application.model.OutboxEventRecord;
 import com.opsmind.policygovernance.domain.approval.ApprovalCancelledEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
@@ -15,6 +20,8 @@ import com.opsmind.policygovernance.domain.approval.ApprovalRequestMismatchExcep
 import com.opsmind.policygovernance.domain.approval.ApprovalRequestedEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalStatus;
 import com.opsmind.policygovernance.domain.approval.ApprovalType;
+import com.opsmind.policygovernance.domain.approval.NotAnOverrideRequestException;
+import com.opsmind.policygovernance.domain.approval.OverrideExpiredException;
 import com.opsmind.policygovernance.domain.decision.RiskLevel;
 import com.opsmind.policygovernance.infrastructure.audit.SimpleAuditIntegrityAdapter;
 import com.opsmind.policygovernance.infrastructure.identity.JwtIdentityAuthorizationAdapter;
@@ -69,6 +76,46 @@ class ApprovalServiceTest {
             requestKey, "hash-1", "tool-gateway", "src-req-1", null, null, "tool-req-1", executorId, null,
             "requester-1", ApprovalType.TOOL_EXECUTION, RiskLevel.HIGH, List.of(), Instant.now().plusSeconds(3600), "corr-1", null
         );
+    }
+
+    /** SPEC-PG-016: every other fixture is RiskLevel.HIGH — this is the one call site that varies it, for the CRITICAL step-up gate. */
+    private RequestApprovalCommand requestCommandWithRiskLevel(String requestKey, RiskLevel riskLevel) {
+        return new RequestApprovalCommand(
+            requestKey, "hash-1", "tool-gateway", "src-req-1", null, null, "tool-req-1", null, null,
+            "requester-1", ApprovalType.TOOL_EXECUTION, riskLevel, List.of(), Instant.now().plusSeconds(3600), "corr-1", null
+        );
+    }
+
+    /**
+     * SPEC-PG-023 (06-event-contracts §{@code ticket.approval.required.v1}):
+     * a ticket-originated request for one of the three named exception
+     * sub-types. Unlike {@code POLICY_OVERRIDE}, none of these require
+     * expiresAt/constraints — nothing in this spec names that requirement
+     * for them, only for override (UC-PG-006).
+     */
+    private RequestApprovalCommand ticketExceptionRequestCommand(String requestKey, ApprovalType approvalType) {
+        return new RequestApprovalCommand(
+            requestKey, "hash-ticket", "ticket-workflow", "src-req-ticket", "ticket-1", null, null, null, null,
+            "requester-1", approvalType, RiskLevel.HIGH, List.of(), Instant.now().plusSeconds(3600), "corr-1", null
+        );
+    }
+
+    /** SPEC-PG-022: a valid POLICY_OVERRIDE request command — non-null expiresAt and a non-empty constraint list, both required by UC-PG-006. */
+    private RequestApprovalCommand overrideRequestCommand(String requestKey) {
+        return new RequestApprovalCommand(
+            requestKey, "hash-override", "tool-gateway", "src-req-override", null, null, null, null, null,
+            "requester-1", ApprovalType.POLICY_OVERRIDE, RiskLevel.CRITICAL,
+            List.of(new com.opsmind.policygovernance.domain.decision.Constraint(
+                com.opsmind.policygovernance.domain.decision.Constraint.Type.TIME_WINDOW, "read-only for 1 hour"
+            )),
+            Instant.now().plusSeconds(3600), "corr-1", null
+        );
+    }
+
+    /** Grants an override request via the same {@code approver-1} the rest of this test class already uses. */
+    private ApprovalRequest approvedOverride(ApprovalService service, String requestKey) {
+        ApprovalRequest requested = service.request(overrideRequestCommand(requestKey));
+        return service.grant(decideCommandWithAuthenticity(requested, "approver-1", "session-1", "device-1", true));
     }
 
     @Test
@@ -208,6 +255,66 @@ class ApprovalServiceTest {
     }
 
     /**
+     * SPEC-PG-016 (11-security §Approval Authenticity: "optional MFA/step-up
+     * marker"). A {@code CRITICAL}-risk grant without a verified step-up
+     * marker is rejected — the narrowest reading of the marker as a real
+     * security gate.
+     */
+    @Test
+    void criticalRiskGrantWithoutAVerifiedStepUpMarkerIsRejected() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommandWithRiskLevel("rk-critical-1", RiskLevel.CRITICAL));
+
+        assertThatThrownBy(() -> service.grant(decideCommandWithAuthenticity(request, "approver-1", null, null, false)))
+            .isInstanceOf(ApprovalNotAuthorizedException.class);
+    }
+
+    @Test
+    void criticalRiskGrantWithAVerifiedStepUpMarkerSucceeds() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommandWithRiskLevel("rk-critical-2", RiskLevel.CRITICAL));
+
+        ApprovalRequest granted = service.grant(decideCommandWithAuthenticity(request, "approver-1", "session-1", "device-1", true));
+
+        assertThat(granted.status()).isEqualTo(ApprovalStatus.APPROVED);
+    }
+
+    /** Denying withholds authority rather than granting it — a step-up marker is never required to deny. */
+    @Test
+    void criticalRiskDenialNeverRequiresAStepUpMarker() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommandWithRiskLevel("rk-critical-3", RiskLevel.CRITICAL));
+
+        ApprovalRequest denied = service.deny(decideCommandWithAuthenticity(request, "approver-1", null, null, false));
+
+        assertThat(denied.status()).isEqualTo(ApprovalStatus.DENIED);
+    }
+
+    /** Only CRITICAL risk is gated — 11-security names no broader threshold. */
+    @Test
+    void nonCriticalRiskGrantDoesNotRequireAStepUpMarker() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommandWithRiskLevel("rk-high-step-up", RiskLevel.HIGH));
+
+        ApprovalRequest granted = service.grant(decideCommandWithAuthenticity(request, "approver-1", null, null, false));
+
+        assertThat(granted.status()).isEqualTo(ApprovalStatus.APPROVED);
+    }
+
+    /** SPEC-PG-016: session/device metadata is recorded on the ApprovalDecision for the audit trail, not just accepted and discarded. */
+    @Test
+    void sessionAndDeviceMetadataArePersistedOnTheApprovalDecision() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommand("rk-session-device"));
+
+        service.grant(decideCommandWithAuthenticity(request, "approver-1", "session-42", "device-42", false));
+
+        var persisted = decisionRepository.findByApprovalRequestId(request.approvalRequestId()).orElseThrow();
+        assertThat(persisted.sessionId()).isEqualTo("session-42");
+        assertThat(persisted.deviceId()).isEqualTo("device-42");
+    }
+
+    /**
      * SPEC-PG-013: {@code grant()} must stage the real {@code
      * approval.granted.v1} event, not the generic {@code
      * governance.audit.approval_granted.v1} placeholder — mirroring {@link
@@ -227,6 +334,9 @@ class ApprovalServiceTest {
         assertThat(staged.aggregateType()).isEqualTo("ApprovalRequest");
         assertThat(staged.aggregateId()).isEqualTo(granted.approvalRequestId());
         assertThat(staged.payloadJson()).contains("\"approvalRequestId\":\"" + granted.approvalRequestId() + "\"");
+        // SPEC-PG-029: the command's own causationId ("cause-1" — decideCommand's fixture value)
+        // must reach the published event's envelope, not be silently dropped as null.
+        assertThat(staged.payloadJson()).contains("\"causationId\":\"cause-1\"");
     }
 
     /** SPEC-PG-013: same as above, for {@code deny()} and {@code approval.denied.v1}. */
@@ -252,7 +362,8 @@ class ApprovalServiceTest {
         ApprovalRequest request = service.request(requestCommand("rk-6"));
 
         DecideApprovalCommand mismatched = new DecideApprovalCommand(
-            request.approvalRequestId(), request.sourceRequestId(), "wrong-hash", "approver-1", "reason", List.of(), "corr-1", "cik-1"
+            request.approvalRequestId(), request.sourceRequestId(), "wrong-hash", "approver-1", "reason", List.of(), "corr-1", "cik-1",
+            null, null, false, null
         );
 
         assertThatThrownBy(() -> service.grant(mismatched)).isInstanceOf(ApprovalRequestMismatchException.class);
@@ -303,7 +414,7 @@ class ApprovalServiceTest {
 
         CancelApprovalCommand mismatched = new CancelApprovalCommand(
             request.approvalRequestId(), request.sourceRequestId(), "wrong-hash", "requester-1", "no longer needed",
-            "corr-1", "cik-1"
+            "corr-1", "cik-1", null
         );
 
         assertThatThrownBy(() -> service.cancel(mismatched)).isInstanceOf(ApprovalRequestMismatchException.class);
@@ -329,12 +440,14 @@ class ApprovalServiceTest {
         assertThat(staged.aggregateType()).isEqualTo("ApprovalRequest");
         assertThat(staged.aggregateId()).isEqualTo(cancelled.approvalRequestId());
         assertThat(staged.payloadJson()).contains("\"approvalRequestId\":\"" + cancelled.approvalRequestId() + "\"");
+        // SPEC-PG-029: cancelCommand's own fixture causationId ("cause-1") must reach the envelope.
+        assertThat(staged.payloadJson()).contains("\"causationId\":\"cause-1\"");
     }
 
     private CancelApprovalCommand cancelCommand(ApprovalRequest request, String commandIdempotencyKey) {
         return new CancelApprovalCommand(
             request.approvalRequestId(), request.sourceRequestId(), request.requestHash(), "requester-1",
-            "no longer needed", "corr-1", commandIdempotencyKey
+            "no longer needed", "corr-1", commandIdempotencyKey, "cause-1"
         );
     }
 
@@ -376,7 +489,7 @@ class ApprovalServiceTest {
 
         DecideApprovalCommand secondAttempt = new DecideApprovalCommand(
             request.approvalRequestId(), request.sourceRequestId(), request.requestHash(),
-            "approver-1", "reason", List.of(), "corr-1", "cik-second"
+            "approver-1", "reason", List.of(), "corr-1", "cik-second", null, null, false, null
         );
 
         assertThatThrownBy(() -> service.grant(secondAttempt)).isInstanceOf(ApprovalAlreadyDecidedException.class);
@@ -389,7 +502,283 @@ class ApprovalServiceTest {
     private DecideApprovalCommand decideCommand(ApprovalRequest request, String decidedBy, String commandIdempotencyKey) {
         return new DecideApprovalCommand(
             request.approvalRequestId(), request.sourceRequestId(), request.requestHash(), decidedBy, "reason", List.of(),
-            "corr-1", commandIdempotencyKey
+            "corr-1", commandIdempotencyKey, null, null, false, "cause-1"
+        );
+    }
+
+    /** SPEC-PG-016: same as {@link #decideCommand(ApprovalRequest, String)}, but with session/device/step-up metadata. */
+    private DecideApprovalCommand decideCommandWithAuthenticity(
+        ApprovalRequest request, String decidedBy, String sessionId, String deviceId, boolean stepUpVerified
+    ) {
+        return new DecideApprovalCommand(
+            request.approvalRequestId(), request.sourceRequestId(), request.requestHash(), decidedBy, "reason", List.of(),
+            "corr-1", "cik-1", sessionId, deviceId, stepUpVerified, "cause-1"
+        );
+    }
+
+    /**
+     * SPEC-PG-023 (06-event-contracts §{@code ticket.approval.required.v1}):
+     * an SLA-exception approval flows through the exact same request/grant
+     * machinery every other approval type already uses — no new endpoint,
+     * no new state machine, only a distinct classification.
+     */
+    @Test
+    void aTicketSlaExceptionRequestCanBeRequestedAndGranted() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest requested = service.request(ticketExceptionRequestCommand("rk-ticket-sla", ApprovalType.TICKET_SLA_EXCEPTION));
+        assertThat(requested.approvalType()).isEqualTo(ApprovalType.TICKET_SLA_EXCEPTION);
+
+        ApprovalRequest granted = service.grant(decideCommand(requested, "approver-1"));
+
+        assertThat(granted.status()).isEqualTo(ApprovalStatus.APPROVED);
+        assertThat(granted.approvalType()).isEqualTo(ApprovalType.TICKET_SLA_EXCEPTION);
+    }
+
+    /** SPEC-PG-023: same as {@link #aTicketSlaExceptionRequestCanBeRequestedAndGranted}, for TICKET_CLOSURE_OVERRIDE. */
+    @Test
+    void aTicketClosureOverrideRequestCanBeRequestedAndGranted() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest requested = service.request(ticketExceptionRequestCommand("rk-ticket-closure", ApprovalType.TICKET_CLOSURE_OVERRIDE));
+
+        ApprovalRequest granted = service.grant(decideCommand(requested, "approver-1"));
+
+        assertThat(granted.status()).isEqualTo(ApprovalStatus.APPROVED);
+        assertThat(granted.approvalType()).isEqualTo(ApprovalType.TICKET_CLOSURE_OVERRIDE);
+    }
+
+    /** SPEC-PG-023: same as {@link #aTicketSlaExceptionRequestCanBeRequestedAndGranted}, for TICKET_ESCALATION_EXCEPTION. */
+    @Test
+    void aTicketEscalationExceptionRequestCanBeRequestedAndDenied() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest requested = service.request(ticketExceptionRequestCommand("rk-ticket-escalation", ApprovalType.TICKET_ESCALATION_EXCEPTION));
+
+        ApprovalRequest denied = service.deny(decideCommand(requested, "approver-1"));
+
+        assertThat(denied.status()).isEqualTo(ApprovalStatus.DENIED);
+        assertThat(denied.approvalType()).isEqualTo(ApprovalType.TICKET_ESCALATION_EXCEPTION);
+    }
+
+    /** None of the three ticket exception types are POLICY_OVERRIDE — use()/revoke() must still reject them, the same as any ordinary approval type. */
+    @Test
+    void ticketExceptionTypesAreNotOverridesAndCannotBeUsedOrRevoked() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest requested = service.request(ticketExceptionRequestCommand("rk-ticket-not-override", ApprovalType.TICKET_SLA_EXCEPTION));
+        ApprovalRequest granted = service.grant(decideCommand(requested, "approver-1"));
+
+        assertThatThrownBy(() -> service.use(useCommand(granted, "use-cik-1")))
+            .isInstanceOf(NotAnOverrideRequestException.class);
+    }
+
+    /**
+     * SPEC-PG-024 (11-security §Separation Of Duties: "forbid ... admin
+     * repair initiator approving the high-risk override directly"). Whoever
+     * calls {@code POST /api/v1/approval-requests} to initiate a
+     * POLICY_OVERRIDE (an admin performing a repair, same as any other
+     * requester) becomes its {@code requestedBy} — the pre-existing generic
+     * self-approval guard {@link #requesterCannotApproveTheirOwnRequest}
+     * already covers every approval type, so this rule was already true by
+     * construction; this test only confirms it explicitly for the override
+     * path this spec's own text names.
+     */
+    @Test
+    void theAdminWhoInitiatesAnOverrideRepairCannotApproveItThemselves() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        RequestApprovalCommand initiatedByAdmin = new RequestApprovalCommand(
+            "rk-override-repair", "hash-override-repair", "governance-admin", "src-req-repair", null, null, null, null, null,
+            "admin-1", ApprovalType.POLICY_OVERRIDE, RiskLevel.CRITICAL,
+            List.of(new com.opsmind.policygovernance.domain.decision.Constraint(
+                com.opsmind.policygovernance.domain.decision.Constraint.Type.TIME_WINDOW, "emergency repair window"
+            )),
+            Instant.now().plusSeconds(3600), "corr-1", null
+        );
+        ApprovalRequest requested = service.request(initiatedByAdmin);
+
+        assertThatThrownBy(() -> service.grant(decideCommand(requested, "admin-1")))
+            .isInstanceOf(com.opsmind.policygovernance.application.exception.ApprovalNotAuthorizedException.class);
+    }
+
+    /** SPEC-PG-022 (UC-PG-006): a POLICY_OVERRIDE request without expiresAt is rejected at creation, not silently accepted. */
+    @Test
+    void requestingAnOverrideWithoutExpiresAtIsRejected() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        RequestApprovalCommand withoutExpiry = new RequestApprovalCommand(
+            "rk-override-no-expiry", "hash-override", "tool-gateway", "src-req-override", null, null, null, null, null,
+            "requester-1", ApprovalType.POLICY_OVERRIDE, RiskLevel.CRITICAL,
+            List.of(new com.opsmind.policygovernance.domain.decision.Constraint(
+                com.opsmind.policygovernance.domain.decision.Constraint.Type.TIME_WINDOW, "read-only for 1 hour"
+            )),
+            null, "corr-1", null
+        );
+
+        assertThatThrownBy(() -> service.request(withoutExpiry)).isInstanceOf(InvalidOverrideRequestException.class);
+    }
+
+    /** SPEC-PG-022 (UC-PG-006): a POLICY_OVERRIDE request without any constraint (its scope) is rejected at creation. */
+    @Test
+    void requestingAnOverrideWithoutAScopeConstraintIsRejected() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        RequestApprovalCommand withoutScope = new RequestApprovalCommand(
+            "rk-override-no-scope", "hash-override", "tool-gateway", "src-req-override", null, null, null, null, null,
+            "requester-1", ApprovalType.POLICY_OVERRIDE, RiskLevel.CRITICAL, List.of(),
+            Instant.now().plusSeconds(3600), "corr-1", null
+        );
+
+        assertThatThrownBy(() -> service.request(withoutScope)).isInstanceOf(InvalidOverrideRequestException.class);
+    }
+
+    /** A non-override request never needs expiresAt/constraints — the override-only validation must not leak onto other approval types. */
+    @Test
+    void nonOverrideRequestsAreUnaffectedByTheOverrideValidation() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+
+        ApprovalRequest saved = service.request(requestCommand("rk-not-an-override"));
+
+        assertThat(saved.status()).isEqualTo(ApprovalStatus.REQUESTED);
+    }
+
+    /** SPEC-PG-022: use() transitions an approved override to USED and writes the OVERRIDE_APPLIED audit fact. */
+    @Test
+    void useTransitionsAnApprovedOverrideToUsed() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-use");
+
+        ApprovalRequest used = service.use(useCommand(approved, "use-cik-1"));
+
+        assertThat(used.status()).isEqualTo(ApprovalStatus.USED);
+    }
+
+    /** Mirrors {@link #retryingTheIdenticalCancelIsIdempotent}: a retried use command with the same key must not throw. */
+    @Test
+    void retryingTheIdenticalUseIsIdempotent() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-use-retry");
+        UseOverrideCommand command = useCommand(approved, "use-cik-1");
+
+        ApprovalRequest first = service.use(command);
+        ApprovalRequest second = service.use(command);
+
+        assertThat(second.status()).isEqualTo(ApprovalStatus.USED);
+        assertThat(second.approvalRequestId()).isEqualTo(first.approvalRequestId());
+    }
+
+    /** Mirrors {@link #aDifferentCancelAttemptAfterAFinalCancelIsAConflict}. */
+    @Test
+    void aDifferentUseAttemptAfterAnAlreadyUsedOverrideIsAConflict() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-use-conflict");
+        service.use(useCommand(approved, "use-cik-first"));
+
+        assertThatThrownBy(() -> service.use(useCommand(approved, "use-cik-second")))
+            .isInstanceOf(OverrideAlreadyUsedException.class);
+    }
+
+    /** use() is rejected outright for a non-POLICY_OVERRIDE approval type — no OVERRIDE_USED continuation exists for it. */
+    @Test
+    void useIsRejectedForANonOverrideApprovalType() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommand("rk-not-an-override-use"));
+        ApprovalRequest granted = service.grant(decideCommand(request, "approver-1"));
+
+        assertThatThrownBy(() -> service.use(useCommand(granted, "use-cik-1")))
+            .isInstanceOf(NotAnOverrideRequestException.class);
+    }
+
+    /** UC-PG-006: use() enforces the override's own time window, not just its scope. */
+    @Test
+    void useIsRejectedOncePastTheOverrideExpiresAt() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        RequestApprovalCommand alreadyLapsed = new RequestApprovalCommand(
+            "rk-override-lapsed", "hash-override", "tool-gateway", "src-req-override", null, null, null, null, null,
+            "requester-1", ApprovalType.POLICY_OVERRIDE, RiskLevel.CRITICAL,
+            List.of(new com.opsmind.policygovernance.domain.decision.Constraint(
+                com.opsmind.policygovernance.domain.decision.Constraint.Type.TIME_WINDOW, "read-only for 1 hour"
+            )),
+            Instant.now().plusSeconds(1), "corr-1", null
+        );
+        ApprovalRequest requested = service.request(alreadyLapsed);
+        ApprovalRequest approved = service.grant(decideCommandWithAuthenticity(requested, "approver-1", "session-1", "device-1", true));
+
+        ApprovalService lateService = new ApprovalService(
+            requestRepository, decisionRepository, new FakeIdentityAuthorizationPort(), new NoOpApprovalNotificationAdapter(),
+            auditService, new NoOpGovernanceMetrics(), Clock.fixed(Instant.now().plusSeconds(3600), ZoneOffset.UTC)
+        );
+
+        assertThatThrownBy(() -> lateService.use(useCommand(approved, "use-cik-1")))
+            .isInstanceOf(OverrideExpiredException.class);
+    }
+
+    /** SPEC-PG-022: revoke() transitions an approved override to REVOKED and writes the OVERRIDE_REVOKED audit fact. */
+    @Test
+    void revokeTransitionsAnApprovedOverrideToRevoked() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-revoke");
+
+        ApprovalRequest revoked = service.revoke(revokeCommand(approved, "revoke-cik-1"));
+
+        assertThat(revoked.status()).isEqualTo(ApprovalStatus.REVOKED);
+    }
+
+    /** Mirrors {@link #retryingTheIdenticalUseIsIdempotent}. */
+    @Test
+    void retryingTheIdenticalRevokeIsIdempotent() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-revoke-retry");
+        RevokeOverrideCommand command = revokeCommand(approved, "revoke-cik-1");
+
+        ApprovalRequest first = service.revoke(command);
+        ApprovalRequest second = service.revoke(command);
+
+        assertThat(second.status()).isEqualTo(ApprovalStatus.REVOKED);
+        assertThat(second.approvalRequestId()).isEqualTo(first.approvalRequestId());
+    }
+
+    /** Mirrors {@link #aDifferentUseAttemptAfterAnAlreadyUsedOverrideIsAConflict}. */
+    @Test
+    void aDifferentRevokeAttemptAfterAnAlreadyRevokedOverrideIsAConflict() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-revoke-conflict");
+        service.revoke(revokeCommand(approved, "revoke-cik-first"));
+
+        assertThatThrownBy(() -> service.revoke(revokeCommand(approved, "revoke-cik-second")))
+            .isInstanceOf(OverrideAlreadyRevokedException.class);
+    }
+
+    /** revoke() is rejected outright for a non-POLICY_OVERRIDE approval type, mirroring {@link #useIsRejectedForANonOverrideApprovalType}. */
+    @Test
+    void revokeIsRejectedForANonOverrideApprovalType() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest request = service.request(requestCommand("rk-not-an-override-revoke"));
+        ApprovalRequest granted = service.grant(decideCommand(request, "approver-1"));
+
+        assertThatThrownBy(() -> service.revoke(revokeCommand(granted, "revoke-cik-1")))
+            .isInstanceOf(NotAnOverrideRequestException.class);
+    }
+
+    /** INV-PG-005: use/revoke re-validate request linkage the same way grant/deny/cancel do. */
+    @Test
+    void usingWithAMismatchedRequestHashIsRejected() {
+        ApprovalService service = serviceWith(new FakeIdentityAuthorizationPort());
+        ApprovalRequest approved = approvedOverride(service, "rk-override-use-mismatch");
+
+        UseOverrideCommand mismatched = new UseOverrideCommand(
+            approved.approvalRequestId(), approved.sourceRequestId(), "wrong-hash", "user-1", "exercising the override",
+            "corr-1", "use-cik-1", null
+        );
+
+        assertThatThrownBy(() -> service.use(mismatched)).isInstanceOf(ApprovalRequestMismatchException.class);
+    }
+
+    private UseOverrideCommand useCommand(ApprovalRequest request, String commandIdempotencyKey) {
+        return new UseOverrideCommand(
+            request.approvalRequestId(), request.sourceRequestId(), request.requestHash(), "user-1",
+            "exercising the override", "corr-1", commandIdempotencyKey, "cause-1"
+        );
+    }
+
+    private RevokeOverrideCommand revokeCommand(ApprovalRequest request, String commandIdempotencyKey) {
+        return new RevokeOverrideCommand(
+            request.approvalRequestId(), request.sourceRequestId(), request.requestHash(), "governance-1",
+            "circumstances changed", "corr-1", commandIdempotencyKey, "cause-1"
         );
     }
 }

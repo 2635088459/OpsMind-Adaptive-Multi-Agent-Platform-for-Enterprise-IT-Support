@@ -34,7 +34,7 @@ public class PolicyDecisionController {
     public ResponseEntity<PolicyDecisionResponse> evaluate(@Valid @RequestBody EvaluateDecisionRequest request, HttpServletRequest httpRequest) {
         EvaluateDecisionCommand command = new EvaluateDecisionCommand(
             request.decisionKey(), request.inputHash(), request.subjectType(), request.subjectId(),
-            request.actionType(), request.resourceType(), request.resourceId(), request.tenantId(),
+            request.actionType(), request.readOnly(), request.resourceType(), request.resourceId(), request.tenantId(),
             request.sourceDomain(), request.sourceRequestId(), request.ticketId(), request.workflowInstanceId(),
             request.policyId(), GovernanceRequestContext.correlationId(httpRequest), GovernanceRequestContext.causationId(httpRequest)
         );

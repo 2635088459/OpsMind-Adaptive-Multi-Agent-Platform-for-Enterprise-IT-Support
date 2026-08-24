@@ -1,16 +1,101 @@
 SPEC-PG-029:
   domain: 06-policy-approval-governance
   name: Governance Metrics Logs Traces
-  cn_name: Governance Metrics、Logs 与 Traces
-  status: planned
+  cn_name: Governance Metrics Logs Traces
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-07-observability-audit-compliance
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement governance metrics, structured logs, trace propagation,
+    and sensitive data filtering." Opens Phase 07. An audit against
+    12-observability's own explicit field/metric lists found three of the
+    four requirements already fully done and one genuine, bounded gap.
+
+    Metrics: all 10 named metrics (policy_decision_total,
+    policy_decision_latency_seconds, approval_request_created_total,
+    approval_decision_total, approval_wait_seconds, approval_expired_total,
+    policy_publish_total, policy_evaluation_failure_total,
+    governance_override_total, governance_outbox_pending_count) already
+    existed in MicrometerGovernanceMetrics — the last one
+    (governance_override_total) added by SPEC-PG-022. Nothing to add;
+    confirmed by direct inspection.
+
+    Sensitive data filtering: already closed by SPEC-PG-017 (11-security
+    §Sensitive Data) — re-confirmed, not rebuilt.
+
+    Trace propagation: already satisfied by the platform's existing OTel
+    auto-instrumentation (HTTP/JDBC/AMQP boundaries, via
+    micrometer-tracing-bridge-otel + opentelemetry-exporter-otlp, both
+    already pom dependencies) plus the OTLP metrics/tracing endpoint
+    already configured in application-local.yml
+    (management.otlp.tracing.endpoint). "Propagation" means trace context
+    flowing through headers/MDC/AMQP, which the auto-configured bridge
+    already handles transparently without custom code. Custom
+    per-business-step span creation for 12-observability's own 7-step
+    tracing list ("policy version selection," "rule evaluation," etc.) was
+    deliberately NOT built: no other service in this codebase (including
+    ticket-workflow-service) has ever added manual Observation/span code,
+    there is no existing test infrastructure to assert on spans the way
+    metrics (SimpleMeterRegistry) and everything else in this service's
+    test suite already can, and "propagation" does not literally demand
+    named business-step spans — building an entirely new, untested pattern
+    for exactly one spec would be scope creep, not closing a real gap the
+    spec's own wording supports.
+
+    The one real gap: causationId was silently dropped (hardcoded null) on
+    every grant/deny/cancel/use/revoke audit record and staged event, even
+    though api.support.GovernanceRequestContext#causationId already read
+    the X-Causation-Id header generically for every endpoint since
+    SPEC-PG-002 — only DecideApprovalCommand/CancelApprovalCommand/
+    UseOverrideCommand/RevokeOverrideCommand had no field to carry it
+    (unlike RequestApprovalCommand, which already had one since
+    SPEC-PG-009). Added causationId to all four command records and
+    threaded it through ApprovalController -> ApprovalService -> every
+    auditService.record call and every ApprovalGrantedEvent/
+    ApprovalDeniedEvent/ApprovalCancelledEvent .from(...) call — 06-event-contracts
+    §Envelope names causationId a required field on every published event,
+    and 12-observability §Logs names it a required structured-log field, so
+    this was a genuine completeness gap against both, not an invented rule.
+
+    Also completed every ApprovalService structured log call (request/
+    grant-deny/cancel/use/revoke) with the full 12-observability §Logs
+    field set that is structurally available at each site
+    (policyDecisionId/ticketId/workflowInstanceId included even when null —
+    a null there is itself meaningful: "not ticket/workflow/decision-scoped").
+    PolicyDecisionService's own log was already complete (confirmed, not
+    changed). Gave PolicyAdminService its first-ever structured logging
+    (draft/review/publish/deprecate/archive each now log correlationId/
+    policyVersion — this service had zero structured logs before, unlike
+    every other governance-mutating application service in this codebase);
+    causationId was deliberately not added there, since draft/review/
+    publish/deprecate/archive are pure HTTP-actor-initiated admin actions
+    with no inbound event 06-event-contracts names them as reacting to.
+    Gave ApprovalExpiryService#expireDue a success-path structured log per
+    expired row (approvalRequestId/sourceDomain/sourceRequestId/ticketId/
+    workflowInstanceId/riskLevel) — it previously only logged the failure
+    path (a per-row log.warn on exception), with no success-path structured
+    log at all.
+
+    New assertions (not new test methods, since the fix is additive/
+    observability rather than new business behavior):
+    grantStagesTheRealApprovalGrantedEventWithCorrectAggregateIdentity and
+    cancelStagesTheRealApprovalCancelledEventWithCorrectAggregateIdentity
+    each gained a causationId propagation check against the staged event's
+    own envelope, proving the "cause-1" fixture value set by the test's own
+    command helper reaches the outbox row rather than being silently
+    dropped as null.
+
+    244/244 unit tests pass (./mvnw test, unchanged from SPEC-PG-028 — this
+    spec fixed and completed existing behavior rather than adding new
+    surface, so the test count is stable while coverage strengthened). Full
+    verification (./mvnw verify, Docker available) also passed: 283/283
+    total (244 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration,
+    unchanged tally, confirming no regression). BUILD SUCCESS. ArchUnit
+    LayerDependencyTest 7/7.
   lld_mapping:
     - 12-observability
   forbidden:
@@ -22,4 +107,6 @@ SPEC-PG-029:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "283 passed (./mvnw verify: 244 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

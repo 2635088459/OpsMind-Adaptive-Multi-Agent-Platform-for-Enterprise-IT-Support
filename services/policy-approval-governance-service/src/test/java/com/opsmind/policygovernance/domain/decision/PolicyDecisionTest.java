@@ -18,7 +18,7 @@ class PolicyDecisionTest {
             "pd-1", "decision-key-1", "hash-1", "user", "user-1", "READ",
             "ticket", "ticket-1", "tenant-1", "tool-gateway", "src-req-1", "ticket-1", null,
             DecisionEffect.ALLOW, RiskLevel.LOW,
-            false, false, List.of(), reasonCodes, "policy-1", "3", Instant.now(), null
+            false, false, List.of(), reasonCodes, "policy-1", "3", Instant.now(), null, false
         );
     }
 

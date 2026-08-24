@@ -1,16 +1,113 @@
 SPEC-PG-025:
   domain: 06-policy-approval-governance
   name: 05 Tool Gateway Policy Approval Contract
-  cn_name: 05 Tool Gateway Policy/Approval Contract
-  status: planned
+  cn_name: 05 Tool Gateway Policy Approval Contract
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-06-cross-domain-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Freeze 05 risk decision API, tool.approval.required, approval
+    granted/denied contracts." Opens Phase 06. The first spec in this
+    service to build a real inbound event consumer.
+
+    approval.granted.v1/approval.denied.v1 and the risk decision API
+    (POST /api/v1/decisions:evaluate) already existed since SPEC-PG-006/011/013
+    and needed no change. tool.approval.required.v1 was the one real gap:
+    RabbitConfig's own comment had named it, alongside
+    workflow.approval.required.v1/ticket.approval.required.v1/
+    policy.evaluation.requested.v1, as wired by "the future specs that
+    build each concrete request-creation use case" since SPEC-PG-002, and
+    processed_events (06-event-contracts §Idempotency: "every consumer
+    deduplicates by eventId + consumerName") had existed as schema-only
+    since the SPEC-PG-002/003 baseline with zero application-layer wiring —
+    no port, no adapter, nothing ever wrote to it. Every phase-05 spec's own
+    test-plan had already deferred "risk/approval event shape with 05 Tool
+    Gateway" to a separate Contract Tests section, and phase-06 is literally
+    named "Cross Domain Contracts" — confirming this is where the actual
+    wire-level consumer belongs, not phase-05.
+
+    Added, mirroring ticket-workflow-service's own consumer architecture at
+    a proportionate scale (a single event type on one queue, not that
+    codebase's richer multi-event-type dispatcher/retry-interceptor
+    machinery, since nothing in 06's own LLD asks for one):
+
+    - RabbitConfig now also declares the inbound
+      policy-approval-governance.tool-approval-events.v1 queue with its own
+      DLQ (x-dead-letter-exchange/x-dead-letter-routing-key,
+      defaultRequeueRejected(false) — 10-failure-handling §Poison Decision:
+      "approval payload does not match source linkage" belongs in a DLQ,
+      not an infinite requeue loop).
+    - ToolApprovalRequiredEventConsumer (@RabbitListener) parses the
+      envelope, validates eventType, and maps to a RequestApprovalCommand
+      via the new, pure/unit-testable ToolApprovalRequiredEventMapper.
+      Field derivation: requestKey/sourceRequestId/toolRequestId =
+      payload.toolRequestId (one approval request per tool request);
+      requestHash = payload.inputHash (the payload's own hash of the thing
+      being approved); sourceDomain/requestedBy = envelope.producer (no
+      human actor is named on this event, and 06 must not fabricate one —
+      INV-PG-001); causationId = envelope.eventId (this consumed event
+      causes the resulting approval.requested.v1). expiresAt/constraints
+      are optional — nothing names an expiry/scope requirement for
+      TOOL_EXECUTION the way UC-PG-006 does for POLICY_OVERRIDE.
+    - ProcessedEventRepository (new port) + ProcessedEventPersistenceAdapter
+      give processed_events its first real caller: markProcessedIfNew
+      relies on the existing uq_processed_events_event_consumer database
+      constraint rather than a check-then-insert, the same
+      conflict-detection pattern every other unique constraint in this
+      service already relies on. No new migration was needed — the table
+      has existed since SPEC-PG-002.
+    - New ConsumedEventDeduplicationService is a small, reusable seam every
+      future inbound consumer (phase-06's remaining SPEC-PG-026/027/028)
+      can share rather than each hand-rolling its own dedup check.
+    - ToolApprovalRequiredEventHandler is the use-case: dedup, then the
+      exact same ApprovalService#request every synchronous
+      POST /api/v1/approval-requests caller already uses. A redelivered
+      message (same eventId) is a silent no-op — 06-event-contracts asks
+      only that reprocessing not create a second governance fact, not for
+      an error signal back to the broker. A genuinely different event for
+      the same toolRequestId still lands safely on ApprovalService#request's
+      own pre-existing requestKey idempotency, rather than conflicting.
+
+    One real bug surfaced and fixed along the way, caught only by the real
+    Postgres integration test (GovernancePersistenceIT), not by any
+    in-memory unit test: ProcessedEventPersistenceAdapter's original
+    @Transactional method caught its own DataIntegrityViolationException
+    internally, but a JPA flush failure leaves the transaction that
+    experienced it unable to commit even once caught (a JPA/Hibernate rule,
+    not a Spring one) — this surfaced as UnexpectedRollbackException on
+    every conflicting insert, not the expected "false" return. Fixed by
+    giving the actual insert its own REQUIRES_NEW transaction directly on
+    the repository interface (SpringDataProcessedEventJpaRepository#insertIsolated)
+    and moving the catch to the (now non-@Transactional) adapter method, so
+    a conflict dooms only that isolated transaction, never an ambient one
+    (the caller's, e.g. ConsumedEventDeduplicationService#ifNew's own
+    @Transactional boundary).
+
+    New tests: ToolApprovalRequiredEventMapperTest (6 cases, pure mapping,
+    no Spring); ConsumedEventDeduplicationServiceTest (3 cases);
+    ToolApprovalRequiredEventHandlerTest (3 cases);
+    ToolApprovalRequiredEventConsumerTest (4 cases, JSON parsing/validation,
+    no Spring or broker); ToolApprovalRequiredConsumerIT (3 cases — the
+    first integration test in this service exercising a real inbound
+    @RabbitListener end to end against Testcontainers RabbitMQ:
+    consume-and-create, redelivery dedup, and malformed-message
+    dead-lettering); GovernancePersistenceIT gained 2 cases round-tripping
+    ProcessedEventRepository#markProcessedIfNew through a real Postgres
+    instance. Added the org.awaitility test dependency (version managed by
+    the inherited spring-boot-starter-parent BOM, matching
+    ticket-workflow-service's own unversioned declaration) to poll for
+    asynchronous @RabbitListener delivery in ToolApprovalRequiredConsumerIT.
+
+    199/199 unit tests pass (./mvnw test, up from 183 after SPEC-PG-024 —
+    16 new tests total). Full verification (./mvnw verify, Docker
+    available) also passed: 228/228 total (199 unit + 3
+    ToolApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7 (the new
+    infrastructure.messaging.consumer/contract/mapper packages and the new
+    application.ConsumedEventDeduplicationService/ToolApprovalRequiredEventHandler
+    all respect the existing domain/application/infrastructure boundaries).
   lld_mapping:
     - 06-event-contracts
     - 05-api-contracts
@@ -24,4 +121,6 @@ SPEC-PG-025:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/mapper/ToolApprovalRequiredEventMapperTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ConsumedEventDeduplicationServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ToolApprovalRequiredEventHandlerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/ToolApprovalRequiredEventConsumerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/ToolApprovalRequiredConsumerIT.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "228 passed (./mvnw verify: 199 unit + 3 ToolApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

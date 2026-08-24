@@ -59,4 +59,45 @@ class GovernanceAuditControllerSecurityTest {
                     .authorities(new SimpleGrantedAuthority("SCOPE_governance:audit:read"))))
             .andExpect(status().isOk());
     }
+
+    /** SPEC-PG-030 (goal: "queries by ticket/source/decision/approval/policy"): each new dimension is reachable through the same authorized endpoint. */
+    @Test
+    void allowsQueryingByEachOfTheFiveNewLinkageDimensions() throws Exception {
+        when(governanceAuditService.findByTicketId("ticket-1")).thenReturn(List.of());
+        when(governanceAuditService.findByApprovalRequestId("ar-1")).thenReturn(List.of());
+        when(governanceAuditService.findByPolicyDecisionId("pd-1")).thenReturn(List.of());
+        when(governanceAuditService.findBySourceRequestId("src-1")).thenReturn(List.of());
+        when(governanceAuditService.findByPolicyId("policy-1")).thenReturn(List.of());
+
+        for (String[] param : new String[][]{
+            {"ticketId", "ticket-1"}, {"approvalRequestId", "ar-1"}, {"policyDecisionId", "pd-1"},
+            {"sourceRequestId", "src-1"}, {"policyId", "policy-1"}
+        }) {
+            mockMvc.perform(get("/api/v1/governance-audit-records")
+                    .param(param[0], param[1])
+                    .with(jwt().jwt(jwt -> jwt.claim("sub", "actor-1"))
+                        .authorities(new SimpleGrantedAuthority("SCOPE_governance:audit:read"))))
+                .andExpect(status().isOk());
+        }
+    }
+
+    /** SPEC-PG-030: zero filters is a request-shape problem ({@code RequestValidationException} -&gt; {@code 400}), not a business failure. */
+    @Test
+    void rejectsAnAuditQueryWithNoFilterAtAll() throws Exception {
+        mockMvc.perform(get("/api/v1/governance-audit-records")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "actor-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_governance:audit:read"))))
+            .andExpect(status().isBadRequest());
+    }
+
+    /** SPEC-PG-030: more than one filter at once is equally a request-shape problem — this endpoint answers one dimension at a time, not a compound filter. */
+    @Test
+    void rejectsAnAuditQueryWithMoreThanOneFilterAtOnce() throws Exception {
+        mockMvc.perform(get("/api/v1/governance-audit-records")
+                .param("correlationId", "corr-1")
+                .param("ticketId", "ticket-1")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "actor-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_governance:audit:read"))))
+            .andExpect(status().isBadRequest());
+    }
 }

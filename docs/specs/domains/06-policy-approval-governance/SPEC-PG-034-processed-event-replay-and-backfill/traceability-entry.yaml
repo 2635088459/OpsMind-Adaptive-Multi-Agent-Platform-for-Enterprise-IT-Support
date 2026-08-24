@@ -1,16 +1,88 @@
 SPEC-PG-034:
   domain: 06-policy-approval-governance
   name: Processed Event Replay And Backfill
-  cn_name: Processed Event Replay 与 Backfill
-  status: planned
+  cn_name: Processed Event Replay And Backfill
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-08-failure-recovery-degraded-mode
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement idempotency protection and admin-safe repair flow for
+    governance event replay/backfill." Closes Phase 08. Idempotency
+    protection itself was already fully built and confirmed, not rebuilt:
+    processed_events(eventId, consumerName) dedup via
+    ConsumedEventDeduplicationService (SPEC-PG-025), used by all four
+    inbound consumers; outbox events with stable, replayable ids
+    (SPEC-PG-003); and per-command idempotency keys on cancel/use/revoke.
+
+    The genuine gap was the other half of the goal: an "admin-safe repair
+    flow" for replay/backfill never existed — before this spec,
+    ProcessedEventRepository only ever wrote processed_events
+    (markProcessedIfNew), never read it back, and there was no way to make
+    an already-processed event acceptable again. 06 cannot force RabbitMQ
+    to redeliver a message itself, so the buildable, non-invented half of
+    "backfill" is 06's own cooperating side: clearing its own dedup ledger
+    first, so that whatever redelivers the message (an upstream domain's
+    own replay/backfill) is not silently absorbed as a no-op.
+
+    Added application.model.ProcessedEventRecord (this port's first-ever
+    read model) and two new ProcessedEventRepository methods:
+    findByEventId (review — every consumer that processed a given event)
+    and deleteIfExists (the repair action — clears one (eventId,
+    consumerName) marker, returning whether a row actually existed). New
+    ProcessedEventAdminService (kept separate from
+    ConsumedEventDeduplicationService, mirroring OutboxAdminService's own
+    precedent for the same circular-dependency reason): findByEventId for
+    review, and backfill(eventId, consumerName, actorId, reason,
+    correlationId) — deletes the marker and writes a new
+    PROCESSED_EVENT_BACKFILLED audit record in the same transaction
+    (SPEC-PG-001 domain rule), rejecting a pair that was never processed
+    (ProcessedEventNotFoundException -> 404) rather than silently
+    no-op'ing, mirroring OutboxAdminService#requeue's own "reject a row
+    that doesn't apply" precedent.
+
+    New migration V026 adds PROCESSED_EVENT_BACKFILLED to
+    governance_audit_records' own CHECK constraint (same drop-and-recreate
+    approach every prior audit-action migration has used) — the only
+    schema change this spec needed.
+
+    New ProcessedEventAdminController: GET
+    /api/v1/admin/processed-events?eventId= (SCOPE_governance:audit:read,
+    since this is a read of governance dedup bookkeeping) and POST
+    /api/v1/admin/processed-events/{eventId}/{consumerName}:backfill (no
+    @PreAuthorize scope, mirroring OutboxAdminController's own precedent
+    for this category of admin maintenance endpoint).
+
+    Bug found and fixed during verification:
+    ProcessedEventPersistenceAdapter#deleteIfExists needed its own
+    @Transactional — a derived deleteBy... Spring Data query has no
+    transaction of its own unless one is already open, so a direct
+    repository call outside an enclosing transaction threw
+    InvalidDataAccessApiUsage ("No EntityManager with actual transaction
+    available"). Caught by GovernancePersistenceIT's own direct-repository
+    round-trip test, not any in-memory unit test — the same class of bug
+    SPEC-PG-024 fixed for OutboxEventPersistenceAdapter#requeue. Fixed by
+    adding @Transactional directly on the adapter method, so it is safe
+    regardless of whether the caller (ProcessedEventAdminService#backfill,
+    which already had its own) already has one open.
+
+    New tests: ProcessedEventAdminServiceTest (new file) gained 5 cases
+    (review across multiple consumers, empty review, the actual
+    clear-then-reprocess-succeeds behavior, its own audit record, rejecting
+    a never-processed pair); new ProcessedEventAdminControllerSecurityTest
+    gained 7 (both endpoints' authentication/scope requirements, the 404
+    mapping, @NotBlank reason validation); GovernancePersistenceIT gained 1
+    round-tripping findByEventId/deleteIfExists through real Postgres,
+    including that a second delete against an already-absent row returns
+    false.
+
+    296/296 unit tests pass (./mvnw test, up from 284 after SPEC-PG-033).
+    Full verification (./mvnw verify, Docker available) also passed:
+    341/341 total (296 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 28
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7.
   lld_mapping:
     - 09-concurrency-and-idempotency
     - 10-failure-handling
@@ -23,4 +95,6 @@ SPEC-PG-034:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ProcessedEventAdminServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "341 passed (./mvnw verify: 296 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 28 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

@@ -41,6 +41,17 @@ import java.util.Objects;
  * is represented by ApprovalRequest" (03-state-machine's own words), so
  * linking a decision to the {@code ApprovalRequest} eventually created for
  * it is SPEC-PG-009's job (Approval Request Aggregate), not this one's.
+ *
+ * <p>{@code degraded} is SPEC-PG-021's own addition (10-failure-handling
+ * §Degraded Policy Mode: "When policy evaluator is unavailable ... audit/
+ * metric must mark degraded=true"). It is {@code true} only when an
+ * effective policy version existed but the evaluator itself threw while
+ * applying it ({@link ReasonCode#EVALUATOR_UNAVAILABLE}) — not when no
+ * effective version existed at all ({@link ReasonCode#POLICY_VERSION_NOT_FOUND}),
+ * which 10-failure-handling's own "Policy Evaluation Failure" section names
+ * as a distinct, harder failure than "degraded mode." {@code effect} still
+ * carries {@code DENY} either way, so a caller reading only {@code effect}
+ * still fails closed regardless of which flag it ignores.
  */
 public record PolicyDecision(
     String policyDecisionId,
@@ -65,7 +76,8 @@ public record PolicyDecision(
     String policyId,
     String policyVersion,
     Instant evaluatedAt,
-    Instant expiresAt
+    Instant expiresAt,
+    boolean degraded
 ) {
 
     public PolicyDecision {

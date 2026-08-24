@@ -19,4 +19,10 @@ public interface SpringDataPolicyVersionJpaRepository extends JpaRepository<Poli
         ORDER BY v.versionNumber DESC
         """)
     List<PolicyVersionJpaEntity> findEffectiveVersions(@Param("policyId") String policyId, @Param("asOf") Instant asOf);
+
+    /** SPEC-PG-019: backs {@code application.port.PolicyVersionRepository#findLatestVersion}. */
+    java.util.Optional<PolicyVersionJpaEntity> findFirstByPolicyIdOrderByVersionNumberDesc(String policyId);
+
+    /** SPEC-PG-020: backs {@code application.port.PolicyVersionRepository#findByPolicyIdAndVersionNumber}. */
+    java.util.Optional<PolicyVersionJpaEntity> findByPolicyIdAndVersionNumber(String policyId, int versionNumber);
 }

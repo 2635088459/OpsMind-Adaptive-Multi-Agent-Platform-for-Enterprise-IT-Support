@@ -2,15 +2,64 @@ SPEC-PG-020:
   domain: 06-policy-approval-governance
   name: Policy Deprecate Supersede Archive
   cn_name: Policy Deprecate/Supersede/Archive
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-04-policy-admin-and-versioning
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "deprecate/supersede/archive states, policy.published/changed events." The
+    DEPRECATED -> ARCHIVED and PUBLISHED -> SUPERSEDED transitions were already legal moves in
+    PolicyVersion's own ALLOWED_TRANSITIONS map since SPEC-PG-001, but neither was ever driven by
+    any service method or endpoint — PolicyAdminService already had #deprecate (DRAFT/REVIEWING/
+    PUBLISHED -> DEPRECATED, from an earlier spec) but nothing beyond it, and nothing ever moved a
+    superseded-in-fact PUBLISHED version to SUPERSEDED when a newer version was published.
+
+    Added PolicyAdminService#archive(policyVersionId, actorId, correlationId): transitions
+    DEPRECATED -> ARCHIVED via the existing transitionTo state-machine guard (rejects a version that
+    was never DEPRECATED with the existing IllegalPolicyTransitionException, no new exception type
+    needed), writes a POLICY_ARCHIVED audit record. New endpoint
+    POST /api/v1/policy-versions/{id}:archive on PolicyAdminController, gated by
+    @PreAuthorize("hasAuthority('SCOPE_policy:archive')") — the same RBAC pattern SPEC-PG-014
+    established for :publish and SPEC-PG-018 extended to :draft/:review.
+
+    PolicyAdminService#publish now auto-supersedes: after saving the newly PUBLISHED version and the
+    policy's own currentPublishedVersion pointer, if the policy had a previously-published version
+    number and that version is still PUBLISHED (i.e. not already manually deprecated out of band),
+    it is transitioned to SUPERSEDED in the same publish() call/transaction, with its own
+    POLICY_SUPERSEDED audit record — not a separate manual step or a second endpoint call. Added
+    PolicyVersionRepository#findByPolicyIdAndVersionNumber to look up that previous version; the
+    very first publish for a policy has no previous published version number to look up, so nothing
+    is superseded (theFirstPublishForAPolicyHasNothingToSupersede covers this). A previous version
+    already moved to DEPRECATED out of band by an admin is left alone rather than force-superseded
+    (aPreviousVersionAlreadyDeprecatedOutOfBandIsNotForciblySuperseded) — supersede only ever applies
+    to a version that is still genuinely PUBLISHED at the moment the new one goes live.
+
+    Also graduated the generic governance.audit.policy_published.v1 placeholder SimpleGovernanceEvent
+    to a real, versioned PolicyPublishedEvent (policy.published.v1), the same event-graduation
+    pattern SPEC-PG-010/013 already used for approval.requested/granted/denied — aggregateType
+    "PolicyVersion", aggregateId the policyVersionId, payload carries policyId/versionNumber/
+    publishedBy/effectiveFrom. policy.changed.v1 was deliberately NOT added: nothing in this spec's
+    own 06-event-contracts names a distinct "changed" event beyond published/superseded/archived,
+    each of which already gets its own GovernanceAuditRecord.Action (added POLICY_SUPERSEDED,
+    POLICY_ARCHIVED — new migration V019 CHECK constraint on governance_audit_records.action) and
+    its own audit-trail entry; inventing a fourth generic "changed" event would duplicate what the
+    audit log already records rather than close a real gap.
+
+    Implemented together with SPEC-PG-021 in the same pass (both close out Phase 04 and both extend
+    PolicyAdminService/PolicyDecisionService) — see that spec's own entry for its own, separate
+    changes (degraded-decision flagging). New tests: PolicyAdminServiceTest gained
+    archiveTransitionsADeprecatedVersionToArchived, archivingAVersionThatWasNeverDeprecatedIsRejected,
+    publishingANewVersionSupersedesThePreviouslyPublishedVersion,
+    theFirstPublishForAPolicyHasNothingToSupersede,
+    publishStagesTheRealPolicyPublishedEventWithCorrectAggregateIdentity,
+    aPreviousVersionAlreadyDeprecatedOutOfBandIsNotForciblySuperseded; PolicyAdminControllerSecurityTest
+    gained rejectsAnAuthenticatedActorWithoutThePolicyArchiveScope and
+    allowsAnAuthenticatedActorWithThePolicyArchiveScope.
+
+    144/144 unit tests pass (./mvnw test, up from 136 after SPEC-PG-018/019 — shared tally with
+    SPEC-PG-021, 8 new tests total). Full verification (./mvnw verify, Docker available) also
+    passed: 163/163 total (144 unit + 4 GovernanceOutboxIT + 15 GovernancePersistenceIT
+    Testcontainers Postgres/RabbitMQ integration). BUILD SUCCESS.
   lld_mapping:
     - 03-state-machine
     - 06-event-contracts
@@ -23,4 +72,6 @@ SPEC-PG-020:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyAdminServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/PolicyAdminControllerSecurityTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "163 passed (./mvnw verify: 144 unit + 4 GovernanceOutboxIT + 15 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration; shared tally with SPEC-PG-021), BUILD SUCCESS"

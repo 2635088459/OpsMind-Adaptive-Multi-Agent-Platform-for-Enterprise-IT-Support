@@ -3,11 +3,16 @@ package com.opsmind.policygovernance.application;
 import com.opsmind.policygovernance.application.command.CancelApprovalCommand;
 import com.opsmind.policygovernance.application.command.DecideApprovalCommand;
 import com.opsmind.policygovernance.application.command.RequestApprovalCommand;
+import com.opsmind.policygovernance.application.command.RevokeOverrideCommand;
+import com.opsmind.policygovernance.application.command.UseOverrideCommand;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyCancelledException;
 import com.opsmind.policygovernance.application.exception.ApprovalAlreadyDecidedException;
 import com.opsmind.policygovernance.application.exception.ApprovalNotAuthorizedException;
 import com.opsmind.policygovernance.application.exception.ApprovalRequestNotFoundException;
 import com.opsmind.policygovernance.application.exception.DuplicateApprovalRequestException;
+import com.opsmind.policygovernance.application.exception.InvalidOverrideRequestException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyRevokedException;
+import com.opsmind.policygovernance.application.exception.OverrideAlreadyUsedException;
 import com.opsmind.policygovernance.application.port.ApprovalDecisionRepository;
 import com.opsmind.policygovernance.application.port.ApprovalNotificationPort;
 import com.opsmind.policygovernance.application.port.ApprovalRequestRepository;
@@ -21,7 +26,9 @@ import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequestMismatchException;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequestedEvent;
 import com.opsmind.policygovernance.domain.approval.ApprovalStatus;
+import com.opsmind.policygovernance.domain.approval.ApprovalType;
 import com.opsmind.policygovernance.domain.audit.GovernanceAuditRecord;
+import com.opsmind.policygovernance.domain.decision.RiskLevel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -40,6 +47,19 @@ import java.util.UUID;
  * tests), and relies on {@link ApprovalDecision}'s own constructor to refuse
  * an APPROVED outcome without a passed separation-of-duties check
  * (INV-PG-004) — so the guard holds even if a caller here had a bug.
+ *
+ * <p>SPEC-PG-029 (12-observability §Logs, §Metrics): every command here
+ * now threads its own {@code causationId} through to the audit record, the
+ * staged event, and the structured log — grant/deny/cancel/use/revoke had
+ * silently dropped it (hardcoded {@code null}) since each one's own {@code
+ * Command} record had no field for it, even though {@code
+ * api.support.GovernanceRequestContext#causationId} already read the
+ * {@code X-Causation-Id} header generically for every endpoint. Every
+ * structured log call also now carries every 12-observability §Logs field
+ * that is structurally available at that call site ({@code
+ * policyDecisionId}/{@code ticketId}/{@code workflowInstanceId} included,
+ * even when {@code null} — a {@code null} value there is itself meaningful:
+ * "this request is not ticket/workflow/decision-scoped").
  */
 @Service
 public class ApprovalService {
@@ -74,6 +94,15 @@ public class ApprovalService {
 
     @Transactional
     public ApprovalRequest request(RequestApprovalCommand command) {
+        if (command.approvalType() == ApprovalType.POLICY_OVERRIDE) {
+            if (command.expiresAt() == null) {
+                throw new InvalidOverrideRequestException("a POLICY_OVERRIDE request must specify expiresAt (UC-PG-006: valid only within a limited time window)");
+            }
+            if (command.constraints().isEmpty()) {
+                throw new InvalidOverrideRequestException("a POLICY_OVERRIDE request must specify at least one constraint (UC-PG-006: valid only within a limited scope)");
+            }
+        }
+
         Optional<ApprovalRequest> existing = approvalRequestRepository.findByRequestKey(command.requestKey());
         if (existing.isPresent()) {
             if (!existing.get().matches(command.sourceRequestId(), command.requestHash())) {
@@ -94,14 +123,19 @@ public class ApprovalService {
         auditService.record(
             GovernanceAuditRecord.Action.APPROVAL_REQUESTED, command.requestedBy(), command.sourceDomain(),
             command.sourceRequestId(), null, null, "approval requested", command.correlationId(), command.causationId(),
+            saved.ticketId(), saved.approvalRequestId(), saved.policyDecisionId(),
             ApprovalRequestedEvent.from(saved, command.correlationId(), command.causationId())
         );
         metrics.recordApprovalRequested(command.approvalType(), command.riskLevel());
         log.atInfo()
             .addKeyValue("correlationId", command.correlationId())
+            .addKeyValue("causationId", command.causationId())
             .addKeyValue("approvalRequestId", saved.approvalRequestId())
+            .addKeyValue("policyDecisionId", saved.policyDecisionId())
             .addKeyValue("sourceDomain", saved.sourceDomain())
             .addKeyValue("sourceRequestId", saved.sourceRequestId())
+            .addKeyValue("ticketId", saved.ticketId())
+            .addKeyValue("workflowInstanceId", saved.workflowInstanceId())
             .addKeyValue("riskLevel", saved.riskLevel())
             .log("approval requested");
         return saved;
@@ -147,6 +181,16 @@ public class ApprovalService {
      * RBAC/ABAC check, not delegated to it, since the request itself (not
      * an external identity provider) is the only source of truth for who is
      * assigned to execute it.
+     *
+     * <p>SPEC-PG-016 (11-security §Approval Authenticity, INV-PG-003):
+     * records {@code sessionId}/{@code deviceId}/{@code stepUpVerified} on
+     * the resulting {@link ApprovalDecision} for the audit trail, and
+     * structurally requires {@code stepUpVerified} for a {@code CRITICAL}
+     * -risk grant — the narrowest reading of "optional MFA/step-up marker"
+     * that makes it a real gate rather than inert data collection. Denials
+     * never need step-up (denying withholds authority; it does not grant
+     * it), and sub-{@code CRITICAL} risk levels are left ungated since
+     * nothing in 11-security names a broader threshold.
      */
     private ApprovalRequest decide(DecideApprovalCommand command, ApprovalDecision.Outcome outcome) {
         ApprovalRequest approvalRequest = approvalRequestRepository.findByIdForUpdate(command.approvalRequestId())
@@ -167,7 +211,8 @@ public class ApprovalService {
             auditService.record(
                 GovernanceAuditRecord.Action.APPROVAL_DECISION_CONFLICT, command.decidedBy(), approvalRequest.sourceDomain(),
                 approvalRequest.sourceRequestId(), null, null,
-                "conflicting decision rejected: request already has a final decision", command.correlationId(), null
+                "conflicting decision rejected: request already has a final decision", command.correlationId(), command.causationId(),
+                approvalRequest.ticketId(), approvalRequest.approvalRequestId(), approvalRequest.policyDecisionId()
             );
             throw new ApprovalAlreadyDecidedException(approvalRequest.approvalRequestId());
         }
@@ -181,6 +226,9 @@ public class ApprovalService {
         if (!identityAuthorizationPort.isAuthorizedApprover(command.decidedBy(), approvalRequest.approvalType(), approvalRequest.riskLevel())) {
             throw new ApprovalNotAuthorizedException("actor is not an authorized approver for this approval type and risk level");
         }
+        if (outcome == ApprovalDecision.Outcome.APPROVED && approvalRequest.riskLevel() == RiskLevel.CRITICAL && !command.stepUpVerified()) {
+            throw new ApprovalNotAuthorizedException("critical-risk approval requires a verified step-up/MFA marker");
+        }
 
         boolean separationOfDutiesCheck = outcome == ApprovalDecision.Outcome.APPROVED
             && identityAuthorizationPort.isIndependentApprover(approvalRequest.requestedBy(), command.decidedBy());
@@ -189,7 +237,7 @@ public class ApprovalService {
         ApprovalDecision decision = new ApprovalDecision(
             UUID.randomUUID().toString(), approvalRequest.approvalRequestId(), outcome,
             command.decidedBy(), now, command.reason(), command.conditions(), separationOfDutiesCheck,
-            command.commandIdempotencyKey()
+            command.commandIdempotencyKey(), command.sessionId(), command.deviceId(), command.stepUpVerified()
         );
         ApprovalDecision savedDecision = approvalDecisionRepository.save(decision);
 
@@ -202,19 +250,24 @@ public class ApprovalService {
         auditService.record(
             outcome == ApprovalDecision.Outcome.APPROVED ? GovernanceAuditRecord.Action.APPROVAL_GRANTED : GovernanceAuditRecord.Action.APPROVAL_DENIED,
             command.decidedBy(), approvalRequest.sourceDomain(), approvalRequest.sourceRequestId(),
-            null, null, command.reason(), command.correlationId(), null,
+            null, null, command.reason(), command.correlationId(), command.causationId(),
+            saved.ticketId(), saved.approvalRequestId(), saved.policyDecisionId(),
             outcome == ApprovalDecision.Outcome.APPROVED
-                ? ApprovalGrantedEvent.from(saved, savedDecision, command.correlationId(), null)
-                : ApprovalDeniedEvent.from(saved, savedDecision, command.correlationId(), null)
+                ? ApprovalGrantedEvent.from(saved, savedDecision, command.correlationId(), command.causationId())
+                : ApprovalDeniedEvent.from(saved, savedDecision, command.correlationId(), command.causationId())
         );
 
         Duration waitTime = Duration.between(approvalRequest.createdAt(), now);
         metrics.recordApprovalDecision(outcome, approvalRequest.riskLevel(), approvalRequest.approvalType(), waitTime);
         log.atInfo()
             .addKeyValue("correlationId", command.correlationId())
+            .addKeyValue("causationId", command.causationId())
             .addKeyValue("approvalRequestId", saved.approvalRequestId())
+            .addKeyValue("policyDecisionId", saved.policyDecisionId())
             .addKeyValue("sourceDomain", saved.sourceDomain())
             .addKeyValue("sourceRequestId", saved.sourceRequestId())
+            .addKeyValue("ticketId", saved.ticketId())
+            .addKeyValue("workflowInstanceId", saved.workflowInstanceId())
             .addKeyValue("riskLevel", saved.riskLevel())
             .addKeyValue("effect", outcome)
             .log("approval decided");
@@ -255,7 +308,8 @@ public class ApprovalService {
             auditService.record(
                 GovernanceAuditRecord.Action.APPROVAL_CANCEL_CONFLICT, command.cancelledBy(), approvalRequest.sourceDomain(),
                 approvalRequest.sourceRequestId(), null, null,
-                "conflicting cancel rejected: request already cancelled by a different attempt", command.correlationId(), null
+                "conflicting cancel rejected: request already cancelled by a different attempt", command.correlationId(), command.causationId(),
+                approvalRequest.ticketId(), approvalRequest.approvalRequestId(), approvalRequest.policyDecisionId()
             );
             throw new ApprovalAlreadyCancelledException(approvalRequest.approvalRequestId());
         }
@@ -265,15 +319,123 @@ public class ApprovalService {
         notificationPort.notifyDecided(saved);
         auditService.record(
             GovernanceAuditRecord.Action.APPROVAL_CANCELLED, command.cancelledBy(), approvalRequest.sourceDomain(),
-            approvalRequest.sourceRequestId(), null, null, command.reason(), command.correlationId(), null,
-            ApprovalCancelledEvent.from(saved, command.reason(), command.cancelledBy(), command.correlationId(), null)
+            approvalRequest.sourceRequestId(), null, null, command.reason(), command.correlationId(), command.causationId(),
+            saved.ticketId(), saved.approvalRequestId(), saved.policyDecisionId(),
+            ApprovalCancelledEvent.from(saved, command.reason(), command.cancelledBy(), command.correlationId(), command.causationId())
         );
         log.atInfo()
             .addKeyValue("correlationId", command.correlationId())
+            .addKeyValue("causationId", command.causationId())
+            .addKeyValue("approvalRequestId", saved.approvalRequestId())
+            .addKeyValue("policyDecisionId", saved.policyDecisionId())
+            .addKeyValue("sourceDomain", saved.sourceDomain())
+            .addKeyValue("sourceRequestId", saved.sourceRequestId())
+            .addKeyValue("ticketId", saved.ticketId())
+            .addKeyValue("workflowInstanceId", saved.workflowInstanceId())
+            .log("approval cancelled");
+        return saved;
+    }
+
+    /**
+     * SPEC-PG-022 (04-use-cases §UC-PG-006, 03-state-machine §Override State
+     * Machine: {@code OVERRIDE_APPROVED -> OVERRIDE_USED}). Mirrors {@link
+     * #cancel}'s own structure: lock the row first, re-validate request
+     * linkage (INV-PG-005), then treat a matching {@code
+     * commandIdempotencyKey} against an already-{@code USED} request as an
+     * idempotent replay and a different key as a conflict, audited the same
+     * way {@link #cancel} audits {@code APPROVAL_CANCEL_CONFLICT}. {@code
+     * ApprovalRequest#use} itself enforces that this is a {@code
+     * POLICY_OVERRIDE} request, that it is currently {@code APPROVED}, and
+     * that it has not lapsed past {@code expiresAt}.
+     */
+    @Transactional
+    public ApprovalRequest use(UseOverrideCommand command) {
+        ApprovalRequest approvalRequest = approvalRequestRepository.findByIdForUpdate(command.approvalRequestId())
+            .orElseThrow(() -> new ApprovalRequestNotFoundException(command.approvalRequestId()));
+
+        if (!approvalRequest.matches(command.sourceRequestId(), command.requestHash())) {
+            throw new ApprovalRequestMismatchException(approvalRequest.approvalRequestId());
+        }
+
+        if (approvalRequest.status() == ApprovalStatus.USED) {
+            if (command.commandIdempotencyKey().equals(approvalRequest.usedCommandIdempotencyKey())) {
+                return approvalRequest;
+            }
+            auditService.record(
+                GovernanceAuditRecord.Action.OVERRIDE_USE_CONFLICT, command.usedBy(), approvalRequest.sourceDomain(),
+                approvalRequest.sourceRequestId(), null, null,
+                "conflicting use rejected: override already used by a different attempt", command.correlationId(), command.causationId(),
+                approvalRequest.ticketId(), approvalRequest.approvalRequestId(), approvalRequest.policyDecisionId()
+            );
+            throw new OverrideAlreadyUsedException(approvalRequest.approvalRequestId());
+        }
+
+        Instant now = clock.instant();
+        ApprovalRequest saved = approvalRequestRepository.save(approvalRequest.use(now, command.commandIdempotencyKey()));
+        auditService.record(
+            GovernanceAuditRecord.Action.OVERRIDE_APPLIED, command.usedBy(), approvalRequest.sourceDomain(),
+            approvalRequest.sourceRequestId(), null, null, command.reason(), command.correlationId(), command.causationId(),
+            saved.ticketId(), saved.approvalRequestId(), saved.policyDecisionId()
+        );
+        metrics.recordOverride("USED");
+        log.atInfo()
+            .addKeyValue("correlationId", command.correlationId())
+            .addKeyValue("causationId", command.causationId())
             .addKeyValue("approvalRequestId", saved.approvalRequestId())
             .addKeyValue("sourceDomain", saved.sourceDomain())
             .addKeyValue("sourceRequestId", saved.sourceRequestId())
-            .log("approval cancelled");
+            .addKeyValue("ticketId", saved.ticketId())
+            .addKeyValue("workflowInstanceId", saved.workflowInstanceId())
+            .log("override used");
+        return saved;
+    }
+
+    /**
+     * SPEC-PG-022 (04-use-cases §UC-PG-006, 03-state-machine §Override State
+     * Machine: {@code OVERRIDE_APPROVED -> OVERRIDE_REVOKED}). Mirrors {@link
+     * #use}'s own structure; unlike {@code use}, {@link
+     * ApprovalRequest#revoke} does not reject a request past its {@code
+     * expiresAt} — see that method's own javadoc.
+     */
+    @Transactional
+    public ApprovalRequest revoke(RevokeOverrideCommand command) {
+        ApprovalRequest approvalRequest = approvalRequestRepository.findByIdForUpdate(command.approvalRequestId())
+            .orElseThrow(() -> new ApprovalRequestNotFoundException(command.approvalRequestId()));
+
+        if (!approvalRequest.matches(command.sourceRequestId(), command.requestHash())) {
+            throw new ApprovalRequestMismatchException(approvalRequest.approvalRequestId());
+        }
+
+        if (approvalRequest.status() == ApprovalStatus.REVOKED) {
+            if (command.commandIdempotencyKey().equals(approvalRequest.revokedCommandIdempotencyKey())) {
+                return approvalRequest;
+            }
+            auditService.record(
+                GovernanceAuditRecord.Action.OVERRIDE_REVOKE_CONFLICT, command.revokedBy(), approvalRequest.sourceDomain(),
+                approvalRequest.sourceRequestId(), null, null,
+                "conflicting revoke rejected: override already revoked by a different attempt", command.correlationId(), command.causationId(),
+                approvalRequest.ticketId(), approvalRequest.approvalRequestId(), approvalRequest.policyDecisionId()
+            );
+            throw new OverrideAlreadyRevokedException(approvalRequest.approvalRequestId());
+        }
+
+        Instant now = clock.instant();
+        ApprovalRequest saved = approvalRequestRepository.save(approvalRequest.revoke(now, command.commandIdempotencyKey()));
+        auditService.record(
+            GovernanceAuditRecord.Action.OVERRIDE_REVOKED, command.revokedBy(), approvalRequest.sourceDomain(),
+            approvalRequest.sourceRequestId(), null, null, command.reason(), command.correlationId(), command.causationId(),
+            saved.ticketId(), saved.approvalRequestId(), saved.policyDecisionId()
+        );
+        metrics.recordOverride("REVOKED");
+        log.atInfo()
+            .addKeyValue("correlationId", command.correlationId())
+            .addKeyValue("causationId", command.causationId())
+            .addKeyValue("approvalRequestId", saved.approvalRequestId())
+            .addKeyValue("sourceDomain", saved.sourceDomain())
+            .addKeyValue("sourceRequestId", saved.sourceRequestId())
+            .addKeyValue("ticketId", saved.ticketId())
+            .addKeyValue("workflowInstanceId", saved.workflowInstanceId())
+            .log("override revoked");
         return saved;
     }
 

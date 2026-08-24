@@ -2,15 +2,77 @@ SPEC-PG-028:
   domain: 06-policy-approval-governance
   name: 04 Memory Knowledge Policy Contract
   cn_name: 04 Memory Knowledge Policy Contract
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-06-cross-domain-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Freeze 04 retention, redaction, sensitive retrieval, and memory
+    publication policy decision shape." Closes Phase 06.
+
+    Structurally different from SPEC-PG-025/026/027: 06-event-contracts'
+    remaining consumed event, policy.evaluation.requested.v1 ("asynchronous
+    policy evaluation request"), is the async counterpart of the
+    synchronous risk decision API (UC-PG-001), not another "X requests
+    approval" event — its consumer targets PolicyDecisionService#evaluate,
+    not ApprovalService#request. PolicyEvaluationRequestedPayload mirrors
+    EvaluateDecisionRequest's own synchronous-API body field-for-field (the
+    natural reading of "the same input, delivered over the bus instead of
+    HTTP" — 06-event-contracts names no distinct "Key fields" list for this
+    event either). PolicyEvaluationRequestedEventMapper/Handler/Consumer
+    otherwise follow the exact three-file shape SPEC-PG-025 established,
+    reusing ConsumedEventDeduplicationService/ConsumedEventEnvelope/
+    ConsumedEventSchemaInvalidException, and adding the fourth (and, per
+    06-event-contracts' own consumed-events list, last) queue + DLQ to
+    RabbitConfig.
+
+    Also graduated policy.decision.created.v1 from the generic
+    governance.audit.decision_evaluated.v1 placeholder to a real, versioned
+    PolicyDecisionCreatedEvent — the last governance fact in this service
+    still on the placeholder (approval.*/policy.published.v1 were each
+    already graduated by their own earlier specs: SPEC-PG-010/013/020).
+    This belongs to SPEC-PG-028 specifically because the new async consumer
+    is the reason a real published event now matters: an asynchronous
+    caller (04 Memory Knowledge) has no HTTP response to read the decision
+    from, so it needs the real event on the bus to consume the result, and
+    the goal's own words — "policy decision shape" — name exactly the wire
+    contract this graduation fixes. PolicyDecisionCreatedEvent's payload
+    carries policyDecisionId/decisionKey/sourceDomain/sourceRequestId/
+    effect/riskLevel/approvalRequired/evaluationFailed/degraded/
+    reasonCodes/policyId/policyVersion/evaluatedAt. A duplicate decisionKey
+    + inputHash still stages nothing (08-transaction-and-outbox §Policy
+    Decision: "does not create a new event") — unchanged, and explicitly
+    re-tested.
+
+    New tests: PolicyDecisionCreatedEventTest (1 case, mirrors
+    ApprovalRequestedEventTest's own style); PolicyDecisionServiceTest
+    gained 2 cases
+    (evaluateStagesTheRealPolicyDecisionCreatedEventWithCorrectAggregateIdentity,
+    aDuplicateDecisionKeyDoesNotStageASecondEvent);
+    PolicyEvaluationRequestedEventMapperTest (6 cases);
+    PolicyEvaluationRequestedEventHandlerTest (3 cases);
+    PolicyEvaluationRequestedEventConsumerTest (4 cases);
+    PolicyEvaluationRequestedConsumerIT (3 cases — a real @RabbitListener
+    exercised end to end against Testcontainers RabbitMQ, targeting
+    policy_decisions instead of approval_requests). One test-only bug
+    caught and fixed during verify: the new IT's own TRUNCATE statement
+    didn't include approval_requests, which foreign-keys to
+    policy_decisions — Postgres correctly refused to truncate one without
+    the other; fixed by truncating the full table set every other IT class
+    in this service already truncates.
+
+    244/244 unit tests pass (./mvnw test, up from 228 after SPEC-PG-027 —
+    16 new tests total). Full verification (./mvnw verify, Docker
+    available) also passed: 283/283 total (244 unit + 3
+    PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT
+    + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT
+    + 4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers
+    Postgres/RabbitMQ integration). BUILD SUCCESS. ArchUnit
+    LayerDependencyTest 7/7. Phase 06 — Cross Domain Contracts — is now
+    complete (SPEC-PG-025 through SPEC-PG-028); every consumed event
+    06-event-contracts names (tool/workflow/ticket.approval.required.v1,
+    policy.evaluation.requested.v1) now has a real queue, consumer, and
+    handler.
   lld_mapping:
     - 06-event-contracts
     - 05-api-contracts
@@ -24,4 +86,6 @@ SPEC-PG-028:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/decision/PolicyDecisionCreatedEventTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyDecisionServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/mapper/PolicyEvaluationRequestedEventMapperTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyEvaluationRequestedEventHandlerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/PolicyEvaluationRequestedEventConsumerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/PolicyEvaluationRequestedConsumerIT.java
+    result: "283 passed (./mvnw verify: 244 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

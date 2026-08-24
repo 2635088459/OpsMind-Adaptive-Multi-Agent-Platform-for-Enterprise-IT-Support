@@ -43,6 +43,11 @@ public class MicrometerGovernanceMetrics implements GovernanceMetricsPort {
     }
 
     @Override
+    public void recordPolicyDegraded(DecisionEffect effect) {
+        registry.counter("governance_policy_degraded_total", "effect", effect.name()).increment();
+    }
+
+    @Override
     public void recordApprovalRequested(ApprovalType approvalType, RiskLevel riskLevel) {
         registry.counter("approval_request_created_total", "approvalType", approvalType.name(), "riskLevel", riskLevel.name()).increment();
     }
@@ -61,6 +66,11 @@ public class MicrometerGovernanceMetrics implements GovernanceMetricsPort {
     @Override
     public void recordPolicyPublished() {
         registry.counter("policy_publish_total").increment();
+    }
+
+    @Override
+    public void recordOverride(String action) {
+        registry.counter("governance_override_total", "action", action).increment();
     }
 
     private static String nullToUnknown(String value) {

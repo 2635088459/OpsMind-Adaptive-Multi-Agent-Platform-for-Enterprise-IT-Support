@@ -174,7 +174,7 @@ class GovernanceOutboxIT implements PostgresContainerSupport, RabbitMqContainerS
         );
         ApprovalDecision decision = new ApprovalDecision(
             "ad-envelope", requested.approvalRequestId(), ApprovalDecision.Outcome.APPROVED, "approver-1", Instant.now(),
-            "looks fine", List.of(new Constraint(Constraint.Type.TIME_WINDOW, "business-hours")), true, "cik-1"
+            "looks fine", List.of(new Constraint(Constraint.Type.TIME_WINDOW, "business-hours")), true, "cik-1", null, null, true
         );
         ApprovalRequest granted = requested.approve(decision, Instant.now());
         outboxDispatchService.stage(ApprovalGrantedEvent.from(granted, decision, "corr-granted-envelope", "cause-granted-envelope"));

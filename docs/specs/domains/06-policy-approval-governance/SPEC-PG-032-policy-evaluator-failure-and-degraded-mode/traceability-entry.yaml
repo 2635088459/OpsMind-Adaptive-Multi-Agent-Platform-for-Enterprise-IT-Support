@@ -1,16 +1,89 @@
 SPEC-PG-032:
   domain: 06-policy-approval-governance
   name: Policy Evaluator Failure And Degraded Mode
-  cn_name: Policy Evaluator Failure 与降级模式
-  status: planned
+  cn_name: Policy Evaluator Failure And Degraded Mode
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-08-failure-recovery-degraded-mode
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement evaluator failure, fail closed behavior, low-risk
+    cache fallback, and degraded metrics." Opens Phase 08. An audit against
+    10-failure-handling §Degraded Policy Mode's own four clauses found two
+    already fully built and two genuine gaps.
+
+    Already done, confirmed not rebuilt: "evaluator failure"
+    (PolicyDecisionService#evaluate has caught RuleEvaluatorPort exceptions
+    since SPEC-PG-001/005) and "fail closed behavior" (failSafeDecision has
+    always returned DENY/HIGH/evaluationFailed=true, never ALLOW, since the
+    same specs).
+
+    The two real gaps, both from the one LLD sentence neither prior spec
+    had fully implemented: "high-risk mutation fails closed; low-risk
+    read-only may use latest published policy cache." Before this spec,
+    every evaluator crash failed closed unconditionally — there was no way
+    for 06 to tell a low-risk read-only request apart from a high-risk
+    mutation before running the (crashed) evaluator, since risk/read-only-ness
+    is normally an evaluator output, and no input field carried a caller's
+    own classification. Per explicit user direction (asked via clarifying
+    question, since this materially changes runtime behavior and cannot be
+    safely inferred from existing code), resolved by adding a
+    caller-declared readOnly boolean to EvaluateDecisionCommand (and both
+    its callers: EvaluateDecisionRequest/PolicyDecisionController for the
+    synchronous API, PolicyEvaluationRequestedPayload/
+    PolicyEvaluationRequestedEventMapper for the async consumer) — defaults
+    false, so any caller that does not explicitly opt in keeps failing
+    closed exactly as before.
+
+    When the evaluator throws against a real, already-fetched effective
+    PolicyVersion AND readOnly is true, PolicyDecisionService#evaluate now
+    calls the new degradedCacheFallbackDecision instead of
+    failSafeDecision: returns effect=ALLOW, riskLevel=LOW, degraded=true,
+    evaluationFailed=false (a real, if degraded, judgment was rendered —
+    not a failure), bound to the already-fetched version's own
+    policyId/policyVersion ("the cache" is simply that already-in-hand
+    object — "decisions without policy version are not allowed" still
+    holds even in degraded mode), with two reason codes
+    (EVALUATOR_UNAVAILABLE plus the new DEGRADED_CACHE_FALLBACK, explaining
+    not just that the evaluator was down but why the effect is ALLOW
+    anyway). The "no effective version at all" branch is untouched by
+    readOnly — that remains POLICY_VERSION_NOT_FOUND/fail-closed
+    unconditionally, since a cache fallback needs a real version to bind
+    to.
+
+    "Degraded metrics": added
+    GovernanceMetricsPort#recordPolicyDegraded(effect)
+    (governance_policy_degraded_total{effect} in
+    MicrometerGovernanceMetrics) — distinct from the pre-existing
+    recordPolicyEvaluationFailure(), which fires on every evaluator/version
+    failure regardless of cause (including POLICY_VERSION_NOT_FOUND, which
+    10-failure-handling itself does not call "degraded"); the new metric
+    fires only when a produced decision's own degraded() flag is actually
+    true, letting an operator tell "the evaluator is flaky" apart from "how
+    many decisions degraded mode is actually producing, and with which
+    effect."
+
+    New tests: PolicyDecisionServiceTest gained 3 cases (readOnly=true
+    cache-fallback ALLOW with full field/metric assertions, readOnly=false
+    still fails closed exactly as before, no degraded metric on a normal
+    successful decision); PolicyEvaluationRequestedEventMapperTest and
+    PolicyDecisionControllerTest each gained a readOnly propagation
+    assertion on their existing happy-path test. New
+    RecordingGovernanceMetrics test double (mirrors
+    FakeMessageBrokerPublisher's own "records what happened" shape) for
+    asserting recordPolicyDegraded calls without Mockito, consistent with
+    every other application-layer test in this service.
+
+    270/270 unit tests pass (./mvnw test, up from 267 after SPEC-PG-031).
+    Full verification (./mvnw verify, Docker available) also passed:
+    311/311 total (270 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 24
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7. No schema change —
+    every change in this spec was pure Java (a new command field, a new
+    reason code, a new metric), so no new Flyway migration was needed
+    (still V001-V025).
   lld_mapping:
     - 10-failure-handling
     - 12-observability
@@ -23,4 +96,6 @@ SPEC-PG-032:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyDecisionServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "311 passed (./mvnw verify: 270 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 24 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

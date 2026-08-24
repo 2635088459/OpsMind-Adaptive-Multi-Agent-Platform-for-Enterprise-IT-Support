@@ -1,16 +1,101 @@
 SPEC-PG-031:
   domain: 06-policy-approval-governance
   name: Audit Integrity Compliance Reporting
-  cn_name: Audit Integrity 与 Compliance Reporting
-  status: planned
+  cn_name: Audit Integrity Compliance Reporting
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-07-observability-audit-compliance
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement audit hash chain/append-only marker, compliance
+    reports, and audit retention." Closes Phase 07. Of the three named
+    items, two already existed: the hash chain (SPEC-PG-017), and
+    "append-only" — 11-security's own wording is "hash chain OR append-only
+    marker," so the hash chain alone already satisfies that sentence, and
+    separately, no method on GovernanceAuditRepository has ever allowed
+    updating or deleting a written record's own fact fields (confirmed, not
+    rebuilt — the same "already closed" pattern SPEC-PG-029 used for
+    sensitive data filtering). A DB-level trigger enforcing the same thing
+    was considered and deliberately not built: no other migration in this
+    codebase has ever used a Postgres function/trigger, and the "OR" in
+    11-security's own sentence means one is not additionally required once
+    the hash chain already exists — building an entirely new,
+    platform-wide-unprecedented infrastructure pattern for one spec would be
+    scope creep, not closing a real gap.
+
+    The two genuine, previously-unbuilt gaps: nothing had ever verified the
+    hash chain back (it was write-only), and there was no way to retire an
+    old record without deleting it (11-security §Tamper-Resistant Audit:
+    "Ordinary admins cannot delete audit records; they may only be archived
+    by retention policy" — no delete path ever existed, but no archive path
+    did either).
+
+    Added GovernanceAuditService#verifyChain — walks every record in
+    recordedAt order, recomputes each one's hash via AuditIntegrityPort, and
+    confirms previousHash still equals the prior record's own stored hash,
+    stopping at the first break since everything after an already-broken
+    link is unverifiable by definition. #complianceReport builds on it:
+    total/active/archived record counts, the covered date range, a
+    per-Action breakdown, and the same chain verification, fetching the
+    record set once and reusing it for both. #archiveRecordedBefore
+    (retentionDays, actorId, reason, correlationId) is the retention action
+    itself — marks every record older than the caller-supplied
+    retentionDays as archived (no fixed retention duration is hardcoded
+    anywhere; the caller supplies it each time, the same "no invented
+    business rule" shape OutboxAdminService#requeue already uses for its own
+    reason) and writes its own AUDIT_RECORDS_ARCHIVED audit entry, but only
+    when at least one record was actually touched — mirrors
+    ApprovalExpiryService#expireDue's own precedent of staying silent on a
+    no-op run.
+
+    Added a new nullable archivedAt field to GovernanceAuditRecord
+    (migration V025) and a new withArchivedAt copy method — the one field a
+    retention run is ever allowed to change on an already-written record.
+    Deliberately excluded from SimpleAuditIntegrityAdapter's hash
+    computation: archiving is a retention-policy action on an already-true
+    fact, not a change to the fact itself, so it must not retroactively look
+    like tampering against a hash computed before the record was ever
+    archived (new test: doesNotChangeWhenArchivedAtChanges).
+    GovernanceAuditRepository gained findAllOrderedByRecordedAt (the full
+    walk order both new report methods need) and
+    archiveRecordedBefore(cutoff, archivedAt) — the one port method that
+    updates an already-appended row, and it can only ever set that one
+    column (a bulk JPQL UPDATE touching only archivedAt, mirroring
+    OutboxEventPersistenceAdapter#requeue's own @Transactional-on-the-adapter
+    pattern for exactly the same reason).
+
+    New GovernanceAuditComplianceController (kept separate from
+    GovernanceAuditController, mirroring how OutboxAdminController got its
+    own class): GET /api/v1/governance-audit/compliance-report (same
+    SCOPE_governance:audit:read as any other audit view) and POST
+    /api/v1/admin/governance-audit:archive (no @PreAuthorize scope,
+    mirroring OutboxAdminController's own precedent for this category of
+    admin/scheduler-triggered maintenance endpoint). Also fixed the 5 test
+    call sites (SimpleAuditIntegrityAdapterTest, GovernancePersistenceIT x4)
+    that raw-constructed GovernanceAuditRecord with the pre-SPEC-PG-031
+    16-arg constructor, so the build stays green against the new required
+    17-arg shape. GovernanceAuditRecordResponse now exposes archivedAt.
+
+    New tests: GovernanceAuditServiceTest gained 7 cases (chain intact,
+    tampered-hash detection, compliance report aggregation on both a
+    populated and an empty trail, retention cutoff filtering, the
+    audit-entry-on-success and silent-on-no-op archive behaviors);
+    SimpleAuditIntegrityAdapterTest gained 1; new
+    GovernanceAuditComplianceControllerSecurityTest gained 6
+    (compliance-report scope enforcement, archive's
+    baseline-authenticated-only requirement, and its @NotBlank reason
+    validation); GovernancePersistenceIT gained 1 round-tripping archived_at
+    and archiveRecordedBefore through a real bulk UPDATE against Postgres,
+    including that a second run over the same cutoff does not re-touch or
+    re-count an already-archived row.
+
+    267/267 unit tests pass (./mvnw test, up from 253 after SPEC-PG-030).
+    Full verification (./mvnw verify, Docker available) also passed:
+    308/308 total (267 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 24
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7.
   lld_mapping:
     - 11-security
     - 12-observability
@@ -23,4 +108,6 @@ SPEC-PG-031:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/GovernanceAuditServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "308 passed (./mvnw verify: 267 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 24 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

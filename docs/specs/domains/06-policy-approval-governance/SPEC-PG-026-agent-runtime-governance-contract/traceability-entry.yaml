@@ -2,15 +2,87 @@ SPEC-PG-026:
   domain: 06-policy-approval-governance
   name: 03 Agent Runtime Governance Contract
   cn_name: 03 Agent Runtime Governance Contract
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-06-cross-domain-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Freeze 03 workflow approval/override/automation risk governance
+    contracts." The second Phase 06 spec, structurally identical to
+    SPEC-PG-025 — 06-event-contracts §Consumed Events names only this
+    event's purpose ("03 requests approval for workflow override, resume,
+    or automation risk"), not a "Key fields" list the way
+    tool.approval.required.v1 got one, and no producer implementation
+    exists yet on 03 Agent Runtime's own side (a Python service — no
+    workflow.approval.required.v1 publisher built) — the same "not yet
+    exercised by a real caller" situation SPEC-PG-025 was in for 05 Tool
+    Gateway.
+
+    WorkflowApprovalRequiredPayload is the direct structural analog of
+    ToolApprovalRequiredPayload with workflowInstanceId standing in for
+    toolRequestId as the primary business key, since both events are
+    structurally the same shape (an upstream domain requesting approval for
+    one risky action it wants to take) and nothing more specific is named
+    for this one.
+
+    Deliberately did NOT split WORKFLOW_ACTION into three new ApprovalType
+    values the way SPEC-PG-023 split TICKET_ACTION into
+    TICKET_SLA_EXCEPTION/TICKET_CLOSURE_OVERRIDE/TICKET_ESCALATION_EXCEPTION
+    — that split was justified there because the ticket event's own purpose
+    line and SPEC-PG-023's own goal text named the exact same three items
+    twice, consistently. Here, SPEC-PG-026's own goal text ("approval/override/automation
+    risk") and the event's own purpose line ("override, resume, or
+    automation risk") disagree on the first item — a weaker, inconsistent
+    signal that reads as loose descriptive prose, not a designed taxonomy.
+    Inventing a three-way split from an inconsistent signal would be scope
+    creep, not a real gap; WORKFLOW_ACTION (the pre-existing generic type)
+    is used uniformly.
+
+    Everything else reused SPEC-PG-025's own shared infrastructure exactly
+    as that spec's own README/traceability said it was built for:
+    ConsumedEventDeduplicationService, ConsumedEventEnvelope,
+    ConsumedEventSchemaInvalidException. This spec's own new surface is
+    correspondingly small:
+
+    - RabbitConfig gained the
+      policy-approval-governance.workflow-approval-events.v1 queue + its
+      own DLQ, bound to workflow.approval.required.v1 — structurally
+      identical to the tool-approval-events queue SPEC-PG-025 added.
+    - WorkflowApprovalRequiredEventMapper (pure envelope+payload ->
+      RequestApprovalCommand mapping, unit-testable without Spring). Field
+      derivation mirrors ToolApprovalRequiredEventMapper exactly:
+      requestKey/sourceRequestId = payload.workflowInstanceId; requestHash
+      = payload.inputHash; sourceDomain/requestedBy = envelope.producer;
+      causationId = envelope.eventId; toolRequestId is null (not
+      applicable to a workflow-originated request).
+    - WorkflowApprovalRequiredEventHandler: dedup via
+      ConsumedEventDeduplicationService, then the exact same
+      ApprovalService#request every synchronous caller already uses.
+    - WorkflowApprovalRequiredEventConsumer (@RabbitListener): parse,
+      validate eventType, map, hand off to the handler.
+
+    No new port, no new migration, and no new bug: the transactional fix
+    SPEC-PG-025 made to ProcessedEventPersistenceAdapter (isolating the
+    insert in its own REQUIRES_NEW transaction on
+    SpringDataProcessedEventJpaRepository#insertIsolated) already covers
+    this consumer's own dedup calls without any further change.
+
+    New tests, mirroring SPEC-PG-025's own suite one-for-one:
+    WorkflowApprovalRequiredEventMapperTest (6 cases);
+    WorkflowApprovalRequiredEventHandlerTest (3 cases);
+    WorkflowApprovalRequiredEventConsumerTest (4 cases);
+    WorkflowApprovalRequiredConsumerIT (3 cases — a real @RabbitListener
+    exercised end to end against Testcontainers RabbitMQ:
+    consume-and-create, redelivery dedup, malformed-message
+    dead-lettering).
+
+    212/212 unit tests pass (./mvnw test, up from 199 after SPEC-PG-025 —
+    13 new tests total). Full verification (./mvnw verify, Docker
+    available) also passed: 244/244 total (212 unit + 3
+    ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT +
+    4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers
+    Postgres/RabbitMQ integration). BUILD SUCCESS. ArchUnit
+    LayerDependencyTest 7/7.
   lld_mapping:
     - 06-event-contracts
     - 05-api-contracts
@@ -23,4 +95,6 @@ SPEC-PG-026:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/mapper/WorkflowApprovalRequiredEventMapperTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/WorkflowApprovalRequiredEventHandlerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/WorkflowApprovalRequiredEventConsumerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/WorkflowApprovalRequiredConsumerIT.java
+    result: "244 passed (./mvnw verify: 212 unit + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

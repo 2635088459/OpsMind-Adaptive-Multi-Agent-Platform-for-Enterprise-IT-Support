@@ -1,0 +1,21 @@
+SPEC-UA-003:
+  domain: 01-user-access-authentication
+  name: Identity Outbox Processed Event And Audit Baseline
+  cn_name: 身份 Outbox、Processed Event 与审计基线
+  status: planned
+  service: user-access-authentication-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - credential_storage
+    - custom_oidc_or_mfa_protocol
+    - client_forged_role_headers
+    - direct_cross_domain_state_write
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    result: pending

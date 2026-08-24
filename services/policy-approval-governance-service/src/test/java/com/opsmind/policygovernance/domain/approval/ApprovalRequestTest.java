@@ -24,7 +24,7 @@ class ApprovalRequestTest {
     private ApprovalDecision approvedDecisionFor(ApprovalRequest request) {
         return new ApprovalDecision(
             "ad-1", request.approvalRequestId(), ApprovalDecision.Outcome.APPROVED,
-            "approver-1", Instant.now(), "looks fine", List.of(), true, "cik-1"
+            "approver-1", Instant.now(), "looks fine", List.of(), true, "cik-1", null, null, true
         );
     }
 
@@ -58,7 +58,7 @@ class ApprovalRequestTest {
         ApprovalRequest request = requested();
         ApprovalDecision decisionForAnotherRequest = new ApprovalDecision(
             "ad-2", "some-other-request-id", ApprovalDecision.Outcome.APPROVED,
-            "approver-1", Instant.now(), "wrong request", List.of(), true, "cik-1"
+            "approver-1", Instant.now(), "wrong request", List.of(), true, "cik-1", null, null, true
         );
 
         assertThatThrownBy(() -> request.approve(decisionForAnotherRequest, Instant.now()))
@@ -121,5 +121,97 @@ class ApprovalRequestTest {
     @Test
     void executorIdIsNullWhenTheCallerNeverSuppliedOne() {
         assertThat(requested().executorId()).isNull();
+    }
+
+    private ApprovalRequest approvedOverride(Instant expiresAt) {
+        ApprovalRequest request = ApprovalRequest.requested(
+            "ar-override-1", "req-key-override-1", "hash-override-1", "tool-gateway", "src-req-override-1",
+            null, null, null, null, null, "requester-1", ApprovalType.POLICY_OVERRIDE,
+            RiskLevel.CRITICAL, List.of(), expiresAt, Instant.now()
+        );
+        return request.approve(approvedDecisionFor(request), Instant.now());
+    }
+
+    /** SPEC-PG-022: {@code OVERRIDE_APPROVED -> OVERRIDE_USED} is legal for an approved POLICY_OVERRIDE request still within its time window. */
+    @Test
+    void useTransitionsAnApprovedOverrideToUsed() {
+        ApprovalRequest approved = approvedOverride(Instant.now().plusSeconds(3600));
+
+        ApprovalRequest used = approved.use(Instant.now(), "use-key-1");
+
+        assertThat(used.status()).isEqualTo(ApprovalStatus.USED);
+        assertThat(used.usedCommandIdempotencyKey()).isEqualTo("use-key-1");
+    }
+
+    /** SPEC-PG-022: use is only legal from APPROVED. */
+    @Test
+    void useIsRejectedWhenTheRequestIsNotApproved() {
+        ApprovalRequest requested = ApprovalRequest.requested(
+            "ar-override-2", "req-key-override-2", "hash-override-2", "tool-gateway", "src-req-override-2",
+            null, null, null, null, null, "requester-1", ApprovalType.POLICY_OVERRIDE,
+            RiskLevel.CRITICAL, List.of(), Instant.now().plusSeconds(3600), Instant.now()
+        );
+
+        assertThatThrownBy(() -> requested.use(Instant.now(), "use-key-1"))
+            .isInstanceOf(IllegalApprovalTransitionException.class);
+    }
+
+    /** SPEC-PG-022: use/revoke are override-specific — an ordinary approval type has no OVERRIDE_USED/OVERRIDE_REVOKED continuation. */
+    @Test
+    void useIsRejectedForANonOverrideApprovalType() {
+        ApprovalRequest request = requested();
+        ApprovalRequest approved = request.approve(approvedDecisionFor(request), Instant.now());
+
+        assertThatThrownBy(() -> approved.use(Instant.now(), "use-key-1"))
+            .isInstanceOf(NotAnOverrideRequestException.class);
+    }
+
+    /** SPEC-PG-022 (UC-PG-006: "valid only within limited scope and time window"): use rejects a lapsed override even if still nominally APPROVED. */
+    @Test
+    void useIsRejectedOncePastExpiresAt() {
+        ApprovalRequest approved = approvedOverride(Instant.now().minusSeconds(1));
+
+        assertThatThrownBy(() -> approved.use(Instant.now(), "use-key-1"))
+            .isInstanceOf(OverrideExpiredException.class);
+    }
+
+    /** SPEC-PG-022: {@code OVERRIDE_APPROVED -> OVERRIDE_REVOKED} is legal for an approved POLICY_OVERRIDE request. */
+    @Test
+    void revokeTransitionsAnApprovedOverrideToRevoked() {
+        ApprovalRequest approved = approvedOverride(Instant.now().plusSeconds(3600));
+
+        ApprovalRequest revoked = approved.revoke(Instant.now(), "revoke-key-1");
+
+        assertThat(revoked.status()).isEqualTo(ApprovalStatus.REVOKED);
+        assertThat(revoked.revokedCommandIdempotencyKey()).isEqualTo("revoke-key-1");
+    }
+
+    /** SPEC-PG-022: unlike use, an already-lapsed expiresAt does not block revoke — formally closing out a stale override is still legitimate. */
+    @Test
+    void revokeIsNotBlockedByAnAlreadyLapsedExpiresAt() {
+        ApprovalRequest approved = approvedOverride(Instant.now().minusSeconds(1));
+
+        ApprovalRequest revoked = approved.revoke(Instant.now(), "revoke-key-1");
+
+        assertThat(revoked.status()).isEqualTo(ApprovalStatus.REVOKED);
+    }
+
+    @Test
+    void revokeIsRejectedForANonOverrideApprovalType() {
+        ApprovalRequest request = requested();
+        ApprovalRequest approved = request.approve(approvedDecisionFor(request), Instant.now());
+
+        assertThatThrownBy(() -> approved.revoke(Instant.now(), "revoke-key-1"))
+            .isInstanceOf(NotAnOverrideRequestException.class);
+    }
+
+    /** SPEC-PG-022: USED and REVOKED are themselves final and irreversible, the same as every other non-REQUESTED status. */
+    @Test
+    void usedAndRevokedAreThemselvesFinal() {
+        ApprovalRequest used = approvedOverride(Instant.now().plusSeconds(3600)).use(Instant.now(), "use-key-1");
+        assertThatThrownBy(() -> used.revoke(Instant.now(), "revoke-key-1")).isInstanceOf(IllegalApprovalTransitionException.class);
+
+        ApprovalRequest revoked = approvedOverride(Instant.now().plusSeconds(3600)).revoke(Instant.now(), "revoke-key-1");
+        assertThatThrownBy(() -> revoked.use(Instant.now(), "use-key-1")).isInstanceOf(IllegalApprovalTransitionException.class);
     }
 }

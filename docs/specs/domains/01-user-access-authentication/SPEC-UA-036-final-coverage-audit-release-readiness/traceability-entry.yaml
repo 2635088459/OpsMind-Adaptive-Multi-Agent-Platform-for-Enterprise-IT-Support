@@ -1,0 +1,20 @@
+SPEC-UA-036:
+  domain: 01-user-access-authentication
+  name: Final Coverage Audit And Release Readiness
+  cn_name: 最终覆盖审计与发布准备
+  status: planned
+  service: user-access-authentication-service
+  phase: phase-09-final-verification-release
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
+  lld_mapping:
+    - 14-testing-strategy
+  forbidden:
+    - credential_storage
+    - custom_oidc_or_mfa_protocol
+    - client_forged_role_headers
+    - direct_cross_domain_state_write
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    result: pending

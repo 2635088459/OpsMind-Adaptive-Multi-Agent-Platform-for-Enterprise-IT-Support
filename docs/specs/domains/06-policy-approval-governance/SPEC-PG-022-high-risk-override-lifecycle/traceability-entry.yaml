@@ -1,16 +1,103 @@
 SPEC-PG-022:
   domain: 06-policy-approval-governance
   name: High Risk Override Lifecycle
-  cn_name: High Risk Override 生命周期
-  status: planned
+  cn_name: High-Risk Override Lifecycle
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-05-override-and-exception-governance
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement override request/approve/deny/use/revoke lifecycle and
+    scope/expiry limits." Opens Phase 05. ApprovalType.POLICY_OVERRIDE and the
+    OVERRIDE_APPLIED audit action already existed as unused plumbing since the
+    SPEC-PG-002/003/009 schema baseline (a POLICY_OVERRIDE value in the
+    approval_type CHECK constraint, an OVERRIDE_APPLIED value in the audit
+    action CHECK constraint, and a governance_override_total metric
+    12-observability already named but GovernanceMetricsPort's own javadoc
+    deferred: "no override use case exists yet") — request/approve/deny for a
+    POLICY_OVERRIDE request already worked identically to every other
+    approval type through the existing ApprovalService/ApprovalRequest
+    machinery; nothing ever used or revoked one.
+
+    03-state-machine draws a second, override-specific continuation past
+    APPROVED (OVERRIDE_APPROVED -> OVERRIDE_USED, OVERRIDE_APPROVED ->
+    OVERRIDE_REVOKED). Rather than a brand-new aggregate/table, this spec
+    extends ApprovalStatus with USED/REVOKED (reachable only from APPROVED,
+    mirroring how every other terminal status here is reachable only from a
+    single legal predecessor) and adds ApprovalRequest#use/#revoke — both
+    reject a non-POLICY_OVERRIDE request (new NotAnOverrideRequestException,
+    since an ordinary TOOL_EXECUTION/TICKET_ACTION/WORKFLOW_ACTION/GENERIC
+    approval has no such continuation), and use additionally rejects a
+    request already past expiresAt (new OverrideExpiredException) even
+    though it is still nominally APPROVED — the expiry worker
+    (ApprovalExpiryService) only ever scans REQUESTED rows, so an
+    approved-but-unused override sitting past its window cannot be assumed
+    to have already been caught. revoke is deliberately not blocked by a
+    lapsed expiresAt: formally closing out a stale override is still a
+    legitimate governance action, not an error.
+
+    ApprovalService#request now also enforces UC-PG-006's "valid only within
+    limited scope and time window" for POLICY_OVERRIDE specifically: a
+    non-null expiresAt and at least one constraint (the override's own
+    scope) are required at creation (new InvalidOverrideRequestException
+    otherwise) — no other approval type gets this requirement, since nothing
+    in the spec names it for them.
+
+    ApprovalService#use/#revoke mirror #cancel's own established shape
+    exactly: lock the row (findByIdForUpdate), re-validate request linkage
+    (INV-PG-005), treat a matching commandIdempotencyKey against an
+    already-USED/REVOKED request as an idempotent replay and a different key
+    as a conflict (new OVERRIDE_USE_CONFLICT/OVERRIDE_REVOKE_CONFLICT audit
+    actions, new used_command_idempotency_key/revoked_command_idempotency_key
+    columns — migration V021 — one per command, the same reasoning
+    cancel_command_idempotency_key already established: neither command
+    creates a new ApprovalDecision row). use writes the pre-existing
+    OVERRIDE_APPLIED audit action (its first real caller); revoke writes a
+    new OVERRIDE_REVOKED action. New POST /api/v1/approval-requests/{id}:use
+    and :revoke endpoints on ApprovalController, no RBAC scope added beyond
+    the pre-existing authenticated-actor requirement — mirroring how
+    :grant/:deny/:cancel have no @PreAuthorize scope either (RBAC for
+    approval actions lives inside ApprovalService via
+    IdentityAuthorizationPort, a different pattern than PolicyAdminController's
+    scope-gated admin actions, and nothing in this spec names a new scope for
+    use/revoke specifically).
+
+    Independent-approver enforcement for override needed no new code:
+    ApprovalDecision's own constructor has structurally required a passed
+    separationOfDutiesCheck for every APPROVED decision, of every approval
+    type, since SPEC-PG-001 — INV-PG-004's "high-risk overrides require
+    independent approvers" was already true generically by the time this
+    spec started; re-confirmed rather than re-implemented.
+
+    No new event was added: 06-event-contracts' own "Published Events" list
+    names no override-specific event, only the same approval.* events every
+    approval type already publishes, so use/revoke are audited (INV-PG-008
+    names override explicitly as requiring audit) but do not stage a new
+    versioned event — inventing one nothing in the LLD names would be scope
+    creep, not a real gap. Added GovernanceMetricsPort#recordOverride(action)
+    / governance_override_total{action} (12-observability), the metric this
+    port's own earlier-phase javadoc explicitly deferred until a real
+    override use case existed.
+
+    New tests: ApprovalRequestTest gained 8 cases covering both transitions'
+    happy/illegal-transition/wrong-type/expired paths; ApprovalServiceTest
+    gained 13 covering the scope/expiry request-time validation, idempotent
+    retry, conflict, wrong-type, expired-use, and request-linkage-mismatch
+    paths; ApprovalControllerTest gained 3 for the new :use/:revoke endpoints
+    (previously zero MockMvc-level coverage, mirroring SPEC-PG-012's own gap
+    for :cancel before that spec closed it); GovernancePersistenceIT gained
+    2 round-tripping the new columns and USED/REVOKED statuses through a
+    real Postgres instance.
+
+    168/168 unit tests pass (./mvnw test, up from 144 after SPEC-PG-020/021
+    — 24 new tests total: 8 domain + 13 application + 3 API). Full
+    verification (./mvnw verify, Docker available) also passed: 189/189
+    total (168 unit + 4 GovernanceOutboxIT + 17 GovernancePersistenceIT
+    Testcontainers Postgres/RabbitMQ integration). BUILD SUCCESS.
+    ArchUnit LayerDependencyTest 7/7 (domain/application/infrastructure
+    boundaries hold — the two new domain exceptions extend DomainException
+    with no framework dependency, the two new application exceptions extend
+    RuntimeException).
   lld_mapping:
     - 03-state-machine
     - 04-use-cases
@@ -24,4 +111,6 @@ SPEC-PG-022:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/approval/ApprovalRequestTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/ApprovalServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/ApprovalControllerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "189 passed (./mvnw verify: 168 unit + 4 GovernanceOutboxIT + 17 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

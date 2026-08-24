@@ -2,15 +2,70 @@ SPEC-PG-027:
   domain: 06-policy-approval-governance
   name: 02 Ticket Workflow Governance Contract
   cn_name: 02 Ticket Workflow Governance Contract
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-06-cross-domain-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Freeze 02 ticket approval required, SLA exception, closure
+    override event contracts." The third Phase 06 spec — the
+    ticket.approval.required.v1 consumer, mirroring SPEC-PG-025/026's own
+    shape and reusing every seam they built (ConsumedEventDeduplicationService/
+    ConsumedEventEnvelope/ConsumedEventSchemaInvalidException).
+
+    Unlike workflow's event (SPEC-PG-026), this one has a concrete
+    discriminator to build: 06-event-contracts' own purpose line for this
+    event ("02 requests approval for closure override, escalation
+    exception, or SLA exception") names the exact three sub-kinds
+    SPEC-PG-023 already gave ApprovalType values to
+    (TICKET_SLA_EXCEPTION/TICKET_CLOSURE_OVERRIDE/TICKET_ESCALATION_EXCEPTION)
+    but never gave a real caller — this spec is that caller.
+
+    Added TicketApprovalRequiredPayload#exceptionType
+    ("SLA_EXCEPTION"/"CLOSURE_OVERRIDE"/"ESCALATION_EXCEPTION"), mapped 1:1
+    to those three types by TicketApprovalRequiredEventMapper#resolveApprovalType.
+    null (an ordinary ticket action that is none of the three named
+    exceptions) maps to the pre-existing generic TICKET_ACTION — a
+    legitimate case, not an error. A non-null value matching none of the
+    three known names IS rejected as a schema error (the same strictness
+    riskLevel parsing already applies) — a producer sending an unrecognized
+    value is worth surfacing to the DLQ, not silently miscategorizing.
+    ticketId itself is the primary business key here (no separate "tool
+    request"/"workflow instance" identifier exists for a ticket-originated
+    approval), with the same envelope-fallback pattern
+    (payload.ticketId ?? envelope.ticketId) the tool/workflow mappers use.
+
+    RabbitConfig gained the
+    policy-approval-governance.ticket-approval-events.v1 queue + its own
+    DLQ, bound to ticket.approval.required.v1 — structurally identical to
+    the tool/workflow queues SPEC-PG-025/026 added.
+    TicketApprovalRequiredEventHandler/TicketApprovalRequiredEventConsumer
+    are otherwise structurally identical to the tool/workflow consumers
+    (dedup via ConsumedEventDeduplicationService, then the same
+    ApprovalService#request). No new port, no new migration, and no new bug
+    — the transactional fix SPEC-PG-025 made to
+    ProcessedEventPersistenceAdapter already covers this consumer's own
+    dedup calls too.
+
+    New tests, mirroring the established one-for-one pattern:
+    TicketApprovalRequiredEventMapperTest (9 cases — one more than
+    tool/workflow's own 6, covering all three exceptionType mappings plus
+    the null-fallback and unrecognized-value rejection);
+    TicketApprovalRequiredEventHandlerTest (3 cases);
+    TicketApprovalRequiredEventConsumerTest (4 cases);
+    TicketApprovalRequiredConsumerIT (4 cases — the usual
+    consume-and-create/redelivery-dedup/malformed-dead-letter trio plus a
+    dedicated aNullExceptionTypeCreatesAGenericTicketActionRequest case
+    proving the null-exceptionType fallback works against a real Postgres
+    instance, not just in-memory).
+
+    228/228 unit tests pass (./mvnw test, up from 212 after SPEC-PG-026 —
+    16 new tests total). Full verification (./mvnw verify, Docker
+    available) also passed: 264/264 total (228 unit + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7.
   lld_mapping:
     - 06-event-contracts
     - 04-use-cases
@@ -23,4 +78,6 @@ SPEC-PG-027:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/mapper/TicketApprovalRequiredEventMapperTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/TicketApprovalRequiredEventHandlerTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/TicketApprovalRequiredEventConsumerTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/messaging/consumer/TicketApprovalRequiredConsumerIT.java
+    result: "264 passed (./mvnw verify: 228 unit + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 22 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

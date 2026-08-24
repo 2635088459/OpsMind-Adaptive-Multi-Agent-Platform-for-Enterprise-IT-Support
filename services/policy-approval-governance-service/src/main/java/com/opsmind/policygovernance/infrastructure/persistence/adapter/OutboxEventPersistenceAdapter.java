@@ -6,9 +6,11 @@ import com.opsmind.policygovernance.infrastructure.persistence.jpa.repository.Sp
 import com.opsmind.policygovernance.infrastructure.persistence.mapper.OutboxEventMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Component
@@ -50,5 +52,30 @@ public class OutboxEventPersistenceAdapter implements OutboxEventRepository {
     @Override
     public long countPending() {
         return repository.countByStatus("PENDING");
+    }
+
+    @Override
+    public Optional<OutboxEventRecord> findById(String outboxId) {
+        return repository.findById(UUID.fromString(outboxId)).map(OutboxEventMapper::toDomain);
+    }
+
+    /**
+     * SPEC-PG-024: {@code @Modifying} custom queries need their own
+     * transactional boundary when invoked without one already open (unlike
+     * {@link #append}, which rides on {@code JpaRepository#save}'s own
+     * built-in transaction) — {@link
+     * com.opsmind.policygovernance.application.OutboxAdminService#requeue}
+     * already provides one in production, but this adapter should not
+     * depend on every future caller remembering to.
+     */
+    @Override
+    @Transactional
+    public void requeue(String outboxId, Instant availableAt) {
+        repository.requeue(UUID.fromString(outboxId), availableAt);
+    }
+
+    @Override
+    public List<OutboxEventRecord> findFailed() {
+        return repository.findByStatus("FAILED").stream().map(OutboxEventMapper::toDomain).toList();
     }
 }

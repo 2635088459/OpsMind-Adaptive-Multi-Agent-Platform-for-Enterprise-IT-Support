@@ -77,6 +77,102 @@ class PolicyAdminControllerSecurityTest {
             .andExpect(jsonPath("$.policyVersionId").value("pv-1"));
     }
 
+    /** SPEC-PG-018 (goal: "reviewer/publisher separation of duties" — extended to gate "draft" the same way "publish" already is). */
+    @Test
+    void rejectsAnAuthenticatedActorWithoutThePolicyDraftScope() throws Exception {
+        mockMvc.perform(post("/api/v1/policies:draft")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "author-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_policy:review")))
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftRequestBody()))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void allowsAnAuthenticatedActorWithThePolicyDraftScope() throws Exception {
+        when(policyAdminService.draft(any())).thenReturn(draftedVersionFixture());
+
+        mockMvc.perform(post("/api/v1/policies:draft")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "author-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_policy:draft")))
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(draftRequestBody()))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.policyVersionId").value("pv-1"));
+    }
+
+    @Test
+    void rejectsAnAuthenticatedActorWithoutThePolicyReviewScope() throws Exception {
+        mockMvc.perform(post("/api/v1/policy-versions/pv-1:review")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "reviewer-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_policy:draft")))
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void allowsAnAuthenticatedActorWithThePolicyReviewScope() throws Exception {
+        when(policyAdminService.review(anyString(), anyString(), anyString())).thenReturn(draftedVersionFixture());
+
+        mockMvc.perform(post("/api/v1/policy-versions/pv-1:review")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "reviewer-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_policy:review")))
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.policyVersionId").value("pv-1"));
+    }
+
+    /** SPEC-PG-020 (goal: "archive... states"), gated the same way every other named admin action is. */
+    @Test
+    void rejectsAnAuthenticatedActorWithoutThePolicyArchiveScope() throws Exception {
+        mockMvc.perform(post("/api/v1/policy-versions/pv-1:archive")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "actor-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_policy:deprecate")))
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isForbidden())
+            .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+    }
+
+    @Test
+    void allowsAnAuthenticatedActorWithThePolicyArchiveScope() throws Exception {
+        when(policyAdminService.archive(anyString(), anyString(), anyString())).thenReturn(archivedVersionFixture());
+
+        mockMvc.perform(post("/api/v1/policy-versions/pv-1:archive")
+                .with(jwt().jwt(jwt -> jwt.claim("sub", "actor-1"))
+                    .authorities(new SimpleGrantedAuthority("SCOPE_policy:archive")))
+                .header("X-Correlation-Id", "corr-1")
+                .contentType(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.policyVersionId").value("pv-1"));
+    }
+
+    private static PolicyVersion archivedVersionFixture() {
+        return publishedVersionFixture()
+            .transitionTo(PolicyStatus.DEPRECATED, "actor-1", null, Instant.now())
+            .transitionTo(PolicyStatus.ARCHIVED, "actor-1", null, Instant.now());
+    }
+
+    private static String draftRequestBody() {
+        return """
+            {
+              "policyId": "policy-1",
+              "policyName": "Test Policy",
+              "scope": "global"
+            }
+            """;
+    }
+
+    private static PolicyVersion draftedVersionFixture() {
+        return PolicyVersion.draft("pv-1", "policy-1", 1, List.of(), "author-1");
+    }
+
     private static PolicyVersion publishedVersionFixture() {
         return PolicyVersion.draft("pv-1", "policy-1", 1, List.of(), "author-1")
             .transitionTo(PolicyStatus.REVIEWING, "reviewer-1", null, Instant.now())

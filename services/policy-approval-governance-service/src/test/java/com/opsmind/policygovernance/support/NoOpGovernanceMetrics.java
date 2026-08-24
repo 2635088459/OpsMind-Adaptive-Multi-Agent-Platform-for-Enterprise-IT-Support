@@ -20,6 +20,10 @@ public class NoOpGovernanceMetrics implements GovernanceMetricsPort {
     }
 
     @Override
+    public void recordPolicyDegraded(DecisionEffect effect) {
+    }
+
+    @Override
     public void recordApprovalRequested(ApprovalType approvalType, RiskLevel riskLevel) {
     }
 
@@ -33,5 +37,9 @@ public class NoOpGovernanceMetrics implements GovernanceMetricsPort {
 
     @Override
     public void recordPolicyPublished() {
+    }
+
+    @Override
+    public void recordOverride(String action) {
     }
 }

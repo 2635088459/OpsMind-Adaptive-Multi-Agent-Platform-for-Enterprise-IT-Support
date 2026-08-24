@@ -28,7 +28,7 @@ public final class PolicyDecisionMapper {
             decision.workflowInstanceId(), decision.effect().name(), decision.riskLevel().name(),
             decision.approvalRequired(), decision.evaluationFailed(), JsonSupport.writeList(decision.constraints()),
             JsonSupport.writeList(decision.reasonCodes()), decision.policyId(), decision.policyVersion(),
-            decision.evaluatedAt(), decision.expiresAt()
+            decision.evaluatedAt(), decision.expiresAt(), decision.degraded()
         );
     }
 
@@ -40,7 +40,7 @@ public final class PolicyDecisionMapper {
             entity.getWorkflowInstanceId(), DecisionEffect.valueOf(entity.getEffect()), RiskLevel.valueOf(entity.getRiskLevel()),
             entity.isApprovalRequired(), entity.isEvaluationFailed(), JsonSupport.readList(entity.getConstraintsJson(), CONSTRAINTS_TYPE),
             JsonSupport.readList(entity.getReasonCodesJson(), REASON_CODES_TYPE), entity.getPolicyId(),
-            entity.getPolicyVersion(), entity.getCreatedAt(), entity.getExpiresAt()
+            entity.getPolicyVersion(), entity.getCreatedAt(), entity.getExpiresAt(), entity.isDegraded()
         );
     }
 }

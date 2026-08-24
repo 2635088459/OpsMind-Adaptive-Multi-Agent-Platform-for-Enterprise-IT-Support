@@ -37,4 +37,14 @@ public class PolicyVersionPersistenceAdapter implements PolicyVersionRepository 
             .max(Comparator.comparingInt(PolicyVersionJpaEntity::getVersionNumber))
             .map(PolicyVersionMapper::toDomain);
     }
+
+    @Override
+    public Optional<PolicyVersion> findLatestVersion(String policyId) {
+        return repository.findFirstByPolicyIdOrderByVersionNumberDesc(policyId).map(PolicyVersionMapper::toDomain);
+    }
+
+    @Override
+    public Optional<PolicyVersion> findByPolicyIdAndVersionNumber(String policyId, int versionNumber) {
+        return repository.findByPolicyIdAndVersionNumber(policyId, versionNumber).map(PolicyVersionMapper::toDomain);
+    }
 }

@@ -11,6 +11,10 @@ import java.util.Objects;
  * include idempotency key") — see {@code
  * domain.approval.ApprovalRequest#cancelCommandIdempotencyKey} for why it
  * lives on the request itself rather than on a decision row.
+ *
+ * <p>{@code causationId} is SPEC-PG-029's own addition — see {@link
+ * DecideApprovalCommand#causationId()}'s own javadoc for the same
+ * reasoning.
  */
 public record CancelApprovalCommand(
     String approvalRequestId,
@@ -19,7 +23,8 @@ public record CancelApprovalCommand(
     String cancelledBy,
     String reason,
     String correlationId,
-    String commandIdempotencyKey
+    String commandIdempotencyKey,
+    String causationId
 ) {
     public CancelApprovalCommand {
         Objects.requireNonNull(approvalRequestId, "approvalRequestId");

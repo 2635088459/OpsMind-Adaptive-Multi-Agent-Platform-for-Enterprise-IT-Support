@@ -22,5 +22,13 @@ public enum ReasonCode {
     REQUEST_EXPIRED,
     DUPLICATE_REQUEST,
     OVERRIDE_APPLIED,
-    CONSTRAINT_APPLIED
+    CONSTRAINT_APPLIED,
+    /**
+     * SPEC-PG-032 (10-failure-handling §Degraded Policy Mode: "low-risk
+     * read-only may use latest published policy cache"). Paired with
+     * {@link #EVALUATOR_UNAVAILABLE} on a degraded decision whose {@code
+     * effect} is {@code ALLOW} rather than the usual fail-closed {@code
+     * DENY} — explains why, not just that the evaluator was down.
+     */
+    DEGRADED_CACHE_FALLBACK
 }

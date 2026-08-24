@@ -5,11 +5,15 @@ import com.opsmind.policygovernance.api.dto.CancelApprovalRequest;
 import com.opsmind.policygovernance.api.dto.ConstraintDto;
 import com.opsmind.policygovernance.api.dto.DecideApprovalRequest;
 import com.opsmind.policygovernance.api.dto.RequestApprovalRequest;
+import com.opsmind.policygovernance.api.dto.RevokeOverrideRequest;
+import com.opsmind.policygovernance.api.dto.UseOverrideRequest;
 import com.opsmind.policygovernance.api.support.GovernanceRequestContext;
 import com.opsmind.policygovernance.application.ApprovalService;
 import com.opsmind.policygovernance.application.command.CancelApprovalCommand;
 import com.opsmind.policygovernance.application.command.DecideApprovalCommand;
 import com.opsmind.policygovernance.application.command.RequestApprovalCommand;
+import com.opsmind.policygovernance.application.command.RevokeOverrideCommand;
+import com.opsmind.policygovernance.application.command.UseOverrideCommand;
 import com.opsmind.policygovernance.domain.approval.ApprovalRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -83,10 +87,43 @@ public class ApprovalController {
         CancelApprovalCommand command = new CancelApprovalCommand(
             approvalRequestId, request.sourceRequestId(), request.requestHash(),
             GovernanceRequestContext.actorId(authentication), request.reason(),
-            GovernanceRequestContext.correlationId(httpRequest), request.commandIdempotencyKey()
+            GovernanceRequestContext.correlationId(httpRequest), request.commandIdempotencyKey(),
+            GovernanceRequestContext.causationId(httpRequest)
         );
         ApprovalRequest cancelled = approvalService.cancel(command);
         return ResponseEntity.ok(ApprovalRequestResponse.from(cancelled));
+    }
+
+    /** SPEC-PG-022 (04-use-cases §UC-PG-006): mark an approved {@code POLICY_OVERRIDE} request as actually exercised. */
+    @PostMapping("/api/v1/approval-requests/{approvalRequestId}:use")
+    public ResponseEntity<ApprovalRequestResponse> use(
+        @PathVariable String approvalRequestId, @Valid @RequestBody UseOverrideRequest request,
+        Authentication authentication, HttpServletRequest httpRequest
+    ) {
+        UseOverrideCommand command = new UseOverrideCommand(
+            approvalRequestId, request.sourceRequestId(), request.requestHash(),
+            GovernanceRequestContext.actorId(authentication), request.reason(),
+            GovernanceRequestContext.correlationId(httpRequest), request.commandIdempotencyKey(),
+            GovernanceRequestContext.causationId(httpRequest)
+        );
+        ApprovalRequest used = approvalService.use(command);
+        return ResponseEntity.ok(ApprovalRequestResponse.from(used));
+    }
+
+    /** SPEC-PG-022 (04-use-cases §UC-PG-006): withdraw an approved {@code POLICY_OVERRIDE} request before it is used. */
+    @PostMapping("/api/v1/approval-requests/{approvalRequestId}:revoke")
+    public ResponseEntity<ApprovalRequestResponse> revoke(
+        @PathVariable String approvalRequestId, @Valid @RequestBody RevokeOverrideRequest request,
+        Authentication authentication, HttpServletRequest httpRequest
+    ) {
+        RevokeOverrideCommand command = new RevokeOverrideCommand(
+            approvalRequestId, request.sourceRequestId(), request.requestHash(),
+            GovernanceRequestContext.actorId(authentication), request.reason(),
+            GovernanceRequestContext.correlationId(httpRequest), request.commandIdempotencyKey(),
+            GovernanceRequestContext.causationId(httpRequest)
+        );
+        ApprovalRequest revoked = approvalService.revoke(command);
+        return ResponseEntity.ok(ApprovalRequestResponse.from(revoked));
     }
 
     private DecideApprovalCommand decideCommand(
@@ -96,7 +133,8 @@ public class ApprovalController {
             approvalRequestId, request.sourceRequestId(), request.requestHash(),
             GovernanceRequestContext.actorId(authentication), request.reason(),
             toDomainConstraints(request.conditions()), GovernanceRequestContext.correlationId(httpRequest),
-            request.commandIdempotencyKey()
+            request.commandIdempotencyKey(), request.sessionId(), request.deviceId(), request.stepUpVerified(),
+            GovernanceRequestContext.causationId(httpRequest)
         );
     }
 

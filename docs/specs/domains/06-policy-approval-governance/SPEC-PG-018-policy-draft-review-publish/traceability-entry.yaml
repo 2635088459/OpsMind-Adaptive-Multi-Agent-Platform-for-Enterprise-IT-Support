@@ -2,15 +2,54 @@ SPEC-PG-018:
   domain: 06-policy-approval-governance
   name: Policy Draft Review Publish
   cn_name: Policy Draft/Review/Publish
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-04-policy-admin-and-versioning
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement policy draft, review, publish API and reviewer/publisher separation of
+    duties." The three APIs already existed since SPEC-PG-001 (PolicyAdminController#draft/review/
+    publish backed by PolicyAdminService, with the full DRAFT -> REVIEWING -> PUBLISHED state
+    machine and its illegal-transition guard already enforced by PolicyVersion). This spec's real,
+    incremental job was the two pieces of "reviewer/publisher separation of duties" that were not
+    yet true: RBAC differentiation across all three actions, and reviewer/publisher (not just
+    author/publisher) identity separation.
+
+    RBAC: SPEC-PG-014 had added @PreAuthorize("hasAuthority('SCOPE_policy:publish')") to :publish
+    only, deliberately deferring :draft/:review since 11-security's own Permission Model sentence
+    didn't name them. This spec's own goal explicitly lists all three actions, so
+    @PreAuthorize("hasAuthority('SCOPE_policy:draft')") and
+    @PreAuthorize("hasAuthority('SCOPE_policy:review')") were added to PolicyAdminController#draft/
+    review — completing the RBAC surface for every named policy-admin action.
+
+    Reviewer/publisher separation: PolicyAdminService#publish already refused the version's own
+    author (SPEC-PG-001) — this spec extended the same guard to the version's own reviewer:
+    publisherId.equals(version.reviewedBy()) is now also rejected. A review step the reviewer can
+    also publish is not a real second pair of eyes — the same reasoning the pre-existing author
+    guard already used, just not yet applied to the reviewer role the goal names by name.
+    PolicyPublishSeparationOfDutiesException's constructor now takes a conflictingRole parameter
+    ("author" or "reviewer") so the exception message names which relationship was violated instead
+    of assuming it was always the author; every call site (2, both in PolicyAdminService#publish)
+    updated. The 409 POLICY_PUBLISH_SEPARATION_OF_DUTIES mapping in GlobalRestExceptionHandler was
+    already generic enough to cover both cases unchanged.
+
+    Deliberately NOT added: "author cannot review their own draft" — 11-security's own text names
+    only "policy author publishing their own unreviewed policy," never a reviewer/author pairing;
+    inventing that rule would be scope creep beyond what either 11-security or this spec's own goal
+    sentence actually says.
+
+    New tests: PolicyAdminServiceTest gained theReviewerCannotPublishTheVersionTheyReviewed.
+    PolicyAdminControllerSecurityTest (created by SPEC-PG-014 for :publish only) gained 4 new cases
+    covering :draft and :review the same way — reject without the scope, allow with it — making
+    every PolicyAdminController endpoint's RBAC gate now verified through the real Spring Security
+    filter chain, not just PolicyAdminService's own business-rule checks.
+
+    Implemented together with SPEC-PG-019 in the same pass (both touch PolicyAdminService/
+    PolicyVersion and share test fixtures) — see that spec's own entry for its own, separate
+    changes (draft's version-numbering fix). 136/136 unit tests pass (./mvnw test, up from 129
+    after SPEC-PG-017 — shared tally with SPEC-PG-019, 7 new tests total). Full verification
+    (./mvnw verify, Docker available) also passed: 154/154 total (136 unit + 4 GovernanceOutboxIT +
+    14 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration). BUILD SUCCESS.
   lld_mapping:
     - 03-state-machine
     - 05-api-contracts
@@ -24,4 +63,6 @@ SPEC-PG-018:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyAdminServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/api/PolicyAdminControllerSecurityTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "154 passed (./mvnw verify: 136 unit + 4 GovernanceOutboxIT + 14 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration; shared tally with SPEC-PG-019), BUILD SUCCESS"

@@ -1,0 +1,21 @@
+SPEC-UA-017:
+  domain: 01-user-access-authentication
+  name: Step Up Challenge Lifecycle
+  cn_name: Step-Up Challenge 生命周期
+  status: planned
+  service: user-access-authentication-service
+  phase: phase-04-authentication-assurance-step-up
+  tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
+  lld_mapping:
+    - 03-state-machine
+    - 04-use-cases
+  forbidden:
+    - credential_storage
+    - custom_oidc_or_mfa_protocol
+    - client_forged_role_headers
+    - direct_cross_domain_state_write
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    result: pending

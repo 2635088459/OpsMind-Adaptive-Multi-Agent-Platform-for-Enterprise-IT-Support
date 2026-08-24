@@ -48,13 +48,32 @@ public class GovernanceAuditRecordJpaEntity {
     @Column(name = "recorded_at", nullable = false)
     private Instant recordedAt;
 
+    /** SPEC-PG-017: null only for the very first record this service ever appends — see the domain type's own javadoc. */
+    @Column(name = "previous_hash")
+    private String previousHash;
+
+    /** SPEC-PG-030: nullable — see {@code domain.audit.GovernanceAuditRecord}'s own javadoc for why only actions that genuinely have one set it. */
+    @Column(name = "ticket_id")
+    private String ticketId;
+
+    @Column(name = "approval_request_id")
+    private String approvalRequestId;
+
+    @Column(name = "policy_decision_id")
+    private String policyDecisionId;
+
+    /** SPEC-PG-031: nullable — {@code null} until a retention run archives this record. */
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     protected GovernanceAuditRecordJpaEntity() {
     }
 
     public GovernanceAuditRecordJpaEntity(
         String auditRecordId, String action, String actorId, String sourceDomain, String sourceRequestId,
         String policyId, String policyVersion, String reason, String correlationId, String causationId,
-        String integrityHash, Instant recordedAt
+        String integrityHash, Instant recordedAt, String previousHash,
+        String ticketId, String approvalRequestId, String policyDecisionId, Instant archivedAt
     ) {
         this.auditRecordId = auditRecordId;
         this.action = action;
@@ -68,6 +87,11 @@ public class GovernanceAuditRecordJpaEntity {
         this.causationId = causationId;
         this.integrityHash = integrityHash;
         this.recordedAt = recordedAt;
+        this.previousHash = previousHash;
+        this.ticketId = ticketId;
+        this.approvalRequestId = approvalRequestId;
+        this.policyDecisionId = policyDecisionId;
+        this.archivedAt = archivedAt;
     }
 
     public String getAuditRecordId() {
@@ -116,5 +140,25 @@ public class GovernanceAuditRecordJpaEntity {
 
     public Instant getRecordedAt() {
         return recordedAt;
+    }
+
+    public String getPreviousHash() {
+        return previousHash;
+    }
+
+    public String getTicketId() {
+        return ticketId;
+    }
+
+    public String getApprovalRequestId() {
+        return approvalRequestId;
+    }
+
+    public String getPolicyDecisionId() {
+        return policyDecisionId;
+    }
+
+    public Instant getArchivedAt() {
+        return archivedAt;
     }
 }

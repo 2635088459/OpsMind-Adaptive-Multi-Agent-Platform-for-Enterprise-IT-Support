@@ -6,6 +6,7 @@ import com.opsmind.policygovernance.infrastructure.persistence.jpa.repository.Sp
 import com.opsmind.policygovernance.infrastructure.persistence.mapper.PolicyMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -26,5 +27,10 @@ public class PolicyPersistenceAdapter implements PolicyRepository {
     @Override
     public Optional<Policy> findById(String policyId) {
         return repository.findById(policyId).map(PolicyMapper::toDomain);
+    }
+
+    @Override
+    public List<Policy> findAll() {
+        return repository.findAll().stream().map(PolicyMapper::toDomain).toList();
     }
 }

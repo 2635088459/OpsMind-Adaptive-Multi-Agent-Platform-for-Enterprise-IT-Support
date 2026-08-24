@@ -2,15 +2,54 @@ SPEC-PG-021:
   domain: 06-policy-approval-governance
   name: Policy Cache Refresh Contract
   cn_name: Policy Cache Refresh Contract
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-04-policy-admin-and-versioning
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "cache refresh contract, degraded-mode decisions are flagged." The one real gap was the
+    second half: PolicyDecisionService gave callers no way to distinguish a decision made against a
+    healthy rule evaluator from one made under failSafeDecision's fail-closed fallback (SPEC-PG-008's
+    EVALUATOR_UNAVAILABLE path) — both looked identical in the response, the audit trail, and the
+    structured log.
+
+    Added PolicyDecision#degraded (boolean, new last record component; new migration V020
+    boolean NOT NULL DEFAULT false column on policy_decisions). evaluateAgainst (the normal path,
+    evaluator ran successfully) always persists degraded=false. failSafeDecision now sets
+    degraded = (reasonCode == ReasonCode.EVALUATOR_UNAVAILABLE) rather than unconditionally false —
+    a fail-safe DENY caused by "no effective PUBLISHED policy version exists" is an ordinary policy
+    outcome (nothing published yet, or nothing matches), not degraded evaluator health, and stays
+    degraded=false; only the evaluator actually throwing counts as degraded. The audit reason text
+    appends "(degraded=true)" when set, and the structured decision-evaluated log gains a degraded
+    key-value, so both the audit trail and observability surface it, not just the API response.
+
+    Deliberately NOT built: a push-based cache-invalidation event or admin endpoint.
+    PolicyDecisionService re-reads PolicyVersionRepository on every evaluate() call — this service
+    holds no in-memory policy cache of its own, so there is nothing here to invalidate. Re-reading
+    06-event-contracts and 10-failure-handling confirms "cache refresh contract" describes the
+    contract a caller (e.g. an API gateway or the requesting domain service) should honor when it
+    caches this service's decision responses — bounded TTL, refresh on policy.published/superseded
+    events — not a cache this service itself owns. Building an internal cache layer nothing in the
+    LLD calls for would be scope creep, not a real gap; the genuinely missing, spec-named signal was
+    the degraded flag, which is now real end to end (domain record -> JPA column -> API response ->
+    audit trail -> structured log).
+
+    Implemented together with SPEC-PG-020 in the same pass (both close out Phase 04) — see that
+    spec's own entry for its own, separate changes (archive/supersede transitions,
+    policy.published.v1 event). Fixed all existing PolicyDecision constructor call sites for the new
+    trailing degraded parameter (PolicyDecisionControllerTest, PolicyDecisionTest,
+    GovernancePersistenceIT's policyDecision() fixture helper). New/updated tests:
+    PolicyDecisionServiceTest gained degraded() assertions on
+    deniesFailSafeWhenNoEffectivePolicyVersionExists (false),
+    evaluatesAgainstTheEffectivePublishedVersion (false), and
+    failClosesAndPersistsDecisionWhenEvaluatorThrows (true); GovernancePersistenceIT gained
+    policyDecisionDegradedFlagRoundTripsThroughPostgres, confirming the column round-trips through a
+    real Postgres instance.
+
+    144/144 unit tests pass (./mvnw test, up from 136 after SPEC-PG-018/019 — shared tally with
+    SPEC-PG-020, 8 new tests total). Full verification (./mvnw verify, Docker available) also
+    passed: 163/163 total (144 unit + 4 GovernanceOutboxIT + 15 GovernancePersistenceIT
+    Testcontainers Postgres/RabbitMQ integration). BUILD SUCCESS.
   lld_mapping:
     - 06-event-contracts
     - 10-failure-handling
@@ -23,4 +62,6 @@ SPEC-PG-021:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyDecisionServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/decision/PolicyDecisionTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "163 passed (./mvnw verify: 144 unit + 4 GovernanceOutboxIT + 15 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration; shared tally with SPEC-PG-020), BUILD SUCCESS"

@@ -2,15 +2,61 @@ SPEC-PG-019:
   domain: 06-policy-approval-governance
   name: Policy Version Immutability
   cn_name: Policy Version 不可变
-  status: planned
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-04-policy-admin-and-versioning
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Ensure published policy versions are immutable and rule fixes require new versions."
+    The first half was already fully true and tested since SPEC-PG-001: PolicyVersion#withRules
+    throws PolicyVersionImmutableException once status is PUBLISHED (INV-PG-006), the full
+    DRAFT -> REVIEWING -> PUBLISHED -> DEPRECATED -> ARCHIVED / DRAFT -> CANCELLED /
+    REVIEWING -> REJECTED -> DRAFT / PUBLISHED -> SUPERSEDED state machine was already enforced via
+    PolicyVersion's own ALLOWED_TRANSITIONS map, and PolicyVersionTest already covered all of it
+    (followsTheDeclaredStateMachine, rejectsSkippingReview, rejectsTransitionsOutOfATerminalStatus,
+    publishedVersionRulesAreImmutable, draftRulesCanStillBeReplaced) — none of this needed
+    re-implementing, only confirming.
+
+    The second half — "rule fixes require new versions" — had no real implementation:
+    PolicyAdminService#draft hardcoded every new policy version to 1 (its own pre-existing comment
+    said so explicitly: "a single draft per policyId, always version 1... owned by phase-04's
+    policy admin specs"), so a policy that already had a PUBLISHED version had no way to ever get a
+    second one — exactly the scenario INV-PG-006 exists to force. Added
+    PolicyVersionRepository#findLatestVersion(policyId) (the highest version number a policy has,
+    regardless of that version's own status — DRAFT/REVIEWING/PUBLISHED/etc. all count, since two
+    versions can never share a number either way); PolicyAdminService#draft now computes the next
+    version as latest + 1, falling back to 1 only when the policy has no version yet. Implemented
+    across the full port/adapter/test-double stack: SpringDataPolicyVersionJpaRepository gained
+    findFirstByPolicyIdOrderByVersionNumberDesc, PolicyVersionPersistenceAdapter and
+    InMemoryPolicyVersionRepository both implement the new port method.
+
+    No schema or API change was needed: uq_policy_versions_policy_version (policy_id,
+    version_number) was already enforcing "never reuse a version number" at the database level
+    since the SPEC-PG-002 schema baseline — this spec's own gap was purely that the application
+    layer never asked for any number past 1, not that the database would have allowed it to.
+    POST /policies:draft already accepted a policyId for an existing policy (it just mis-numbered
+    the result); no request/response shape changed.
+
+    Deliberately NOT touched: whether a new draft should be blocked while an older version of the
+    same policy is still DRAFT/REVIEWING (one-active-draft-at-a-time) — nothing in
+    02-business-invariants or this spec's own acceptance criteria names that constraint, so
+    concurrent in-flight drafts remain allowed rather than inventing a restriction; and whether
+    publishing a new version should automatically move the previous PUBLISHED version to SUPERSEDED
+    — that belongs to SPEC-PG-020 (Policy Deprecate Supersede Archive) by name.
+
+    Implemented together with SPEC-PG-018 in the same pass (both touch PolicyAdminService/
+    PolicyVersion and share test fixtures) — see that spec's own entry for its own, separate
+    changes (draft/review RBAC, reviewer/publisher separation of duties). New tests:
+    PolicyAdminServiceTest gained draftingAgainAfterAPublishedVersionIncrementsTheVersionNumber and
+    aBrandNewPolicyIdStartsAtVersionOne; a new
+    policyVersionFindLatestVersionReturnsTheHighestNumberedVersionRegardlessOfStatus case in
+    GovernancePersistenceIT exercises the new query against a real Postgres instance and confirms
+    the unique constraint still rejects a duplicate version number.
+
+    136/136 unit tests pass (./mvnw test, up from 129 after SPEC-PG-017 — shared tally with
+    SPEC-PG-018, 7 new tests total). Full verification (./mvnw verify, Docker available) also
+    passed: 154/154 total (136 unit + 4 GovernanceOutboxIT + 14 GovernancePersistenceIT
+    Testcontainers Postgres/RabbitMQ integration). BUILD SUCCESS.
   lld_mapping:
     - 02-business-invariants
     - 07-data-model
@@ -23,4 +69,6 @@ SPEC-PG-019:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/PolicyAdminServiceTest.java, services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/domain/policy/PolicyVersionTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "154 passed (./mvnw verify: 136 unit + 4 GovernanceOutboxIT + 14 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration; shared tally with SPEC-PG-018), BUILD SUCCESS"

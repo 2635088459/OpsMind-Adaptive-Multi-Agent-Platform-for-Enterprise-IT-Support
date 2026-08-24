@@ -8,7 +8,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-/** Input to {@code ApprovalService.request} (04-use-cases §UC-PG-002). */
+/**
+ * Input to {@code ApprovalService.request} (04-use-cases §UC-PG-002). When
+ * {@code approvalType == POLICY_OVERRIDE}, {@code ApprovalService#request}
+ * additionally requires a non-null {@code expiresAt} and at least one
+ * {@code constraint} — see {@code InvalidOverrideRequestException} and
+ * UC-PG-006 (04-use-cases §High-Risk Override).
+ */
 public record RequestApprovalCommand(
     String requestKey,
     String requestHash,

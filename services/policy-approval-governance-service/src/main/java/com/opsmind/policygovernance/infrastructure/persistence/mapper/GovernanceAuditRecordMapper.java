@@ -12,7 +12,9 @@ public final class GovernanceAuditRecordMapper {
         return new GovernanceAuditRecordJpaEntity(
             record.auditRecordId(), record.action().name(), record.actorId(), record.sourceDomain(),
             record.sourceRequestId(), record.policyId(), record.policyVersion(), record.reason(),
-            record.correlationId(), record.causationId(), record.integrityHash(), record.recordedAt()
+            record.correlationId(), record.causationId(), record.integrityHash(), record.recordedAt(),
+            record.previousHash(), record.ticketId(), record.approvalRequestId(), record.policyDecisionId(),
+            record.archivedAt()
         );
     }
 
@@ -21,7 +23,8 @@ public final class GovernanceAuditRecordMapper {
             entity.getAuditRecordId(), GovernanceAuditRecord.Action.valueOf(entity.getAction()), entity.getActorId(),
             entity.getSourceDomain(), entity.getSourceRequestId(), entity.getPolicyId(), entity.getPolicyVersion(),
             entity.getReason(), entity.getCorrelationId(), entity.getCausationId(), entity.getIntegrityHash(),
-            entity.getRecordedAt()
+            entity.getRecordedAt(), entity.getPreviousHash(), entity.getTicketId(), entity.getApprovalRequestId(),
+            entity.getPolicyDecisionId(), entity.getArchivedAt()
         );
     }
 }

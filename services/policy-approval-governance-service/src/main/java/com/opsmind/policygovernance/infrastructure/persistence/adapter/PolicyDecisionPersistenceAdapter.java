@@ -6,6 +6,7 @@ import com.opsmind.policygovernance.infrastructure.persistence.jpa.repository.Sp
 import com.opsmind.policygovernance.infrastructure.persistence.mapper.PolicyDecisionMapper;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -31,5 +32,10 @@ public class PolicyDecisionPersistenceAdapter implements PolicyDecisionRepositor
     @Override
     public Optional<PolicyDecision> findByDecisionKey(String decisionKey) {
         return repository.findFirstByDecisionKeyOrderByCreatedAtAsc(decisionKey).map(PolicyDecisionMapper::toDomain);
+    }
+
+    @Override
+    public List<PolicyDecision> findEvaluationFailed() {
+        return repository.findByEvaluationFailedTrue().stream().map(PolicyDecisionMapper::toDomain).toList();
     }
 }

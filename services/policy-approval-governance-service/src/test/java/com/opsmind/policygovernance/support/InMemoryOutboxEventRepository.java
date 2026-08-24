@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Fast, in-process test double for {@link OutboxEventRepository} — see {@link InMemoryPolicyRepository}. */
 public class InMemoryOutboxEventRepository implements OutboxEventRepository {
@@ -56,6 +57,24 @@ public class InMemoryOutboxEventRepository implements OutboxEventRepository {
     @Override
     public long countPending() {
         return byId.values().stream().filter(r -> r.status() == OutboxEventStatus.PENDING).count();
+    }
+
+    @Override
+    public Optional<OutboxEventRecord> findById(String outboxId) {
+        return Optional.ofNullable(byId.get(outboxId));
+    }
+
+    @Override
+    public void requeue(String outboxId, Instant availableAt) {
+        replace(outboxId, r -> new OutboxEventRecord(
+            r.outboxId(), r.aggregateType(), r.aggregateId(), r.eventType(), r.eventVersion(), r.payloadJson(),
+            r.correlationId(), r.causationId(), OutboxEventStatus.PENDING, 0, availableAt, r.publishedAt(), r.occurredAt()
+        ));
+    }
+
+    @Override
+    public List<OutboxEventRecord> findFailed() {
+        return byId.values().stream().filter(r -> r.status() == OutboxEventStatus.FAILED).toList();
     }
 
     public List<OutboxEventRecord> all() {

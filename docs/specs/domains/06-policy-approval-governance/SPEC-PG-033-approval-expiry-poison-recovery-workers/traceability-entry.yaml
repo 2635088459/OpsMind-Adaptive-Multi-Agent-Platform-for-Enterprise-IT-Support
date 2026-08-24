@@ -1,16 +1,97 @@
 SPEC-PG-033:
   domain: 06-policy-approval-governance
   name: Approval Expiry Poison Recovery Workers
-  cn_name: Approval Expiry、Poison 与 Recovery Workers
-  status: planned
+  cn_name: Approval Expiry Poison Recovery Workers
+  status: implemented
   service: policy-approval-governance-service
   phase: phase-08-failure-recovery-degraded-mode
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Web MVC / Spring Security / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java"
   implementation_notes: >
-    Planned spec generated from 06 Policy Approval Governance LLD. Implementation must keep
-    governance facts separate from Ticket, Workflow, Tool Execution, and Memory state; persist
-    policy version/input hash/reason codes/constraints; enforce approver authorization and
-    separation of duties; and publish approval/policy events through transactional outbox.
+    Goal: "Implement expiry, poison decision review, outbox replay, and
+    startup recovery workers." An audit against 10-failure-handling
+    §Poison Decision and §Recovery found two goal items already fully
+    built, one confirmed true by construction, and two genuine gaps.
+
+    Already done, confirmed not rebuilt: "expiry" (ApprovalExpiryService/
+    ApprovalExpiryController, SPEC-PG-012) and "outbox replay"
+    (OutboxAdminService#dispatchPending/OutboxAdminController,
+    SPEC-PG-024). Of §Poison Decision's four named triggers, two were
+    already fully covered ("outbox publish repeatedly fails" — dead-letter
+    + admin requeue, SPEC-PG-024; "approval payload does not match source
+    linkage" — ApprovalRequestMismatchException on every
+    grant/deny/cancel/use/revoke, SPEC-PG-003/009) and one is true by
+    construction, not by any explicit check: "policy rule is incompatible
+    with schema" cannot occur, since PolicyRuleDto/RuleConditionDto are
+    typed Java request DTOs — Jackson rejects anything not matching that
+    shape with a 400 before it ever reaches the domain, so there is no
+    free-form rule format that could ever be "incompatible."
+
+    The two real gaps, both never built before this spec: "poison decision
+    review" (§Poison Decision's own remaining trigger, "same request
+    repeatedly crashes evaluator") and "startup recovery workers"
+    (§Recovery's own ordered 5-step sequence, never orchestrated as one
+    thing — only steps 1/2 existed as separate admin actions). Added
+    PolicyDecisionRepository#findEvaluationFailed
+    (PolicyDecisionService#findPoisonDecisions) and
+    OutboxEventRepository#findFailed — both pure review/report surfaces,
+    never a repair action: decisions are immutable (01-domain-model) and a
+    poison outbox row still requires a deliberate, accountable
+    OutboxAdminService#requeue per row (SPEC-PG-024's own design) — bulk
+    auto-fixing either would defeat the point of "review."
+
+    New RecoveryService#runRecovery orchestrates the LLD's own ordered
+    sequence in one call: step 1 (OutboxDispatchService#publishPending) and
+    step 2 (ApprovalExpiryService#expireDue) are reused, not reimplemented;
+    step 3 ("check policy version consistency") is new —
+    checkPolicyVersionConsistency walks every Policy (new
+    PolicyRepository#findAll) and flags a currentPublishedVersion pointer
+    that either does not resolve to a real PolicyVersion row or resolves
+    to one whose own status is no longer PUBLISHED, the first time
+    SPEC-PG-020's own publish/supersede bookkeeping has ever been verified
+    back (the same "write-time invariant, never read-verified" gap
+    SPEC-PG-031's chain verification closed for the hash chain); step 4
+    ("reschedule poison review") surfaces the poison-decision and
+    dead-lettered-outbox counts/ids above.
+
+    Step 5 ("restore evaluator cache") is deliberately NOT built: no
+    evaluator cache exists anywhere in this codebase — RuleEvaluatorPort is
+    stateless and PolicyVersionRepository#findEffectiveVersion is always
+    fetched fresh from Postgres (09-concurrency-and-idempotency §Policy
+    Version Race relies on exactly this) — so there is nothing to restore,
+    and inventing a new caching layer this codebase has never had, for one
+    LLD word, would be scope creep.
+
+    New RecoveryController: POST /api/v1/admin/recovery:run (no
+    @PreAuthorize scope, mirroring OutboxAdminController's own precedent
+    for this category of admin/deployment-triggered maintenance endpoint —
+    "on service startup" is satisfied the same way every other recovery
+    piece in this codebase already is, an external deployment
+    script/orchestrator calling an admin endpoint once at boot, not a new
+    ApplicationRunner pattern this codebase has never used) and GET
+    /api/v1/admin/recovery/poison-decisions (SCOPE_governance:audit:read,
+    since a PolicyDecision is exactly the kind of governance fact that
+    scope already gates).
+
+    New tests: RecoveryServiceTest (new file) gained 8 cases (outbox
+    dispatch/approval expiry delegation, policy-version-consistency
+    clean/missing-version/wrong-status/never-published, poison decision
+    count, dead-lettered outbox ids); PolicyDecisionServiceTest gained 1
+    (findPoisonDecisions returns only genuinely evaluationFailed
+    decisions); new RecoveryControllerSecurityTest gained 5 (both
+    endpoints' authentication/scope requirements); GovernancePersistenceIT
+    gained 3 round-tripping findEvaluationFailed/findAll/findFailed through
+    real Postgres columns.
+
+    284/284 unit tests pass (./mvnw test, up from 270 after SPEC-PG-032).
+    Full verification (./mvnw verify, Docker available) also passed:
+    328/328 total (284 unit + 3 PolicyEvaluationRequestedConsumerIT + 4
+    TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3
+    WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 27
+    GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration).
+    BUILD SUCCESS. ArchUnit LayerDependencyTest 7/7. No schema change —
+    every new port method reuses existing columns
+    (policy_decisions.evaluation_failed, outbox_events.status, policies),
+    so no new Flyway migration was needed (still V001-V025).
   lld_mapping:
     - 10-failure-handling
     - 08-transaction-and-outbox
@@ -23,4 +104,6 @@ SPEC-PG-033:
     - separation_of_duties_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    status: pending
+    unit: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/application/RecoveryServiceTest.java
+    integration: services/policy-approval-governance-service/src/test/java/com/opsmind/policygovernance/infrastructure/persistence/GovernancePersistenceIT.java
+    result: "328 passed (./mvnw verify: 284 unit + 3 PolicyEvaluationRequestedConsumerIT + 4 TicketApprovalRequiredConsumerIT + 3 ToolApprovalRequiredConsumerIT + 3 WorkflowApprovalRequiredConsumerIT + 4 GovernanceOutboxIT + 27 GovernancePersistenceIT Testcontainers Postgres/RabbitMQ integration), BUILD SUCCESS"

@@ -85,6 +85,10 @@ public class PolicyDecisionJpaEntity {
     @Column(name = "expires_at")
     private Instant expiresAt;
 
+    /** SPEC-PG-021: true only when an effective version existed but the evaluator itself threw — see the domain type's own javadoc. */
+    @Column(name = "degraded", nullable = false)
+    private boolean degraded;
+
     protected PolicyDecisionJpaEntity() {
     }
 
@@ -93,7 +97,7 @@ public class PolicyDecisionJpaEntity {
         String actionType, String resourceType, String resourceId, String tenantId, String sourceDomain,
         String sourceRequestId, String ticketId, String workflowInstanceId, String effect, String riskLevel,
         boolean approvalRequired, boolean evaluationFailed, String constraintsJson, String reasonCodesJson, String policyId,
-        String policyVersion, Instant createdAt, Instant expiresAt
+        String policyVersion, Instant createdAt, Instant expiresAt, boolean degraded
     ) {
         this.policyDecisionId = policyDecisionId;
         this.decisionKey = decisionKey;
@@ -118,6 +122,7 @@ public class PolicyDecisionJpaEntity {
         this.policyVersion = policyVersion;
         this.createdAt = createdAt;
         this.expiresAt = expiresAt;
+        this.degraded = degraded;
     }
 
     public String getPolicyDecisionId() {
@@ -210,5 +215,9 @@ public class PolicyDecisionJpaEntity {
 
     public Instant getExpiresAt() {
         return expiresAt;
+    }
+
+    public boolean isDegraded() {
+        return degraded;
     }
 }

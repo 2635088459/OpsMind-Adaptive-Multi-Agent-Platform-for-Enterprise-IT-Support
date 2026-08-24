@@ -3,6 +3,7 @@ package com.opsmind.policygovernance.support;
 import com.opsmind.policygovernance.application.port.PolicyRepository;
 import com.opsmind.policygovernance.domain.policy.Policy;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,5 +27,10 @@ public class InMemoryPolicyRepository implements PolicyRepository {
     @Override
     public Optional<Policy> findById(String policyId) {
         return Optional.ofNullable(byId.get(policyId));
+    }
+
+    @Override
+    public List<Policy> findAll() {
+        return List.copyOf(byId.values());
     }
 }

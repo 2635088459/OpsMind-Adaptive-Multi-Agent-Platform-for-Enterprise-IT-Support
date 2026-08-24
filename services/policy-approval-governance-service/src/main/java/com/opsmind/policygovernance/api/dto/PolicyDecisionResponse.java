@@ -31,7 +31,9 @@ public record PolicyDecisionResponse(
     String policyId,
     String policyVersion,
     Instant evaluatedAt,
-    Instant expiresAt
+    Instant expiresAt,
+    /** SPEC-PG-021 (10-failure-handling §Degraded Policy Mode): true only when an effective version existed but the evaluator itself threw. */
+    boolean degraded
 ) {
 
     public static PolicyDecisionResponse from(PolicyDecision decision) {
@@ -41,7 +43,7 @@ public record PolicyDecisionResponse(
             decision.effect(), decision.riskLevel(), decision.approvalRequired(), decision.evaluationFailed(),
             decision.constraints().stream().map(ConstraintDto::from).toList(),
             decision.reasonCodes(), decision.policyId(), decision.policyVersion(),
-            decision.evaluatedAt(), decision.expiresAt()
+            decision.evaluatedAt(), decision.expiresAt(), decision.degraded()
         );
     }
 }

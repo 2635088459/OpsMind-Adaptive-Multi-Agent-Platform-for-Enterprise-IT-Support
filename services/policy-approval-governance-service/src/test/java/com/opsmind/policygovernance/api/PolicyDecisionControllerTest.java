@@ -68,6 +68,7 @@ class PolicyDecisionControllerTest {
         assertThat(command.workflowInstanceId()).isEqualTo("wf-123");
         assertThat(command.correlationId()).isEqualTo("corr-1");
         assertThat(command.causationId()).isEqualTo("cause-1");
+        assertThat(command.readOnly()).as("SPEC-PG-032: readOnly must flow from the request body through to the command").isTrue();
     }
 
     @Test
@@ -125,6 +126,7 @@ class PolicyDecisionControllerTest {
               "subjectType": "AGENT",
               "subjectId": "triage-agent",
               "actionType": "TOOL_EXECUTE",
+              "readOnly": true,
               "resourceType": "TOOL_CAPABILITY",
               "resourceId": "kubernetes.restartDeployment",
               "tenantId": "tenant-1",
@@ -144,7 +146,7 @@ class PolicyDecisionControllerTest {
             "tool-gateway", "trq-123", "ticket-123", "wf-123",
             DecisionEffect.REQUIRE_APPROVAL, RiskLevel.HIGH, true, false,
             List.of(), List.of(ReasonCode.HIGH_RISK_REQUIRES_APPROVAL),
-            "policy-1", "4", Instant.parse("2026-01-01T00:00:00Z"), null
+            "policy-1", "4", Instant.parse("2026-01-01T00:00:00Z"), null, false
         );
     }
 

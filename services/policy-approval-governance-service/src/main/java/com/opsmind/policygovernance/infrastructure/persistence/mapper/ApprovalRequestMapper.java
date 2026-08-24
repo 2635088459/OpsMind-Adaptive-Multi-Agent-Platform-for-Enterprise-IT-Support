@@ -24,7 +24,8 @@ public final class ApprovalRequestMapper {
             request.sourceRequestId(), request.ticketId(), request.workflowInstanceId(), request.toolRequestId(), request.executorId(),
             request.policyDecisionId(), null, request.requestedBy(), request.approvalType().name(), request.riskLevel().name(),
             JsonSupport.writeList(request.constraints()), request.status().name(), request.expiresAt(),
-            request.createdAt(), request.updatedAt(), request.cancelCommandIdempotencyKey()
+            request.createdAt(), request.updatedAt(), request.cancelCommandIdempotencyKey(),
+            request.usedCommandIdempotencyKey(), request.revokedCommandIdempotencyKey()
         );
     }
 
@@ -35,7 +36,7 @@ public final class ApprovalRequestMapper {
             entity.getPolicyDecisionId(), entity.getRequestedById(), ApprovalType.valueOf(entity.getApprovalType()),
             RiskLevel.valueOf(entity.getRiskLevel()), JsonSupport.readList(entity.getConstraintsJson(), CONSTRAINTS_TYPE),
             ApprovalStatus.valueOf(entity.getStatus()), entity.getExpiresAt(), entity.getCreatedAt(), entity.getUpdatedAt(),
-            entity.getCancelCommandIdempotencyKey()
+            entity.getCancelCommandIdempotencyKey(), entity.getUsedCommandIdempotencyKey(), entity.getRevokedCommandIdempotencyKey()
         );
     }
 }
