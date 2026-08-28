@@ -1,0 +1,48 @@
+SPEC-EI-010:
+  domain: 07-evaluation-improvement
+  name: Run Create Cancel Query Api
+  cn_name: Run Create/Cancel/Query API
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-02-benchmark-run-and-runner
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    "实现 run 创建、查询、取消 API，支持 runKey 幂等和状态可见性" — create/find/cancel/find-scores
+    already existed (SPEC-EI-001), and runKey idempotency on CREATE already worked
+    (a resubmission with the same runKey/dataset/target returns the existing run).
+    Two real gaps against this spec's own narrower "run API idempotency" scope: (1)
+    `cancel_run()` was NOT idempotent — a resubmitted cancel against an
+    already-CANCELLED run raised `InvalidStateTransitionException` instead of
+    returning the same run, unlike create_run()'s own runKey idempotency; (2) no
+    `list_runs`/query-by-dataset capability existed at all despite "状态可见性" (state
+    visibility) being named directly in this spec's own goal statement. Closed: (1)
+    `cancel_run()` now short-circuits and returns the current view when the run is
+    already CANCELLED — any OTHER terminal status (PASSED/FAILED/PARTIAL) still
+    refuses via the domain's own state machine, since those are genuinely final
+    outcomes a cancel can never undo; (2) new `RunQueryUseCase.list_runs(datasetId,
+    status, limit)` (+ `GET /evaluation/runs?dataset_id=&status=`) backed by a new
+    `EvaluationRunRepository.find_by_dataset()` (both in-memory and Postgres, the
+    latter with a real SQL WHERE filter, newest-first). Read-endpoint RBAC/tenant
+    scope (the SPEC-EI-008 precedent) was deliberately NOT extended to the Run API
+    here — this spec's own text scopes it to "run API idempotency," and access
+    control for reads is a genuinely separate concern this spec never named. No new
+    migration — reuses columns SPEC-EI-002 already created.
+  lld_mapping:
+    - 05-api-contracts
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application/test_create_run_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "129 passed total (110 non-integration + 19 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings — full suite after SPEC-EI-005 through SPEC-EI-010"

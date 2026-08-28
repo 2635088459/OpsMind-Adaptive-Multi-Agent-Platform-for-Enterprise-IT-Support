@@ -2,7 +2,7 @@ SPEC-UA-026:
   domain: 01-user-access-authentication
   name: Ticket Workflow Authorization Contract
   cn_name: Ticket Workflow 授权契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-06-cross-domain-identity-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,44 @@ SPEC-UA-026:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Neither named LLD section claims this spec in its own footer -- same
+      per-spec-doc mismatch class as its phase-06 sibling SPEC-UA-025;
+      14-testing-strategy is the real, unnamed owner. Second spec of
+      phase-06 (workload identity, one calling domain's own real service
+      at a time) -- SPEC-UA-025 already built the sibling for domain 06.
+
+      Checked ticket-workflow-service's own real code first (mirrors
+      SPEC-UA-021/025's own discipline): its own 05-api-contracts (§4.1)
+      documents that its Internal APIs (API-017..022, e.g. POST
+      /internal/v1/tickets/{id}/triage/start) "use OAuth 2.0 client
+      credentials and service-specific scopes" -- a genuine, real
+      client-credentials-shaped workload identity for this domain,
+      distinct from SPEC-UA-021's own human-actor "ticket submission
+      principal" contract (a browser-originated JWT). Also checked
+      SupportAgentDirectoryPort's own javadoc, which explicitly documents
+      "no external identity/directory service exists anywhere in this
+      codebase" for support-agent resolution -- a self-documented real gap
+      correctly left alone rather than inventing a contract around it.
+
+      Deliberately did NOT repeat SPEC-UA-025's own three tests verbatim
+      with a different service name (padding) -- built
+      TicketWorkflowAuthorizationContractIT (reuses the established
+      harness) proving two genuinely different real facets of
+      ValidateWorkloadIdentityUseCase SPEC-UA-025 never exercised: (1) a
+      workload registered with MULTIPLE allowed scopes
+      (ticket-workflow-service's own internal APIs span several --
+      tickets:triage:start, tickets:classify, tickets:context:read) is
+      trusted by a token carrying only ONE of them -- real proof the match
+      is "any one scope overlaps," not "the token must carry every
+      registered scope"; (2) the real time-window half of
+      ServiceIdentity#isValid -- a workload registered with an
+      already-past validUntil is rejected even with an otherwise perfect
+      audience/scope match, over real HTTP for the first time
+      (SPEC-UA-025 only ever registered unrestricted validity). 2 new
+      tests. Full ./mvnw clean verify green: 206 tests total (180
+      unit/domain/ArchUnit + 26 Testcontainers-IT: 7 persistence + 2
+      SPEC-UA-020 + 3 SPEC-UA-021 + 3 SPEC-UA-022 + 2 SPEC-UA-023 + 4
+      SPEC-UA-024 + 3 SPEC-UA-025 + 2 this spec), BUILD SUCCESS.

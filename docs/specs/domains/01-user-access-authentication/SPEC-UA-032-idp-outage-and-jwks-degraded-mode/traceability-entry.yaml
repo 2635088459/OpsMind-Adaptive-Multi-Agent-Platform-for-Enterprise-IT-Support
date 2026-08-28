@@ -2,7 +2,7 @@ SPEC-UA-032:
   domain: 01-user-access-authentication
   name: IdP Outage And JWKS Degraded Mode
   cn_name: IdP 故障与 JWKS 降级模式
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-08-failure-recovery-degraded-mode
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,120 @@ SPEC-UA-032:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      11-security's own footer does NOT claim this spec despite being
+      named in the per-spec doc (a mismatch, same class as UA-010's) --
+      real owners are 10-failure-handling (named, confirmed via its own
+      footer: "SPEC-UA-006, SPEC-UA-009, SPEC-UA-019, SPEC-UA-032,
+      SPEC-UA-033, SPEC-UA-034") and 12-observability (unnamed "bonus"
+      section, confirmed via its own footer: "SPEC-UA-003, SPEC-UA-029,
+      SPEC-UA-030, SPEC-UA-032"). Two real work streams, both grounded in
+      10-failure-handling's own two named rows.
+
+      (A) "JWKS endpoint unavailable | Use only keys within max-stale and
+      matching issuer; reject unknown kid | Single-flight refresh/reconcile" --
+      the literal item SPEC-UA-006's own memory flagged as deferred here
+      ("would have required hand-building a custom JWKSetCache/low-level
+      NimbusJwtDecoder construction path Nimbus's high-level builder
+      doesn't expose"). Confirmed Nimbus 9.37.4 (already pinned in this
+      project's own pom.xml since SPEC-UA-005) ships exactly this as a
+      first-class, well-tested mechanism -- JWKSourceBuilder#outageTolerant(long,
+      EventListener) -- so no hand-built cache was needed after all.
+      SecurityConfig#jwtDecoder now builds its JWKSource via
+      JWKSourceBuilder.create(jwksUri).cache(...).rateLimited(...).retrying(true).outageTolerant(jwksMaxStale,
+      listener).build(), replacing the plain
+      NimbusJwtDecoder.withJwkSetUri(...) builder (which exposes no seam
+      for a custom JWKSource) with the lower-level
+      NimbusJwtDecoder(JWTProcessor) constructor + a manually-built
+      DefaultJWTProcessor/JWSVerificationKeySelector -- claims validation
+      (issuer/audience/timestamp) stays exactly where SPEC-UA-004/006 put
+      it, in the OAuth2TokenValidator set via decoder.setJwtValidator(...)
+      afterward, unchanged. New OidcIssuerProperties#jwksMaxStale (Duration,
+      no LLD section names a concrete numeric bound -- same
+      "choose and document one" precedent clockSkew/SPEC-UA-019's own
+      break-glass MAX_TTL both already established -- defaults to 30
+      minutes, capped at 2 hours). New JwksOutageEventListener
+      (infrastructure.keycloak) is Nimbus's own real event hook into
+      exactly when the fallback is used (OutageTolerantJWKSetSource.OutageEvent) --
+      logs (WARN, bounded/expected, not ERROR) and records a new real
+      IdentityMetricsPort#recordJwksDegradedFallback() counter
+      (identity_jwks_degraded_fallback_total), the first metric this port
+      has ever recorded for JWKS specifically -- SPEC-UA-030's own
+      javadoc had excluded JWT/JWKS metrics entirely as "owned entirely by
+      Nimbus's own internal JWKS cache, not this domain's own code," which
+      was true then and is no longer true for this one new signal, since
+      the outage-tolerant wrapping IS this domain's own code now.
+      Discovered along the way: the newly-explicit rateLimited(...) layer
+      changed SPEC-UA-006's own existing unknown-kid test's real observed
+      behavior for the better (a second unknown-kid probe within the
+      rate-limit window of a first real refresh now correctly triggers
+      zero additional network requests instead of exactly one, a more
+      literal realization of 09-concurrency-and-idempotency's own "one
+      rate-limited refresh, preventing attacker-controlled refresh
+      storms") -- updated that test's own assertion and javadoc to match
+      the new, more protective real behavior rather than treating it as a
+      regression.
+
+      (B) "Keycloak unavailable | Policy may briefly continue already
+      validated, unexpired low-risk sessions; new login, step-up, and
+      sensitive actions return 503/fail closed". OidcProviderPort#isAvailable()
+      (real since SPEC-UA-004, TTL-cached discovery-reachability check)
+      had zero real callers anywhere in this codebase -- another
+      already-built-but-unwired gap. Wired into ManageStepUpService#request
+      (checked right after the session is resolved, before a new PENDING
+      challenge is created -- a challenge the user could never complete
+      against a down IdP is worse than none) and
+      ManageBreakGlassService#activate (checked first, before any of
+      deny()'s own precondition checks -- creating MORE emergency access
+      is the single most sensitive thing this domain does). New
+      IdpUnavailableException (503 SERVICE_UNAVAILABLE, retryable=true --
+      deliberately distinct from every other denial in this codebase's own
+      GlobalRestExceptionHandler, all 403/409/404, since this reflects
+      transient infrastructure distrust rather than a permanent lack of
+      authority) with a matching handler. Both denials still write a real
+      DENIED audit record via each service's own existing audit
+      mechanism -- reused rather than adding a new alert-publish path,
+      since a per-request denial during an ongoing outage could otherwise
+      spam identity.security.alert.v1 the way SPEC-UA-029's own narrowly-scoped
+      "break-glass use"/"approval-outcome-triggered revoke" alerts
+      deliberately never do for routine denials.
+
+      "New login ... return 503/fail closed" needed no new code: a
+      browser login attempt during a live Keycloak outage already fails
+      naturally when Spring's own OAuth2LoginAuthenticationFilter calls
+      the token endpoint during the callback exchange, routed through the
+      existing BrowserLoginFailureHandler (SPEC-UA-005) -- recognized as
+      already-true-by-construction rather than built again, mirroring
+      SPEC-UA-019's own "Account Recovery"/"non-disableable audit"
+      recognitions.
+
+      Deliberately left out: a formal DegradedMode
+      NORMAL/READ_ONLY_IDENTITY/CACHED_VALIDATION_ONLY/FAIL_CLOSED state
+      machine -- 10-failure-handling names these 4 labels but gives no
+      textual anchor for what READ_ONLY_IDENTITY specifically gates that
+      isn't already covered by this spec's own two real rows or another
+      spec's own scope; inventing one with no grounding would replicate
+      the same mistake this session has repeatedly avoided elsewhere. Also
+      left out: a real-wall-clock test proving the outage-tolerant source
+      eventually gives up serving an already-known key once jwksMaxStale
+      is fully exceeded -- the property is real and enforced by Nimbus's
+      own well-tested internals (proven indirectly via the bounded-cap
+      validation on OidcIssuerProperties#jwksMaxStale itself), and a
+      genuine end-to-end proof would need a flaky real sleep past the
+      configured window for marginal additional confidence over
+      Nimbus's own library-level guarantee.
+
+      New tests: OidcIssuerProperties gets a new jwksMaxStale
+      bounded-cap test (mirrors the existing clockSkew one exactly).
+      SecurityConfigJwtDecoderTest gets a new real end-to-end outage test
+      (JWKS endpoint starts returning unparseable content; an
+      already-cached, already-known kid keeps validating through the
+      outage while a genuinely unknown kid is still correctly rejected,
+      not silently trusted; IdentityMetricsPort#recordJwksDegradedFallback()
+      is asserted directly, not inferred) plus the updated
+      rate-limited-refresh assertion above. ManageStepUpServiceTest and
+      ManageBreakGlassServiceTest each get a new IdpUnavailableException
+      fail-closed test. Full ./mvnw clean verify green: 250 tests total
+      (215 unit + 35 Testcontainers-IT), BUILD SUCCESS.

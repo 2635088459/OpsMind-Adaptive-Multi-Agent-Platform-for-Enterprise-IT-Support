@@ -2,7 +2,7 @@ SPEC-UA-031:
   domain: 01-user-access-authentication
   name: Privacy Data Minimization And Retention
   cn_name: 隐私、数据最小化与保留
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-07-security-observability-privacy
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,89 @@ SPEC-UA-031:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footers -- clean match (07-data-model: "SPEC-UA-002, SPEC-UA-008,
+      SPEC-UA-031"; 11-security also claims it). Three real, independently
+      grounded work streams built.
+
+      (A) Real audit hash-chain (07-data-model §identity_audit_records:
+      previous_hash/record_hash columns, present unused since SPEC-UA-001's
+      own V008 migration). Found and corrected a stale/misattributed
+      javadoc on IdentityAuditRecord that pointed this deferral at the
+      already-closed SPEC-UA-029 -- checked directly against
+      06-event-contracts/12-observability's own footers (UA-029's real LLD
+      sections) and found neither claims hash-chaining or these columns;
+      07-data-model does. New AuditIntegrityPort (application port) +
+      Sha256AuditIntegrityAdapter (real SHA-256 canonical pipe-joined
+      fact-field hash, previousHash folded in) mirror
+      policy-approval-governance-service's own SimpleAuditIntegrityAdapter
+      technique while deliberately NOT replicating its richer
+      verifyChain()/complianceReport()/archiveRecordedBefore() additions
+      (no textual grounding in domain 01's own LLD for those specifically).
+      Chain computation lives inside the single real
+      IdentityAuditPersistenceAdapter (not a PG-style centralized
+      IdentityAuditService domain 01 has never had) -- this achieves the
+      identical "every real write gets chained" guarantee with zero changes
+      to any of the ~7 existing application services that call
+      auditPort.record(...) directly. New AuditPort#findMostRecentRecordHash
+      (per tenant) backs it; IdentityAuditRecordMapper#toDomain now uses a
+      new IdentityAuditRecord#reconstruct factory so hashes survive a
+      read-back round trip (previously silently dropped).
+
+      (B) Real PII retention/erasure for user_identities (07-data-model:
+      "Email/display name may be encrypted and erased by retention").
+      New pii_redacted_at TIMESTAMPTZ column (V014 migration) anchored on
+      the already-existing deprovisioned_at column -- only a DEPROVISIONED
+      identity past its own retention window is ever eligible. New
+      UserIdentity#redactPii (nulls username/displayName/email, idempotent,
+      guarded to DEPROVISIONED-only) threaded through the JPA
+      entity/mapper/SpringData repository. 07-data-model names no concrete
+      numeric retention window -- the same gap SPEC-UA-019 hit for
+      break-glass grant TTL -- resolved the same way: chose and documented
+      a bound (90 days past deprovisionedAt) rather than leaving retention
+      unbounded or inventing silently. New
+      ProvisionUserUseCase#reconcilePrivacyRetention (mirrors this
+      codebase's own established reconcile-loop pattern: audit-only, no
+      event publish, matching ManageSessionService/ManageStepUpService's
+      own reconcileExpired precedent) wired to a new admin endpoint
+      (POST /internal/identity/v1/admin/user-identities/reconcile-privacy-retention)
+      on the existing ReconciliationController.
+
+      (C) "Audit access is itself audited" (11-security). Wired the
+      already-built-but-previously-uncalled AuditPort#findByCorrelationId
+      to a real admin-only endpoint for the first time
+      (GET /internal/identity/v1/admin/audit-records?correlationId=X) via
+      new QueryAuditRecordsUseCase/QueryAuditRecordsService + new
+      IdentityAuditRecordView DTO + new AuditRecordAdminController --
+      gated by identity:user:admin via EnforceIdentityPermissionUseCase,
+      mirroring UserIdentityAdminController's own established pattern
+      exactly. Every real query writes its own self-audit
+      AUDIT_RECORDS_QUERIED record (itself chained by (A)'s own adapter),
+      including on a zero-match query.
+
+      Deliberately excluded (no direct textual grounding for domain 01
+      specifically): a generic field-level-encryption/KMS story for
+      email/displayName (07-data-model says "may be encrypted" but names
+      no concrete mechanism -- redaction-on-retention was chosen as the
+      real, groundable half of that sentence), a PII-classification enum,
+      and PG-style verify-chain/archive/compliance-report endpoints.
+
+      New tests: UserIdentityTest (+3: redactPii nulls PII once
+      DEPROVISIONED, is idempotent, rejects a non-DEPROVISIONED identity),
+      Sha256AuditIntegrityAdapterTest (+3: deterministic 64-char hex
+      digest, changing any fact field changes the hash, chaining onto a
+      different previousHash changes the result), ProvisionUserServiceTest
+      (+5: redacts past the retention window, audits each redaction with
+      InMemoryAuditPort's new #all() test-only introspection method, skips
+      an identity still within the window, never touches a still-ACTIVE
+      identity, idempotent across repeated runs), new
+      QueryAuditRecordsServiceTest (+2: returns matches and writes a real
+      self-audit record, self-audits even on zero matches), extended
+      IdentityPersistenceIT (+2 real-Postgres tests: a tenant's own chain
+      links onto its own previous recordHash and IdentityAuditRecordMapper
+      round-trips both hashes through a real read, chains are isolated
+      per-tenant). Full ./mvnw clean verify green: 246 tests total (211
+      unit + 35 Testcontainers-IT), BUILD SUCCESS.

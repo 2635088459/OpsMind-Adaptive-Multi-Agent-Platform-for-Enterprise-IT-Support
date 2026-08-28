@@ -2,7 +2,7 @@ SPEC-UA-015:
   domain: 01-user-access-authentication
   name: Self Service And Resource Ownership
   cn_name: Self-Service 与资源所有权
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-03-authorization-rbac-scope
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,51 @@ SPEC-UA-015:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Another per-spec-doc mismatch, same class as SPEC-UA-010/014: this
+      spec's own README names "02-business-invariants, 04-use-cases" as its
+      LLD mapping, but 04-use-cases' own footer does NOT claim SPEC-UA-015 at
+      all — 11-security's own footer does instead (never named in the
+      per-spec doc). Real mapping: 02-business-invariants + 11-security.
+      Real scope resolved from 02-business-invariants #6's own literal
+      wording ("SELF permits only resources mapped to the token subject; a
+      request-body userId cannot expand access") plus AuthorizationDecision's
+      own already-built-but-unwired ownershipSatisfied field, which
+      SPEC-UA-014 (this same phase) deliberately left hardcoded true/unused,
+      confirmed by cross-checking that spec's own traceability doc for the
+      3-way role/scope/ownership/assurance split (UA-014=role+scope,
+      UA-015=ownership, UA-016=assurance).
+
+      05-api-contracts' own POST /authorization-decisions field list names
+      "ownershipContext" as a request field that did not exist in the
+      implementation at all before this spec — added it as
+      EvaluateAuthorizationCommand/Request#resourceOwnerId: the trusted
+      caller's own assertion of who owns the target resource. Domain 01 has
+      no cross-domain knowledge to resolve resource ownership itself (a
+      ticket's owner is domain 02's own fact, never this domain's to derive
+      independently — deriving it here would violate
+      direct_cross_domain_state_write's own spirit), so this can only ever
+      compare the caller's assertion against the already-verified subjectId,
+      never substitute for it: 02-business-invariants #6's own "a
+      request-body userId cannot expand access" is satisfied by construction,
+      since resourceOwnerId only ever narrows (AND-ed against subjectId
+      equality), never independently grants anything. The check applies only
+      when requiredScope's type is SELF — every other scope stays purely
+      SPEC-UA-014's organizational-coverage concern, untouched. On a SELF
+      requirement: ALLOW only when resourceOwnerId is present and equals
+      subjectId; DENY (OWNERSHIP_NOT_SATISFIED reason code) otherwise,
+      including when resourceOwnerId is entirely absent (fail closed, missing
+      context defaults to DENY). Also surfaced the previously-invisible
+      ownershipSatisfied/evaluatedScopes fields on AuthorizationDecisionView
+      (the real check's result was computed but had nowhere to go in the API
+      response before this spec).
+
+      New tests: EvaluateAuthorizationServiceTest +2 (SELF-scope allow only
+      on matching resourceOwnerId, deny on mismatch, deny when absent
+      entirely; a second explicit test proving an attacker-controlled/
+      mismatched resourceOwnerId can never expand access beyond the verified
+      subject). Full ./mvnw verify green: 142 unit/domain/ArchUnit tests
+      (all 7 LayerDependencyTest rules) + 7 Testcontainers Postgres IT
+      tests, BUILD SUCCESS.

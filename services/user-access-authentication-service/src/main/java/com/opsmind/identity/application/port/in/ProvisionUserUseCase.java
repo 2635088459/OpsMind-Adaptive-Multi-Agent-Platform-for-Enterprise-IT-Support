@@ -18,4 +18,7 @@ public interface ProvisionUserUseCase {
     UserIdentity findById(String userIdentityId);
 
     UserIdentity findByExternalSubject(FindUserIdentityByExternalSubjectQuery query);
+
+    /** SPEC-UA-031: redacts PII for every {@code DEPROVISIONED} identity whose retention window has elapsed. Returns the number redacted. */
+    int reconcilePrivacyRetention();
 }

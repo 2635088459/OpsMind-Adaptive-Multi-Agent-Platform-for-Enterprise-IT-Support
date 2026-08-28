@@ -2,7 +2,7 @@ SPEC-UA-018:
   domain: 01-user-access-authentication
   name: Step Up Proof Verification
   cn_name: Step-Up Proof 校验
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-04-authentication-assurance-step-up
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,89 @@ SPEC-UA-018:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections (05-api-contracts, 11-security) genuinely
+      claim this spec via their own footer spec-mapping lists. Real scope
+      confirmed by explicit user decision (asked directly given the size of
+      the fork): 05-api-contracts' own POST /step-up/challenges row names a
+      response field this implementation never populated before ("returns
+      challengeId, redirect, expiresAt") and the verify row names "IdP
+      evidence" as its own real input — both requiring a genuine forced
+      Keycloak re-authentication round trip, not a narrower
+      internal-assurance-comparison-only implementation. Built the full real
+      flow, reusing and extending SPEC-UA-005's own OAuth2 client
+      infrastructure rather than reimplementing PKCE/state/nonce handling by
+      hand (the same class of risk this domain has consistently avoided by
+      reusing Spring Security's own verified machinery).
+
+      New opsmind-stepup OAuth2 client registration (same underlying
+      Keycloak client as opsmind, a second valid redirect-uri) sharing
+      SPEC-UA-005's own browserLoginFilterChain — no second filter chain
+      needed. StepUpAuthorizationRequestResolver extends (never alters) the
+      existing PKCE-forcing resolver: only for the opsmind-stepup
+      registration, it folds a caller-supplied challengeId+nonce (generated
+      and hashed server-side by StepUpChallengeController, mirroring how
+      BrowserLoginSuccessHandler already hashes the session sid before it
+      reaches an application command) into the OAuth2 state value
+      (round-tripped verbatim by Spring's own session-backed authorization-
+      request repository — ordinary CSRF state protection, not reimplemented)
+      and forces prompt=login (plus acr_values when the challenge names a
+      required level) so Keycloak performs a genuinely fresh authentication
+      rather than silently reusing an existing SSO session. A composite
+      success/failure handler pair (BrowserAuthenticationSuccessDispatcher/
+      FailureDispatcher) fans out to either SPEC-UA-005's own login handler
+      or the new StepUpVerificationSuccessHandler/FailureHandler based on
+      which registration the callback came through (success: real
+      OAuth2AuthenticationToken#getAuthorizedClientRegistrationId(); failure:
+      the callback URL's own path, since no Authentication exists yet) —
+      SPEC-UA-005's own login flow is completely unmodified in behavior.
+
+      ManageStepUpService#verify checks real evidence for the first time
+      (previously trusted an opaque, unchecked proofIdHash unconditionally):
+      issuer/subject must match the challenge's own bound externalSubject
+      (INV-UA-005's own "binds issuer, subject, session"), the presented raw
+      nonce must hash to the challenge's own stored nonceHash (proof this
+      specific re-authentication belongs to this specific challenge, not a
+      confused-deputy reuse of a different one), and the achieved acr/amr
+      must meet the challenge's own requiredAssuranceLevel/requiredMethods —
+      the same exact-acr-match / must-contain-amr convention SPEC-UA-016's
+      own assurance check already established. Any rejection
+      (StepUpEvidenceRejectedException, new) counts as a failed verification
+      attempt exactly like an illegal-transition failure already did.
+      request()'s own nonce is now real SecureRandom-backed material (256
+      bits, base64url), generated and hashed in the API layer — the service
+      itself never sees or persists the raw value, only the hash
+      (INV-UA-001's own "never store the original of anything hashed"
+      spirit, mirroring every other hashed identifier already handled this
+      exact way in this codebase). The direct POST
+      /step-up/challenges/{id}/verify endpoint stays real too, for a
+      non-browser trusted-workload caller that already holds genuine
+      evidence some other way — VerifyStepUpChallengeRequest carries the
+      identical evidence shape the browser callback itself produces
+      in-process.
+
+      Deliberately NOT invented: any mapping from requiredMethods to a
+      specific Keycloak authentication-flow/execution configuration — no LLD
+      section anywhere names a concrete Keycloak-side parameter for "require
+      these specific AMR methods" the way acr_values is a real, standard
+      OIDC/Keycloak parameter; requiredMethods stays enforced purely at
+      verify-time evidence comparison, never proactively hinted to Keycloak.
+
+      New tests: StepUpAuthorizationRequestResolverTest (4 — normal opsmind
+      registration stays PKCE-only and untouched, state/prompt/acr_values
+      folded in correctly for opsmind-stepup, missing challengeId/nonce
+      rejected); StepUpVerificationSuccessHandlerTest (4 — state parsed into
+      real evidence and verify() called correctly, malformed/absent state
+      redirects to failure without ever calling verify(), rejected evidence
+      redirects to failure); ManageStepUpServiceTest +5 beyond SPEC-UA-017's
+      own additions (wrong subject rejected and counted as a failed attempt,
+      wrong nonce rejected, insufficient acr rejected, missing required amr
+      method rejected, a rejected attempt followed by genuine evidence still
+      succeeds). Full ./mvnw verify green: 165 unit/domain/ArchUnit tests
+      (all 7 LayerDependencyTest rules, confirming the new browser-flow
+      classes did not violate hexagonal dependency direction) + 7
+      Testcontainers Postgres IT tests (confirming the full application
+      context — including the new opsmind-stepup client registration and
+      dispatcher beans — still starts cleanly), BUILD SUCCESS.

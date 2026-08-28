@@ -1,0 +1,29 @@
+SPEC-EI-022:
+  domain: 07-evaluation-improvement
+  name: Ci Evaluation Gate Harness
+  cn_name: CI Evaluation Gate Harness
+  status: planned
+  service: evaluation-improvement-service
+  phase: phase-04-regression-and-release-gate
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Planned spec for 实现 CI 可调用的 offline evaluation gate harness，阻断不合格 candidate/branch。
+    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
+    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+  lld_mapping:
+    - 14-testing-strategy
+    - 12-observability
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    contract: pending
+    security: pending
+    result: pending

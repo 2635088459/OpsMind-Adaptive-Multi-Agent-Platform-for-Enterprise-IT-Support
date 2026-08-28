@@ -2,7 +2,7 @@ SPEC-UA-009:
   domain: 01-user-access-authentication
   name: Session Refresh Logout And Revocation
   cn_name: Session Refresh、Logout 与撤销
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-02-user-session-lifecycle
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,64 @@ SPEC-UA-009:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      03-state-machine's UserSession ACTIVE self-loop (refresh, never
+      re-derives expiresAt) and REVOKED terminal edge (logout), plus
+      04-use-cases' logout/refresh/end-session-notification use cases, are
+      real end-to-end. UserSession gained endSessionNotifiedAt (V011
+      migration + partial index) and markEndSessionNotified(); a client-
+      supplied session id is never trusted for logout — POST
+      /sessions/logout derives the target session only from the verified
+      JWT's own sid claim, hashed server-side, matched via
+      findActiveByIdpSessionIdHash, and defensively re-checked against the
+      caller's own (tenant, issuer, subject) before revoking — silently
+      no-ops otherwise (05-api-contracts: never discloses session
+      existence). POST /sessions/{id}/refresh only extends lastSeenAt via
+      UserSession#touch, never expiresAt/status. OidcProviderPort gained a
+      real Keycloak Admin REST implementation (KeycloakAdminClient: POST
+      {server-root}/admin/realms/{realm}/users/{userId}/logout,
+      authenticated via its own opt-in client-credentials grant against the
+      realm's token endpoint) behind KeycloakAdminProperties
+      (app.identity.oidc.admin.client-id/secret, empty by default).
+      Unconfigured -> requestEndSession is a graceful no-op (never an
+      endlessly-retried failure a missing credential can't fix);
+      configured-but-failing throws, which
+      ManageSessionService#reconcileEndSessionNotifications (new
+      admin-triggered POST
+      /admin/sessions/reconcile-end-session-notifications, mirrors every
+      other reconciliation endpoint's admin-only, no-scheduler convention)
+      catches per-session and logs+continues, leaving that session's
+      endSessionNotifiedAt null so the next reconciliation pass retries it.
+      Per 08-transaction-and-outbox ("Calls to Keycloak ... are forbidden
+      inside the database transaction"), reconcileEndSessionNotifications is
+      deliberately not @Transactional — the external call sits outside any
+      DB transaction, and each successful notification's own save() commits
+      atomically via Spring Data JPA's per-call transaction, mirroring
+      OutboxDispatchService's own external-call pattern. INV-UA-001 scoping:
+      only session/token *identifiers* are hashed before storage/lookup
+      (idpSessionIdHash); the externally-facing sub claim itself is stored
+      and passed to Keycloak in plaintext as part of ExternalSubject, since
+      it is not a secret and the Admin API's own /users/{userId}/logout
+      contract requires it unhashed. Deliberately out of scope, matching
+      this domain's established pattern of never inventing a contract
+      against a producer/consumer that doesn't exist anywhere in the repo:
+      no Keycloak Testcontainers (KeycloakAdminClient is instead verified
+      end-to-end over the wire against a JDK-only StubHttpServer, same
+      pattern as SPEC-UA-004/006's OidcDiscoveryClient/JwtDecoder tests, incl.
+      a direct adminUsersLogoutUri() unit test for the issuer -> admin-URL
+      derivation); no IdP-originated back-channel logout event consumer
+      (06-event-contracts maps no such contract to this domain). New tests:
+      KeycloakOidcProviderAdapterTest (+3: no-op-when-unconfigured, real
+      StubHttpServer-backed logout call when configured, adminUsersLogoutUri
+      derivation incl. its malformed-issuer rejection);
+      ManageSessionServiceTest (+7: refresh extends lastSeenAt without
+      touching status/expiry, refresh-missing throws, logout revokes the
+      caller's own session, logout no-ops on no match, logout never revokes
+      a different subject's session even given a colliding hash,
+      reconcileEndSessionNotifications success marks notified and is
+      idempotent, reconcileEndSessionNotifications leaves a failed
+      notification unmarked for retry). Full ./mvnw verify (incl.
+      IdentityPersistenceIT against real Testcontainers Postgres, ArchUnit
+      layering) is green: 160 classes analyzed, BUILD SUCCESS.

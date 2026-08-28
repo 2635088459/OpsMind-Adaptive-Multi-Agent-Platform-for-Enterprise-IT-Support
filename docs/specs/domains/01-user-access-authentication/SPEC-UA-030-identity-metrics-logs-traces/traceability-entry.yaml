@@ -2,7 +2,7 @@ SPEC-UA-030:
   domain: 01-user-access-authentication
   name: Identity Metrics Logs And Traces
   cn_name: 身份 Metrics、Logs 与 Traces
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-07-security-observability-privacy
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -15,6 +15,75 @@ SPEC-UA-030:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      The one named LLD section genuinely claims this spec via its own
+      footer spec-mapping list ("SPEC-UA-003, SPEC-UA-029, SPEC-UA-030,
+      SPEC-UA-032") -- clean match. io.micrometer/opentelemetry have been
+      real dependencies since this project's own baseline pom.xml, but had
+      zero real usage anywhere in this codebase (confirmed via grep) --
+      not even the baseline common "service" tag SPEC-UA-003 left
+      unbuilt, mirroring policy-approval-governance-service's own
+      identically-purposed ObservabilityConfig gap.
+
+      12-observability's own "Key metrics" line names roughly a dozen
+      distinct signals; most (JWT validation latency/cache-hit/unknown-kid,
+      Keycloak/JWKS latency, rate-limit hits, audit-chain failure) have no
+      real underlying detection anywhere in this codebase and were
+      deliberately left out rather than inventing new detection logic
+      (mirrors SPEC-UA-027's own honest-gap discipline) -- JWT
+      validation/JWKS internals are owned entirely by Nimbus's own cache
+      (the same "cannot verify without a real Keycloak instance" limit
+      SPEC-UA-004/006 already hit), no rate-limiting mechanism exists
+      anywhere, and INV-UA-006 is "always audit" not a cryptographic hash
+      chain. Built the subset that maps directly onto an already-built,
+      already-exercised code path: authorization decisions, role
+      assignment changes (every real transition
+      ManageRoleAssignmentService performs, not only grant/revoke --
+      scheduled/activated/expired too), session lifecycle
+      (started/revoked/expired), and step-up outcomes (requested/
+      verified/rejected -- 12-observability's own "replay" line, covering
+      every rejected-evidence attempt, not only a nonce reuse
+      specifically/consumed/cancelled/expired) -- plus the real
+      identity_outbox_pending_count gauge, self-registered against
+      OutboxEventRepository#countPending (a real, already-built query
+      method with zero prior caller), mirroring
+      policy-approval-governance-service's own identical
+      governance_outbox_pending_count gauge/reasoning exactly.
+
+      New IdentityMetricsPort (application layer) + MicrometerIdentityMetrics
+      (real adapter) mirror policy-approval-governance-service's own
+      GovernanceMetricsPort/MicrometerGovernanceMetrics pattern precisely
+      -- kept as a port so application never depends on infrastructure
+      (ArchUnit LayerDependencyTest). New ObservabilityConfig registers
+      the baseline "service" common tag. Wired into
+      EvaluateAuthorizationService (one recording point right after the
+      real decision is saved, covering every DENY/ALLOW/REQUIRE_STEP_UP
+      path uniformly -- deliberately skipped for the idempotent-replay
+      branch, matching how audit already behaves there too),
+      ManageRoleAssignmentService (grant/revoke/cancel/reconcileDueTransitions'
+      own activate+expire branches -- 6 real call sites), ManageSessionService
+      (start/revoke/logout/reconcileExpired -- 4 real call sites, skipped
+      for revoke's own idempotent-already-revoked early return), and
+      ManageStepUpService (request/verify-success/verify-catch-block/
+      consume/cancel/reconcileExpired -- 6 real call sites; the metrics
+      counter in verify()'s own catch block needed no SPEC-UA-023-style
+      saveIsolated/REQUIRES_NEW treatment despite that block's own
+      re-throw-triggered rollback, since a Micrometer counter increment is
+      a plain in-memory MeterRegistry operation, never part of any DB
+      transaction to roll back).
+
+      New tests: extended 6 existing application-service tests (across
+      EvaluateAuthorizationServiceTest, ManageRoleAssignmentServiceTest,
+      ManageSessionServiceTest, ManageStepUpServiceTest) with real
+      InMemoryIdentityMetricsPort assertions proving the exact right
+      outcome fires at the exact right business-logic point, rather than
+      writing a separate dedicated MicrometerIdentityMetrics adapter test
+      (mirrors policy-approval-governance-service's own precedent of never
+      writing one either -- a thin, mechanical registry.counter().increment()
+      wrapper has no real logic of its own to test beyond what Micrometer
+      itself already guarantees). Full ./mvnw clean verify green: 231
+      tests total (198 unit/domain/ArchUnit + 33 Testcontainers-IT,
+      unchanged in count since these were new assertions inside existing
+      tests, not new test methods), BUILD SUCCESS.

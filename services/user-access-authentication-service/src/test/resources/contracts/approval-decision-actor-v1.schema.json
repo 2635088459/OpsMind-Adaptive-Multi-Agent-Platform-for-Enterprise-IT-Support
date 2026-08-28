@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/identity/contracts/approval-decision-actor-v1.schema.json",
+  "title": "ApprovalDecisionActorV1",
+  "description": "SPEC-UA-024 (User Resolution Confirmation Contract). Independently authored from 06-policy-approval-governance's own real, checked-in code (services/policy-approval-governance-service GovernanceRequestContext#actorId + infrastructure.identity.JwtIdentityAuthorizationAdapter) rather than imported from anything this service (user-access-authentication-service) itself produces. `sub` is what GovernanceRequestContext#actorId (Authentication#getName()) resolves as decidedBy/requestedBy, and is the exact value JwtIdentityAuthorizationAdapter#isIndependentApprover compares by plain string inequality -- domain 06's own separation-of-duties guarantee depends entirely on this value being stable and non-colliding across resolutions of the same/different real external subjects, never on any call back to domain 01. `iss` must be the same trusted issuer both services validate against. Deliberately does NOT require the `approval:decide` scope value or the `risk_clearance` claim's own contents -- which scopes/claims a token carries is Keycloak/domain-06's own authorization vocabulary, never a condition on domain 01's own JWT acceptance (mirrors SPEC-UA-021's identical domain-boundary reasoning for domain 02).",
+  "type": "object",
+  "required": ["sub", "iss"],
+  "properties": {
+    "sub": {
+      "type": "string",
+      "minLength": 1,
+      "description": "GovernanceRequestContext#actorId reads this directly as Authentication#getName() -- the decidedBy/requestedBy actor for every approval command."
+    },
+    "iss": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "description": "JwtIdentityAuthorizationAdapter's own RBAC half reads a SCOPE_* authority derived from this claim; PG's own JwtAuthenticationConverter accepts either shape.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "risk_clearance": {
+      "description": "JwtIdentityAuthorizationAdapter's own ABAC half -- a list of RiskLevel names.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

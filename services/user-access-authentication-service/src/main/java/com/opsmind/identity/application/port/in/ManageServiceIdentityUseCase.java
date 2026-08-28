@@ -12,4 +12,7 @@ public interface ManageServiceIdentityUseCase {
     ServiceIdentity disable(DisableServiceIdentityCommand command);
 
     ServiceIdentity findById(String serviceIdentityId);
+
+    /** 03-state-machine: reconciliation retires an {@code ACTIVE} identity directly once past its own {@code validUntil} — admin/scheduler-triggered. */
+    int reconcileRetired();
 }

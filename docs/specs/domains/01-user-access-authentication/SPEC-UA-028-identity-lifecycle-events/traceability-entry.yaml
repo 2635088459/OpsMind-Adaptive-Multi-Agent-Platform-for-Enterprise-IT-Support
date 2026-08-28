@@ -2,7 +2,7 @@ SPEC-UA-028:
   domain: 01-user-access-authentication
   name: Identity Lifecycle Events
   cn_name: 身份生命周期事件
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-06-cross-domain-identity-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,84 @@ SPEC-UA-028:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footer spec-mapping lists (06-event-contracts: "...SPEC-UA-028,
+      SPEC-UA-029"; 08-transaction-and-outbox: "...SPEC-UA-017,
+      SPEC-UA-028") -- no per-spec-doc mismatch, unlike most of this
+      phase's own siblings. Real, from-scratch production code (not
+      another contract-test spec like SPEC-UA-020~027 all were) -- this
+      domain's first ever real RabbitMQ @RabbitListener consumer.
+
+      06-event-contracts §Consumed events names three fact categories:
+      Keycloak/admin adapter facts, domain-06 approval/break-glass facts,
+      and platform service-identity/key-rotation facts. Checked for a real
+      producer of each before building anything (mirrors SPEC-UA-027's own
+      discipline): Keycloak/admin-adapter facts and platform service-
+      identity/key-rotation facts have no real producer anywhere in this
+      monorepo (no Keycloak admin-event webhook integration exists, echoing
+      SPEC-UA-004's own decision not to add a Keycloak Testcontainers
+      dependency) -- an honest, verified gap, correctly left out. Domain-06
+      approval facts DO have a real producer:
+      policy-approval-governance-service's own real approval.granted.v1/
+      approval.denied.v1/approval.expired.v1 events (SPEC-PG-013), verified
+      directly against that service's own checked-in
+      ApprovalGrantedEvent/ApprovalDeniedEvent/ApprovalExpiredEvent classes
+      and its own OutboxDispatchService#buildPayload wire format -- not
+      the "05/03/02 resume waiting states" half that event's own javadoc
+      names (that's those domains' own job), but SPEC-UA-019's own
+      explicitly-flagged gap: approvalReference is "asserted by the
+      trusted caller, never independently validated... the real RabbitMQ
+      consumer that would let domain 01 verify a reference automatically
+      is deliberately left to those specs [UA-028/029]".
+
+      Built the real consumer: RabbitConfig gains this domain's first
+      inbound topology (3 durable queues + DLQs + bindings, mirroring
+      policy-approval-governance-service's own RabbitConfig topology
+      exactly) for approval.granted.v1/denied.v1/expired.v1.
+      ApprovalDecisionEventConsumer (3 @RabbitListener methods sharing one
+      class, matching the platform-wide one-queue-per-event-type
+      convention without 3 near-duplicate classes) parses the envelope/
+      payload and dispatches to ApprovalDecisionEventHandler, which wraps
+      a new ConsumedEventDeduplicationService (the first real caller of
+      ProcessedEventRepository#markProcessedIfNew -- that port has existed
+      unused since SPEC-UA-002/003's own "schema and behavior now, callers
+      later" split) around a new ManageBreakGlassUseCase#reconcileApprovalOutcome:
+      GRANTED is a no-op (already trusted at activation time); DENIED/
+      EXPIRED revokes any still-ACTIVE grant whose own approvalReference
+      matches (a new BreakGlassGrantRepository#findByApprovalReference
+      query), reusing the existing real #revoke transition/audit rather
+      than duplicating it -- the real, independent, asynchronous
+      verification UA-019 always lacked.
+
+      Found and fixed 2 real defects while building this spec's own real
+      RabbitMQ round trip (both invisible without a real Testcontainers
+      broker): (1) this app's own Jackson configuration defaults
+      FAIL_ON_UNKNOWN_PROPERTIES to true (contrary to an earlier session
+      assumption never actually exercised) -- a deliberately narrow
+      ApprovalDecisionPayload (declaring only approvalRequestId, not every
+      field the real wire payload carries) failed to parse a realistic
+      message with extra fields (decidedBy, reason) until
+      @JsonIgnoreProperties(ignoreUnknown = true) was added to both
+      ApprovalDecisionPayload and ConsumedEventEnvelope -- the latter
+      matters in real production too, since PG's own envelope conditionally
+      adds ticketId for ticket-sourced approvals. (2) a JDBC/PostgreSQL
+      java.time.Instant type-inference limitation in this spec's own test
+      fixture code (plain PreparedStatement#setObject cannot infer a SQL
+      type for Instant) -- fixed via java.sql.Timestamp, not a production
+      defect but a real, worth-remembering JDBC gotcha for any future
+      spec's own raw-SQL test fixtures.
+
+      New tests: ManageBreakGlassServiceTest +5 (GRANTED no-op, DENIED
+      revokes, EXPIRED revokes, no-match no-op, already-revoked grant
+      never re-revoked), ApprovalDecisionEventHandlerTest (3, dedup
+      behavior without Spring/RabbitMQ), ApprovalDecisionEventConsumerTest
+      (7, JSON parsing/validation at the consumer boundary),
+      ApprovalDecisionConsumerIT (4, this domain's first real
+      Testcontainers-RabbitMQ-backed consumer round trip: real revoke on
+      denied, idempotent redelivery, unrelated-grant isolation, malformed
+      message dead-lettered). Full ./mvnw clean verify green: 228 tests
+      total (195 unit/domain/ArchUnit + 33 Testcontainers-IT: 29 prior +
+      4 this spec), BUILD SUCCESS.

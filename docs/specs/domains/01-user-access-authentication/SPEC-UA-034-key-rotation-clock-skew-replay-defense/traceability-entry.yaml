@@ -2,7 +2,7 @@ SPEC-UA-034:
   domain: 01-user-access-authentication
   name: Key Rotation Clock Skew And Replay Defense
   cn_name: 密钥轮换、时钟偏差与重放防御
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-08-failure-recovery-degraded-mode
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,73 @@ SPEC-UA-034:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footers, and 10-failure-handling claims it too (unnamed bonus
+      section, same pattern as most prior specs) -- all three read/re-read
+      in full.
+
+      "Key rotation" and "clock skew" are both already fully real
+      (SPEC-UA-006's own explicit clock-skew tolerance; SPEC-UA-006's
+      inherited JWKS rotation/single-flight-refresh plus SPEC-UA-032's own
+      max-stale outage-tolerant fallback) -- confirmed by re-reading both
+      specs' own traceability rather than assumed, nothing new needed for
+      either.
+
+      Real, new "replay defense" scope narrowed to two concrete,
+      well-grounded pieces, both named in 11-security's own literal threat
+      model ("token substitution/replay/theft ... JWKS poisoning") and
+      both listed in 14-testing-strategy's own coverage line ("token
+      substitution/replay ... JWKS poisoning/refresh storm").
+
+      (A) Token replay on session start. 07-data-model's own
+      user_sessions row already names "UNIQUE session hash" -- the real
+      uq_user_sessions_token_id_hash constraint has existed unused-for-this-purpose
+      since SPEC-UA-002's own V004 migration; a duplicate tokenIdHash
+      previously fell through to the generic
+      DataIntegrityViolationException->409 CONFLICT handler, indistinguishable
+      from an ordinary optimistic-concurrency conflict, with no audit
+      trail and no security-specific signal. ManageSessionService#start
+      now does a real application-level pre-check (new
+      UserSessionRepository#existsByTokenIdHash) before ever attempting to
+      save, with the real DB constraint kept as defense-in-depth for a
+      genuine concurrent race -- both paths now convert to the same new
+      TokenReplayDetectedException (409, retryable=false, distinct
+      TOKEN_REPLAY_DETECTED code) and write a real DENIED audit record,
+      rather than the generic conflict response.
+
+      (B) JWKS poisoning defense. OidcDiscoveryClient#fetch now rejects a
+      discovery document whose own jwks_uri is not on the same origin
+      (scheme+host+port) as the issuer it was fetched from -- a
+      compromised or misconfigured discovery endpoint can no longer
+      redirect key-material fetches to an attacker-controlled host. Kept
+      narrowly scoped to jwks_uri specifically (the literal named threat)
+      rather than also origin-checking authorization_endpoint/token_endpoint/end_session_endpoint,
+      which have their own separate, already-real protections (exact
+      redirect-URI allowlisting via the registered Keycloak client,
+      SPEC-UA-005).
+
+      Deliberately did NOT build: rate-limiting on login/callback/introspection/step-up/admin
+      APIs (11-security's own "Login, callback, introspection, step-up,
+      and admin APIs are rate-limited by subject/IP/client" line) -- no
+      rate-limiting mechanism exists anywhere in this codebase (confirmed
+      via SPEC-UA-030's own prior grep), and UA-034's own name ("Key
+      Rotation Clock Skew Replay Defense") gives no textual anchor
+      specifically pointing rate-limiting at this spec rather than being a
+      cross-cutting concern with no single owning spec anywhere in this
+      domain's roadmap -- an honest, explicitly-reported gap rather than
+      inventing a rate-limiter with no clear ownership.
+
+      New tests: OidcDiscoveryClientTest (+1: rejects a cross-origin
+      jwks_uri; 2 existing tests fixed to use same-origin jwks_uri via
+      the server's own real baseUrl(), since they previously used a
+      hardcoded "http://localhost/..." value that happened to pass only
+      because no origin check existed yet), ManageSessionServiceTest (+1:
+      rejects a replayed tokenIdHash), extended IdentityPersistenceIT (+1
+      real-Postgres test: a duplicate token_id_hash is rejected by the
+      real uq_user_sessions_token_id_hash constraint, mirroring
+      SPEC-UA-012's own established constraint-proof pattern). Full
+      ./mvnw clean verify green: 258 tests total (221 unit + 37
+      Testcontainers-IT), BUILD SUCCESS.

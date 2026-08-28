@@ -56,4 +56,66 @@ class RoleAssignmentTest {
         assertThatThrownBy(() -> revoked.revoke("admin-1", "again", NOW.plusSeconds(120)))
             .isInstanceOf(IllegalRoleAssignmentTransitionException.class);
     }
+
+    @Test
+    void grantPendingStartsPendingAndRejectsAPastValidFrom() {
+        RoleAssignment pending = RoleAssignment.grantPending(
+            "ra-3", new TenantId("tenant-1"), "u-1", RoleCode.SUPPORT_AGENT, SCOPE, List.of(),
+            NOW.plusSeconds(3600), null, "admin-1", "scheduled onboarding", NOW
+        );
+
+        assertThat(pending.status()).isEqualTo(RoleAssignmentStatus.PENDING);
+        assertThat(pending.isActive(NOW)).isFalse();
+        assertThatThrownBy(() -> RoleAssignment.grantPending(
+            "ra-4", new TenantId("tenant-1"), "u-1", RoleCode.SUPPORT_AGENT, SCOPE, List.of(), NOW, null, "admin-1", null, NOW
+        )).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void activateTransitionsPendingToActiveOnlyOnceValidFromIsReached() {
+        RoleAssignment pending = RoleAssignment.grantPending(
+            "ra-3", new TenantId("tenant-1"), "u-1", RoleCode.SUPPORT_AGENT, SCOPE, List.of(),
+            NOW.plusSeconds(3600), null, "admin-1", "scheduled onboarding", NOW
+        );
+
+        assertThatThrownBy(() -> pending.activate(NOW.plusSeconds(1)))
+            .isInstanceOf(IllegalRoleAssignmentTransitionException.class);
+
+        RoleAssignment activated = pending.activate(NOW.plusSeconds(3600));
+        assertThat(activated.status()).isEqualTo(RoleAssignmentStatus.ACTIVE);
+        assertThat(activated.isActive(NOW.plusSeconds(3600))).isTrue();
+        assertThatThrownBy(() -> activated.activate(NOW.plusSeconds(3600)))
+            .isInstanceOf(IllegalRoleAssignmentTransitionException.class);
+    }
+
+    @Test
+    void cancelIsLegalOnlyFromPending() {
+        RoleAssignment pending = RoleAssignment.grantPending(
+            "ra-3", new TenantId("tenant-1"), "u-1", RoleCode.SUPPORT_AGENT, SCOPE, List.of(),
+            NOW.plusSeconds(3600), null, "admin-1", "scheduled onboarding", NOW
+        );
+
+        RoleAssignment cancelled = pending.cancel("admin-1", "no longer needed", NOW.plusSeconds(10));
+        assertThat(cancelled.status()).isEqualTo(RoleAssignmentStatus.CANCELLED);
+        assertThat(cancelled.revokedBy()).isEqualTo("admin-1");
+
+        assertThatThrownBy(() -> grant().cancel("admin-1", "too late", NOW.plusSeconds(60)))
+            .isInstanceOf(IllegalRoleAssignmentTransitionException.class);
+        assertThatThrownBy(() -> cancelled.cancel("admin-1", "again", NOW.plusSeconds(20)))
+            .isInstanceOf(IllegalRoleAssignmentTransitionException.class);
+    }
+
+    @Test
+    void expireIsIllegalFromNonActive() {
+        RoleAssignment pending = RoleAssignment.grantPending(
+            "ra-3", new TenantId("tenant-1"), "u-1", RoleCode.SUPPORT_AGENT, SCOPE, List.of(),
+            NOW.plusSeconds(3600), null, "admin-1", null, NOW
+        );
+
+        assertThatThrownBy(() -> pending.expire(NOW.plusSeconds(3600)))
+            .isInstanceOf(IllegalRoleAssignmentTransitionException.class);
+
+        RoleAssignment expired = grant().expire(NOW.plusSeconds(60));
+        assertThat(expired.status()).isEqualTo(RoleAssignmentStatus.EXPIRED);
+    }
 }

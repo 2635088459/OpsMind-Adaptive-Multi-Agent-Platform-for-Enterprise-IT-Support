@@ -2,7 +2,7 @@ SPEC-UA-017:
   domain: 01-user-access-authentication
   name: Step Up Challenge Lifecycle
   cn_name: Step-Up Challenge 生命周期
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-04-authentication-assurance-step-up
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,55 @@ SPEC-UA-017:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections (03-state-machine, 04-use-cases) genuinely
+      claim this spec via their own footer spec-mapping lists — no
+      per-spec-doc mismatch. StepUpChallenge's own full state machine
+      (REQUESTED/PENDING/VERIFIED/CONSUMED/FAILED/EXPIRED/CANCELLED) was
+      already built during this domain's phase-00 state-machine work, so no
+      gap existed in the transitions themselves. Real remaining scope
+      resolved from two concrete, already-built-but-unwired gaps
+      ManageStepUpService's own javadoc and 03-state-machine's own text
+      named directly, deliberately kept separate from SPEC-UA-018's own real
+      Keycloak MFA integration (dispatch + proof validation), which stays
+      entirely untouched here: (1) StepUpChallenge#cancel (the {@code
+      PENDING --cancel--> CANCELLED} edge) existed as a real domain method
+      since SPEC-UA-001 with zero callers anywhere — now wired to
+      ManageStepUpUseCase#cancel and a new POST
+      /step-up/challenges/{id}/cancel endpoint. (2) 03-state-machine's own
+      literal text ("Action/resource mismatch preserves state and writes a
+      denial audit") plus 04-use-cases' own Step-up row ("Reject ...
+      binding mismatch") plus 05-api-contracts' own POST
+      /step-up/proofs/{handle}/consume field list ("action/resource/
+      correlation") together named a real, unimplemented INV-UA-005
+      requirement: ConsumeStepUpChallengeCommand previously carried no
+      action/resource fields at all, so consume() could never actually
+      check what INV-UA-005 requires it to check ("Step-up evidence binds
+      ... action, resource ..."). Added action/resourceType/resourceId to
+      ConsumeStepUpChallengeCommand/Request; consume() now compares the
+      caller's asserted AuthorizationTarget against the challenge's own
+      bound target BEFORE attempting the atomic tryConsume — a mismatch
+      throws a new StepUpBindingMismatchException (-> 409 CONFLICT) and
+      never transitions or attempt-counts the challenge at all, exactly
+      matching "preserves state."
+
+      Scope note: the real Keycloak MFA channel (both dispatching a live
+      challenge to obtain a real nonce, and validating an actual TOTP/
+      WebAuthn proof) is deliberately left entirely to SPEC-UA-018 (Step Up
+      Proof Verification) — request()'s own nonce generation stays a local
+      placeholder and verify()'s own proofIdHash stays uninspected, matching
+      this domain's consistent discipline of never fabricating an external
+      integration contract with no concrete, textually-grounded shape (no
+      Keycloak MFA dispatch/verification API is named anywhere in this
+      domain's own LLD the way, say, the Admin API end-session call was for
+      SPEC-UA-009).
+
+      New tests: ManageStepUpServiceTest +3 (cancel withdraws a PENDING
+      challenge, cancel is illegal once already VERIFIED, a mismatched
+      action/resource on consume preserves VERIFIED state and never
+      consumes — followed by proving the correctly-bound consume still
+      succeeds afterward). Full ./mvnw verify green: 152 unit/domain/
+      ArchUnit tests (all 7 LayerDependencyTest rules) + 7 Testcontainers
+      Postgres IT tests, BUILD SUCCESS.

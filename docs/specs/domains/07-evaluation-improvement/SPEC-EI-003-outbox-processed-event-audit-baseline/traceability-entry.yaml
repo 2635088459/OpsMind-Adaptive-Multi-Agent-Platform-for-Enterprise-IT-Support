@@ -1,0 +1,63 @@
+SPEC-EI-003:
+  domain: 07-evaluation-improvement
+  name: Outbox Processed Event Audit Baseline
+  cn_name: Outbox、Processed Event 与审计 baseline
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Real Postgres persistence for the remaining four application.ports_out
+    repositories SPEC-EI-002 deliberately left in-memory: OutboxRepository,
+    ProcessedEventRepository, AuditRecordRepository (07-data-model's own literal
+    outbox_events/processed_events/audit_records names) and
+    CommandIdempotencyRepository (a pragmatic extension, the same way SPEC-EI-002
+    added GatePolicyRepository/CaseExecutionResultRepository beyond that literal
+    list). New Alembic migration (33ef5244b085, down_revision=06670df0f457) adds four
+    tables — evaluation_outbox_events, evaluation_processed_events,
+    evaluation_command_idempotency, evaluation_audit_records — verified both against
+    a fresh testcontainers Postgres and, incrementally (upgrade 06670df0f457 ->
+    33ef5244b085 on an already-migrated database), against the real shared local
+    opsmind-postgres instance SPEC-EI-002 had already applied its own baseline to;
+    all 12 evaluation.* tables now exist there. Real Postgres-backed repositories:
+    PostgresOutboxRepository (find_dispatchable/mark_published/mark_failed/
+    mark_dead_letter/find_dead_letter — the exact status+backoff-window query
+    DispatchOutboxEventsService already drives, re-offering FAILED rows, not just
+    PENDING ones, the same fix SPEC-EI-001's own in-memory adapter needed),
+    PostgresProcessedEventRepository (natural-key-is-primary-key dedup, upsert via
+    ON CONFLICT DO NOTHING so a duplicate delivery is a no-op not a conflict),
+    PostgresCommandIdempotencyRepository, PostgresAuditRecordRepository (append-only,
+    newest-first). evaluationimprovement.container.Container's own persistence-mode
+    branch ("postgres" default / "memory" for tests) now covers all twelve
+    aggregate+outbox+audit repositories together, not just the eight SPEC-EI-002
+    started with. EventPublisherPort itself deliberately stayed
+    LoggingEventPublisherAdapter — this spec's own scope ("outbox, idempotent event
+    consumption, audit baseline") is durable persistence, not the wire-level
+    publisher; corrected LoggingEventPublisherAdapter's own docstring, which had
+    prematurely claimed SPEC-EI-003 would replace it, mirroring
+    memory-knowledge-service's own SPEC-MK-003 precedent exactly (that claim also
+    turned out wrong there — SPEC-MK-031, not SPEC-MK-003, built the real RabbitMQ
+    adapter). Real RabbitMQ wiring here is likewise left to a later spec. 6 new
+    integration tests (real Postgres via testcontainers) plus all 78 prior
+    SPEC-EI-001/002 tests still passing unchanged — 84 total, 3 import-linter
+    contracts kept, 0 pyflakes warnings.
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 09-concurrency-and-idempotency
+    - 12-observability
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application
+    integration: services/evaluation-improvement-service/tests/integration
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "84 passed (pytest, incl. 14 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings"

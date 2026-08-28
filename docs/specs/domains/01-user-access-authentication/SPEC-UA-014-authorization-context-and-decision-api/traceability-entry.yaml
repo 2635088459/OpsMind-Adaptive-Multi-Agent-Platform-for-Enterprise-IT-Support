@@ -2,7 +2,7 @@ SPEC-UA-014:
   domain: 01-user-access-authentication
   name: Authorization Context And Decision API
   cn_name: Authorization Context 与 Decision API
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-03-authorization-rbac-scope
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,58 @@ SPEC-UA-014:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Real scope resolution needed checking THREE candidate LLD sections,
+      not just the two named in this spec's own per-spec README ("11-security,
+      05-api-contracts") — 11-security's own footer does NOT claim SPEC-UA-014
+      at all (another per-spec-doc mismatch, same class as SPEC-UA-010's),
+      while 04-use-cases' footer DOES (never named in the per-spec doc). Real
+      ground truth: 05-api-contracts + 04-use-cases. Confirmed by two
+      independent, explicit already-built-but-unwired javadoc pointers since
+      SPEC-UA-001: AuthorizationDecision's own ("The actual evaluation
+      algorithm (role/scope/ownership/assurance intersection) is SPEC-UA-014's
+      job") and EvaluateAuthorizationCommand's own (near-identical wording).
+      Cross-checked SPEC-UA-015 (Self Service And Resource Ownership) and
+      SPEC-UA-016 (Authentication Context And Assurance Level) traceability
+      docs to confirm the 3-way split of that same intersection: UA-014 owns
+      role+scope, UA-015 owns ownership, UA-016 owns assurance — so this spec
+      deliberately does NOT touch ownershipSatisfied/assuranceLevel at all,
+      leaving both exactly as SPEC-UA-001 left them (true/null respectively)
+      pending those two later specs' own real logic.
+
+      Built the real scope-intersection algorithm: ResourceScope#covers(required) —
+      a TENANT-wide grant now satisfies any narrower non-SELF requirement
+      (SUPPORT_QUEUE/RESOURCE/TENANT), replacing the naive exact-equality
+      match RoleAssignment#matches/RoleAssignmentRepository#findActive gave
+      before this spec (which only ever satisfied a required scope identical
+      down to scopeId). TENANT deliberately never covers SELF — ownership is
+      a wholly separate axis (SPEC-UA-015's own job), never satisfiable
+      merely by a broader organizational grant. Every other scope pair
+      (SUPPORT_QUEUE vs. SUPPORT_QUEUE, RESOURCE vs. RESOURCE, SELF vs. SELF)
+      requires an exact match — domain 01 has no cross-domain knowledge to
+      resolve, for example, whether a specific RESOURCE belongs to a given
+      SUPPORT_QUEUE (that mapping is owned entirely by another domain, so
+      inventing it here would violate direct_cross_domain_state_write's own
+      spirit). EvaluateAuthorizationService#buildDecision now computes this
+      via RoleAssignmentRepository#findByUserIdentityId (already existed)
+      filtered by roleCode+covers(...), not findActive — findActive's own
+      exact-match semantics are preserved unchanged for its other real
+      caller, ManageRoleAssignmentService#grant's idempotency check (an
+      already-covered-by-a-broader-grant scope must never be treated as
+      "this exact grant already exists"). The ALLOW decision's own
+      evaluatedScopes field now reports the actually-matching assignment's
+      real scope type (more accurate audit trail) rather than blindly
+      echoing back the requested scope type, which would have been
+      misleading once a TENANT grant could satisfy a SUPPORT_QUEUE request.
+      New tests: ResourceScopeTest +5 (null-required-always-covered,
+      TENANT-covers-narrower-non-SELF, TENANT-never-covers-SELF,
+      SUPPORT_QUEUE-only-covers-exact-queue, SELF-only-covers-SELF);
+      EvaluateAuthorizationServiceTest +4 (TENANT grant satisfies
+      SUPPORT_QUEUE requirement, SUPPORT_QUEUE grant never satisfies a
+      broader TENANT requirement, SUPPORT_QUEUE grant never satisfies a
+      different queue, TENANT grant never satisfies a SELF requirement).
+      Full ./mvnw verify green: 140 unit/domain/ArchUnit tests (all 7
+      LayerDependencyTest rules) + 7 Testcontainers Postgres IT tests, BUILD
+      SUCCESS.

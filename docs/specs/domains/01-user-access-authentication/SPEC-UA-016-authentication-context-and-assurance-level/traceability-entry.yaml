@@ -2,7 +2,7 @@ SPEC-UA-016:
   domain: 01-user-access-authentication
   name: Authentication Context And Assurance Level
   cn_name: Authentication Context 与 Assurance Level
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-04-authentication-assurance-step-up
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,64 @@ SPEC-UA-016:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections (01-domain-model, 11-security) genuinely claim
+      this spec via their own footer spec-mapping lists — no per-spec-doc
+      mismatch this time (unlike SPEC-UA-010/014/015). This closes the
+      three-way role/scope/ownership/assurance intersection split confirmed
+      across SPEC-UA-014/015/016's own traceability docs: this spec owns the
+      final, assurance-requirement leg.
+
+      Real scope resolved from AuthenticationAssurance's own already-built-
+      but-unwired javadoc pointer since SPEC-UA-001 ("full assurance-level
+      computation is SPEC-UA-016's job") plus the fact that DecisionEffect's
+      own third value, REQUIRE_STEP_UP, had zero real producers anywhere in
+      the codebase before this spec despite existing since SPEC-UA-001.
+
+      Added requiredAssuranceLevel/requiredAssuranceMethods to
+      EvaluateAuthorizationCommand/Request — 05-api-contracts' own
+      requiredAssurance field, mirroring StepUpChallenge's own existing
+      requiredAssuranceLevel/requiredMethods shape rather than inventing a
+      new one. Both absent/empty means no assurance requirement at all
+      (trivially satisfied, matching every other nullable requirement field's
+      own "absent means unrestricted" convention already established across
+      SPEC-UA-014/015). When present, sessionId must resolve to the
+      subject's own currently-valid UserSession (missing/invalid session
+      still defaults to DENY per 02-business-invariants #12 — there is
+      nothing to step up from); its own acr/amr are compared: acr must
+      equal the required level exactly (no invented ordering/hierarchy —
+      no LLD section anywhere defines one, and SPEC-UA-012's own "grant
+      scope" precedent already established the discipline of never
+      inventing one without textual grounding) and amr must contain every
+      required method (the same "must contain, not merely intersect"
+      subset convention RolePermissionCatalog's own check already
+      established in SPEC-UA-011/012). Insufficient assurance on an
+      otherwise-allowed request produces REQUIRE_STEP_UP (not DENY) with
+      an INSUFFICIENT_ASSURANCE reason code and the session's own actual
+      acr recorded on assuranceLevel — giving the caller a real signal to
+      drive the already-built StepUpChallenge flow (SPEC-UA-017/018's own
+      job to wire the real challenge-response), rather than an
+      indistinguishable-from-everything-else DENY. Applied independently of
+      role/scope — both the no-role-required early-return path and the
+      full role/scope/ownership path now route through the same
+      applyAssurance helper, so a requiredAssurance-only request (no role
+      requirement at all) is evaluated too. Surfaced the previously-
+      invisible assuranceLevel field on AuthorizationDecisionView.
+
+      New tests: EvaluateAuthorizationServiceTest +7 (no-requirement
+      trivially satisfied, insufficient acr -> REQUIRE_STEP_UP, missing
+      required amr method -> REQUIRE_STEP_UP, sufficient assurance ->
+      ALLOW with assuranceLevel populated, no session at all -> DENY,
+      unresolvable sessionId -> DENY, assurance checked on top of an
+      already-allowed role/scope/ownership decision). Full ./mvnw verify
+      green: 149 unit/domain/ArchUnit tests (all 7 LayerDependencyTest
+      rules) + 7 Testcontainers Postgres IT tests, BUILD SUCCESS. This
+      closes the entire 03-authorization-rbac-scope phase (SPEC-UA-011
+      through SPEC-UA-015, all now implemented) and opens phase-04
+      (Authentication Assurance Step-Up) with this spec as its first
+      closed member — SPEC-UA-016's own traceability phase field is
+      phase-04-authentication-assurance-step-up, not phase-03, even
+      though it completes phase-03's own role/scope/ownership/assurance
+      intersection algorithm.

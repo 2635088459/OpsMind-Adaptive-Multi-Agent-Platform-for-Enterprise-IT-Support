@@ -2,7 +2,7 @@ SPEC-UA-021:
   domain: 01-user-access-authentication
   name: Ticket Submission Principal Contract
   cn_name: 工单提交 Principal 契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-05-experience-access-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,75 @@ SPEC-UA-021:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Neither of this spec's own two named LLD sections (05-api-contracts,
+      06-event-contracts) actually claim it in their own footer
+      spec-mapping lists -- the same per-spec-doc mismatch class as
+      SPEC-UA-010/014/015. The section that DOES claim it (never named in
+      the per-spec doc at all, the same "bonus section" class as
+      SPEC-UA-012/019) is 14-testing-strategy, whose own footer range
+      ("SPEC-UA-020 through SPEC-UA-027") includes this spec and whose own
+      "Contract" test-level row names "01<->02 ... with consumer-driven
+      request/response/event schemas".
+
+      Checked domain 02 (ticket-workflow-service, already substantially
+      built in this monorepo) directly rather than guessing: its own
+      06-event-contracts consumed-event catalog (CON-001..014) names zero
+      identity.* events -- domain 02 never consumes anything domain 01
+      publishes asynchronously, so the 06-event-contracts half of this
+      spec's own named lld_mapping is a real dead end, not a gap. Its own
+      05-api-contracts instead states, for POST /api/v1/tickets: "For an
+      employee request, requesterId comes from the JWT" -- confirmed
+      directly in its own real, checked-in PublicTicketController#createTicket:
+      requesterId = jwt.getSubject(), clientId from an azp/client_id claim,
+      authority from a scope claim (@PreAuthorize hasAuthority('SCOPE_tickets:create')),
+      read straight off the same access token both services independently
+      validate as their own resource server -- no synchronous call from
+      domain 02 to domain 01 exists for ticket submission at all. Given
+      this spec's own service field pins the deliverable to
+      user-access-authentication-service alone, the honest, real,
+      buildable scope is domain 01's own provider-side half of that
+      contract: proving its real running JWT acceptance and
+      principal-normalization endpoints honor exactly the claim contract
+      domain 02's real code depends on, without reaching into domain 02's
+      own repository.
+
+      Built a new contracts test package (mirrors memory-knowledge-service's
+      own tests/contracts precedent) plus a new
+      com.networknt:json-schema-validator test dependency (same pinned
+      1.5.9 version and Draft-2020-12 JsonSchemaFactory style
+      ticket-workflow-service's own JsonSchemaEventValidator already uses,
+      for one consistent version/style across the monorepo). A new,
+      independently-authored ticket-submission-principal-v1.schema.json
+      (deliberately NOT generated from anything this service itself
+      produces) declares the real claim shape 02's own checked-in code
+      needs: sub (required), iss (required), azp/client_id
+      (anyOf-required), and scope (string or array, matching
+      extractScopes's own dual-shape handling) -- deliberately does NOT
+      require a tickets:create scope value itself, since which scopes a
+      token carries is Keycloak/domain-02's own authorization vocabulary,
+      never a condition on domain 01's own JWT acceptance
+      (02-business-invariants: domain boundaries; mirrors SPEC-UA-012's own
+      domain-01-vs-domain-06 discipline).
+
+      TicketSubmissionPrincipalContractIT reuses SPEC-UA-020's own
+      @DynamicPropertySource + StubHttpServer-before-context-refresh +
+      webEnvironment=RANDOM_PORT real-signed-JWT-over-real-HTTP harness: (1)
+      a real ticket-submission access token satisfies the independently-
+      authored schema AND domain 01's own real jwtDecoder still accepts it
+      over real HTTP -- a contract test that only checked one side would
+      miss a real divergence between the two services' own JWT acceptance
+      rules; (2) domain 01 accepts a real token carrying no ticket-specific
+      scope at all, proving no accidental coupling to domain 02's own
+      scope vocabulary; (3) the crux check -- domain 01's own normalized
+      `subject` field (POST /tokens/introspect-context, asserted against
+      the RAW parsed JSON response, never domain 01's own DTO class, so a
+      real field rename/remap would show up as a failure here instead of
+      two copies of the same assumption agreeing with each other) is
+      byte-for-byte the same value domain 02's own jwt.getSubject() would
+      independently derive from the identical token. 3 new tests. Full
+      ./mvnw verify green: 195 tests total (183 unit/domain/ArchUnit +
+      12 Testcontainers-IT: 7 persistence + 2 SPEC-UA-020 + 3 this spec),
+      BUILD SUCCESS.

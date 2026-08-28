@@ -1,0 +1,29 @@
+SPEC-EI-032:
+  domain: 07-evaluation-improvement
+  name: Policy Approval Release Approval Contract
+  cn_name: Policy Approval 与 Release Approval Contract
+  status: planned
+  service: evaluation-improvement-service
+  phase: phase-07-cross-domain-contracts
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Planned spec for 锁定 06 policy decision、approval lifecycle 和 release approval 对 07 gate/candidate 的契约。
+    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
+    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+  lld_mapping:
+    - 05-api-contracts
+    - 06-event-contracts
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    contract: pending
+    security: pending
+    result: pending

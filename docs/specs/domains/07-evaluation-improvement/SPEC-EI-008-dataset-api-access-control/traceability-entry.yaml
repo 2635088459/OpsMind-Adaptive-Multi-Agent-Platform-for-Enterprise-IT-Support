@@ -1,0 +1,49 @@
+SPEC-EI-008:
+  domain: 07-evaluation-improvement
+  name: Dataset Api Access Control
+  cn_name: Dataset API 与访问控制
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-01-dataset-and-test-assets
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    "实现 Dataset/TestCase API，并接入 01 identity 的 evaluator/admin role 和 tenant scope" —
+    the write side already had a real RBAC gate (SPEC-EI-001's own `_require_role()`),
+    but two real gaps remained: (1) every GET dataset/test-case endpoint had ZERO auth
+    gate at all — fully anonymous access; (2) "tenant scope" is named explicitly in
+    11-security's own role text but was completely absent from the codebase — no
+    tenant concept existed anywhere. Closed: (1) a new `view_evaluation_data` action
+    (any of the 5 known evaluation roles, EVALUATION_VIEWER included — the read-only
+    floor 11-security itself names) now gates `find_dataset`/`list_datasets`/
+    `find_versions`/`find_test_case`/`find_test_cases`, mirroring the write-side
+    `_require_role()` pattern via a new `X-Actor-Id`/`X-Actor-Role` dependency on each
+    route; (2) a real, honest `tenant_id` (caller-asserted via `X-Tenant-Id`, same
+    "trusted caller asserts" placeholder precedent as actor/role, defaulting to
+    `"default"` so every pre-existing single-tenant test keeps passing unchanged) now
+    lives on `EvaluationDataset` and is enforced consistently across BOTH reads and
+    writes (create/add-cases/submit-review/reject-review/publish/deprecate/archive/
+    create-next-version all now verify the target dataset's own tenant_id against the
+    caller's) — a cross-tenant access always reads back as NotFound (404), never 403,
+    so a wrong tenant can't even confirm a dataset exists. `list_published`/
+    `find_versions` gained a real `tenant_id` filter pushed down to the SQL WHERE
+    clause in both the in-memory and Postgres repositories, not a Python-side
+    post-filter. New migration a1c9f3d7e2b4_add_dataset_tenant_id.py (column + index).
+  lld_mapping:
+    - 05-api-contracts
+    - 11-security
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application/test_create_dataset_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "129 passed total (110 non-integration + 19 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings — full suite after SPEC-EI-005 through SPEC-EI-010"

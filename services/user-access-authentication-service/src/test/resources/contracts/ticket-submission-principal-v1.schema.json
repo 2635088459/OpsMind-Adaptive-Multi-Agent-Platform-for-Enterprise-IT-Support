@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/identity/contracts/ticket-submission-principal-v1.schema.json",
+  "title": "TicketSubmissionPrincipalV1",
+  "description": "SPEC-UA-021 (Ticket Submission Principal Contract). Independently authored from 02-ticket-workflow's own real, checked-in claim-extraction code (services/ticket-workflow-service PublicTicketController#createTicket) rather than imported from anything this service (user-access-authentication-service) itself produces — a drift between what domain 01 issues/accepts and what domain 02's real code reads must show up here as a real test failure, not as two copies of the same possibly-wrong assumption agreeing with each other. This is the access-token CLAIM SET a caller must present to successfully submit a ticket: `sub` becomes 02's own requesterId, `azp`/`client_id` becomes its clientId, `scope` is read for the SCOPE_tickets:create authority check. Deliberately does NOT require a `tickets:create` scope value itself -- which scopes a token carries is Keycloak/domain-02's own authorization concern, never something domain 01's own JWT acceptance may depend on (02-business-invariants: domain boundaries).",
+  "type": "object",
+  "required": ["sub", "iss"],
+  "properties": {
+    "sub": {
+      "type": "string",
+      "minLength": 1,
+      "description": "02-ticket-workflow API-001: 'For an employee request, requesterId comes from the JWT' -- PublicTicketController#createTicket reads this directly as jwt.getSubject()."
+    },
+    "iss": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must be the same trusted issuer both services validate the access token against."
+    },
+    "azp": {
+      "type": "string",
+      "minLength": 1
+    },
+    "client_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "description": "PublicTicketController#extractScopes accepts either shape.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    }
+  },
+  "anyOf": [
+    { "required": ["azp"] },
+    { "required": ["client_id"] }
+  ]
+}

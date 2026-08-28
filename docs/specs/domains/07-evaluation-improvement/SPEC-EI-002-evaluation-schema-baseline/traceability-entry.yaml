@@ -1,0 +1,79 @@
+SPEC-EI-002:
+  domain: 07-evaluation-improvement
+  name: Evaluation Schema Baseline
+  cn_name: Evaluation schema baseline
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Real `evaluation` PostgreSQL schema delivered via SQLAlchemy 2.x ORM models
+    (infrastructure/persistence/postgres/models.py) plus a hand-written Alembic
+    baseline migration (migrations/versions/06670df0f457_create_evaluation_schema.py),
+    mirroring memory-knowledge-service's own SPEC-MK-002 precedent exactly, including
+    its version_table_schema="evaluation" fix (memory-knowledge-service's own
+    SPEC-MK-032 found the shared Postgres database's default `public.alembic_version`
+    silently collides across services that don't scope it) applied from day one here
+    instead of discovered later — verified directly: a real `alembic upgrade head`
+    against the actual shared local `opsmind-postgres` instance (not just the
+    ephemeral testcontainers one tests use) produced exactly `public`/`tool`/
+    `evaluation` as three independent alembic_version tables, no collision. Eight
+    tables: the six 07-data-model names (evaluation_datasets, evaluation_test_cases,
+    evaluation_runs, evaluation_scores, regression_reports, improvement_candidates)
+    plus two pragmatic extensions beyond that literal list
+    (evaluation_gate_policies, evaluation_case_execution_results — the same way
+    SPEC-MK-002 added `command_idempotency` beyond 07-data-model's own list there),
+    since application.ports_out.GatePolicyRepository/CaseExecutionResultRepository
+    need a real backend too. Real Postgres-backed repositories for all eight
+    (PostgresDatasetRepository, PostgresTestCaseRepository,
+    PostgresEvaluationRunRepository, PostgresScoreRepository,
+    PostgresRegressionReportRepository, PostgresImprovementCandidateRepository,
+    PostgresGatePolicyRepository, PostgresCaseExecutionResultRepository), each
+    satisfying the exact same application.ports_out Protocol SPEC-EI-001's own
+    in-memory adapter does — real Core `UPDATE ... WHERE id = :id AND status =
+    :expected_status` + rowcount-checked compare-and-swap for the three
+    status-carrying aggregates (Dataset/Run/Candidate, mirroring
+    memory-knowledge-service's own CAS precedent exactly, not SQLAlchemy ORM's
+    session.get()-then-mutate-then-commit, which enforces no such predicate at all —
+    see [[tech-stack-per-service]]), a real append/supersede pattern for
+    EvaluationScore backed by both an application-level UPDATE...SET is_active=false
+    and a DB-level partial unique index
+    (uq_evaluation_scores_one_active_per_case_dimension) as a genuine second line of
+    defense, and upsert-on-natural-key for the two extension tables.
+    evaluationimprovement.container.Container now branches on
+    Settings.evaluation_persistence ("postgres" default for production honesty,
+    "memory" for hermetic tests — tests/conftest.py sets EVALUATION_PERSISTENCE=memory
+    process-wide so every existing SPEC-EI-001 unit/application/end-to-end test kept
+    passing unchanged). Outbox/processed-event/command-idempotency/audit-record
+    repositories deliberately stay in-memory — real Postgres persistence for those is
+    SPEC-EI-003 (outbox-processed-event-audit-baseline) scope. Found+fixed 1 real gap
+    via a real Postgres integration test, not inspection: the in-memory
+    GatePolicyRepository seeds a default "mvp-release-gate-v1" policy in its own
+    constructor, but the real Postgres table started genuinely empty — the full
+    pipeline integration test failed with GatePolicyNotFoundException the first time
+    it ran against real Postgres; fixed by seeding that same default policy as
+    migration *data* (INSERT ... ON CONFLICT DO NOTHING), keeping both backends'
+    default behavior in parity instead of silently diverging. 8 new integration
+    tests (testcontainers `postgres:18`, matching infrastructure/docker-compose/
+    local-platform.yml's own major version) plus all 70 SPEC-EI-001 tests still
+    passing unchanged — 78 total, 3 import-linter contracts kept, 0 pyflakes
+    warnings.
+  lld_mapping:
+    - 07-data-model
+    - 03-state-machine
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application
+    integration: services/evaluation-improvement-service/tests/integration
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "78 passed (pytest, incl. 8 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings"

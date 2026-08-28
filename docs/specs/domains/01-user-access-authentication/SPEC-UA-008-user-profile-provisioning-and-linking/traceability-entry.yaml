@@ -2,7 +2,7 @@ SPEC-UA-008:
   domain: 01-user-access-authentication
   name: User Profile Provisioning And Linking
   cn_name: 用户档案 Provisioning 与关联
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-02-user-session-lifecycle
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,23 @@ SPEC-UA-008:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >-
+      Real scope is this spec's own LLD mapping (01-domain-model,
+      07-data-model) — both already fully satisfied by the aggregate model
+      and schema SPEC-UA-001/002 built. The one genuine gap: 04-use-cases
+      §User synchronization ("IdP event/admin | Upsert minimum profile ...")
+      had a real ProvisionUserUseCase#sync method (with its own
+      stale-profileVersion no-op protection) since SPEC-UA-001 but zero API
+      exposure and zero test coverage — closed via a new admin endpoint
+      (PUT /users/{id}/profile) plus real tests: applies a newer
+      profileVersion and audits it, no-ops on a stale one, 404s on a
+      missing identity. The "IdP event"-triggered half of that same
+      use-case row is NOT this spec's job: 06-event-contracts (which names
+      "Keycloak/admin adapter" as a consumed-event source) maps only to
+      SPEC-UA-003/009/012/028/029, never to SPEC-UA-008 — that real
+      RabbitMQ consumer, with whatever concrete queue/event-type/payload
+      contract it ends up needing, is SPEC-UA-028's (Identity Lifecycle
+      Events, phase-06) job, not invented here against a producer that
+      doesn't exist anywhere in this repository.

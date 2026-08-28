@@ -2,7 +2,7 @@ SPEC-UA-012:
   domain: 01-user-access-authentication
   name: Role Assignment Lifecycle
   cn_name: 角色分配生命周期
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-03-authorization-rbac-scope
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,57 @@ SPEC-UA-012:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own footer
+      spec-mapping lists (03-state-machine and 04-use-cases both list
+      SPEC-UA-012). 03-state-machine's own RoleAssignment diagram
+      (PENDING/ACTIVE/REVOKED/CANCELLED/EXPIRED, plus the
+      uq_role_assignments_active overlap-prevention constraint) was already
+      fully implemented during this domain's earlier 03-state-machine phase-00
+      work — no remaining gap there. The real remaining scope, per two
+      already-built-but-unwired pointers (RoleAssignment's own javadoc naming
+      "scheduled/delegated grants" as this spec's job — scheduled grants were
+      already closed earlier, leaving delegation; and
+      ManageRoleAssignmentService's own javadoc: "'A role grantor cannot
+      delegate beyond its own grant scope' (02-business-invariants #9) is
+      SPEC-UA-012's own separation-of-duties job, not modeled here"), plus
+      04-use-cases' own "Grant/revoke role" row ("Validate grantor delegation
+      ... Overreach or overlap returns 403/409"): real grantor-delegation
+      enforcement. Extended SPEC-UA-011's EnforceIdentityPermissionUseCase
+      with requireGrantWithinScope: resolves the grantor's own UserIdentity
+      from its verified JWT, unions the permissions of its own currently-active
+      RoleAssignments, and denies (RoleGrantOverreachException -> 403) unless
+      that union fully covers the target role's own RolePermissionCatalog
+      permission set — i.e. a grantor can never hand out more identity-level
+      authority than it itself currently holds. Wired as a second pre-flight
+      check on RoleAssignmentController#grant, right after SPEC-UA-011's own
+      identity:role:grant gate. Interpretation note (deliberate, since
+      02-business-invariants #9's own wording "grant scope" has no further
+      textual definition anywhere in this domain's LLD): read as "scope of
+      granting AUTHORITY" (permission-set coverage), not literally
+      ResourceScope (SELF/TENANT/SUPPORT_QUEUE/RESOURCE) — the latter would
+      require inventing a scope-breadth ordering with zero textual grounding
+      anywhere in the LLD, whereas the permission-set reading reuses
+      SPEC-UA-011's own real, already-established RolePermissionCatalog
+      mechanism. 02-business-invariants #9's own second sentence ("domain 06
+      makes the governance decision") is honored by scope: this only enforces
+      domain 01's own identity-fact-level invariant (a grantor cannot exceed
+      its own permission set), never a richer cross-domain governance/approval
+      workflow, which stays domain 06's (policy-approval-governance-service)
+      job entirely untouched here. Also closed the "overlap returns 409" half
+      of the same 04-use-cases row, previously entirely uncovered: a real
+      concurrent-grant race that slips past the application-level idempotent
+      early-return can still hit the DB's own uq_role_assignments_active
+      partial-unique-index directly; added a new DataIntegrityViolationException
+      handler (-> 409 CONFLICT, retryable=true) to GlobalRestExceptionHandler
+      instead of letting it fall through to the generic 500 handler. New
+      tests: EnforceIdentityPermissionServiceTest +4 cases (PLATFORM_ADMIN
+      can grant anything since it holds every identity permission, IT_ADMIN
+      can grant its own role but not a higher one, a grantor with zero
+      identity-admin permissions can still grant a permissionless role since
+      the empty set is always a subset, denies when no UserIdentity resolves
+      for the grantor). Full ./mvnw verify green: 121 unit/domain/ArchUnit
+      tests (incl. all 7 LayerDependencyTest rules) + 7 Testcontainers
+      Postgres IT tests, BUILD SUCCESS.

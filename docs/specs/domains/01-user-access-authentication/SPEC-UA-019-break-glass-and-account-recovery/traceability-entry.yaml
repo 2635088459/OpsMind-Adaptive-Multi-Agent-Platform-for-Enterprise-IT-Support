@@ -2,7 +2,7 @@ SPEC-UA-019:
   domain: 01-user-access-authentication
   name: Break Glass And Account Recovery
   cn_name: Break-Glass 与账户恢复
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-04-authentication-assurance-step-up
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,98 @@ SPEC-UA-019:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections (10-failure-handling, 11-security) genuinely
+      claim this spec via their own footer spec-mapping lists; 04-use-cases'
+      own footer ALSO claims it (a bonus section never named in the per-spec
+      README's own "lld_mapping" line — the opposite direction of
+      SPEC-UA-010/014/015's own mismatches, where a named section turned out
+      NOT to be claimed). Unlike every prior SPEC-UA-0xx spec in this
+      domain, no 01-domain-model aggregate or 07-data-model table was ever
+      named for break-glass anywhere in this domain's own LLD — the concept
+      exists only in 04-use-cases' own row ("Authorized admin | Strong
+      authentication + dual/06 approval + bounded time/scope | Auto-expire
+      and emit high-priority audit") and 11-security's own bullet ("requires
+      strong authentication, domain-06 approval/dual control, bounded
+      scope/time, and non-disableable audit") — genuinely from-scratch
+      scope, not another already-built-but-unwired closure.
+
+      Built a real, from-scratch BreakGlassGrant aggregate + full Postgres
+      persistence (V013 migration, JPA entity/mapper/repository/adapter —
+      the exact same conventions every prior aggregate in this schema
+      already uses, including SPEC-UA-013's own scope_id-matches-scope_type
+      CHECK constraint reused verbatim). expiresAt is mandatory (never
+      optional like every other aggregate's validUntil) since break-glass
+      access can never be unbounded by construction (11-security's own
+      literal "bounded scope/time"). Real preconditions enforced before
+      activation: a non-blank domain-06 approval reference (asserted by the
+      trusted caller, never independently validated — 02-business-invariants
+      #8: domain 01 decides identity-level access, domain 06 decides
+      governance; 06-event-contracts names a real consumed fact for this
+      ("Domain 06: approval or break-glass approved/denied/expired facts")
+      but its own footer maps only to SPEC-UA-028/029, never this spec, so
+      the real RabbitMQ consumer that would let domain 01 verify a reference
+      automatically is deliberately left to those specs — the same
+      "IdP-event consumer is a later spec's job" split this domain has used
+      consistently since SPEC-UA-008); a non-blank reason
+      (10-failure-handling: "Recovery requires admin authority, reason,
+      idempotency key, and complete audit"); a bounded duration (capped at a
+      documented, deliberately-interpreted 4-hour maximum — no LLD section
+      anywhere names a concrete bound, only the word "bounded", so some
+      value had to be chosen and documented rather than left unbounded);
+      and real strong authentication — the activating admin's own current
+      session must satisfy a caller-specified required assurance
+      level/methods, reusing AuthenticationAssurance#satisfies (a new method
+      extracted from SPEC-UA-016's own duplicate comparison logic, now
+      shared by both). The activating admin is always the grant's own
+      recipient (self-activation from the caller's own verified JWT, never
+      granted to a third party by someone else) and the check is denied
+      closed on ANY missing session/insufficient assurance, each path
+      audited via a new BREAK_GLASS_ACTIVATION_DENIED action before throwing
+      BreakGlassActivationDeniedException (-> 403).
+
+      "Account Recovery" (the other half of this spec's own name) was found
+      to already be real: ProvisionUserUseCase#changeStatus's own
+      DISABLED -> ACTIVE reactivation path has existed since SPEC-UA-001,
+      gated by SPEC-UA-011's own identity:user:admin permission — recognized
+      as already-built rather than reinvented. "Non-disableable audit" is
+      also already true by construction for every write path in this domain
+      (INV-UA-006, no audit-bypass mechanism exists anywhere in this
+      codebase) — activate/revoke/reconcileExpired simply follow the same
+      unconditional audit-every-transition discipline as every other
+      aggregate, no new mechanism needed.
+
+      "Dual control" is deliberately NOT reimplemented at domain 01's own
+      level: 02-business-invariants #8 places risk/approval/governance
+      decisions (which is where dual control as a workflow concern
+      naturally lives) entirely with domain 06 — a non-blank
+      approvalReference is treated as proof domain 06 already ran its own
+      dual-control process, never re-verified or re-implemented here.
+
+      REST endpoints (POST /break-glass/activate, POST
+      /break-glass/{id}/revoke, GET /break-glass/{id}, POST
+      /admin/break-glass/reconcile) are not named in 05-api-contracts (its
+      own footer never claims this spec) — they follow the same
+      /internal/identity/v1/* convention every other resource in this API
+      already uses. Gated by identity:user:admin (SPEC-UA-011's own
+      permission catalog was deliberately NOT widened with an invented
+      break-glass-specific permission string — RolePermissionCatalog's own
+      javadoc explicitly scopes it to only the three strings 05-api-contracts
+      names, and inventing a fourth would contradict that self-documented
+      boundary; reusing the closest already-grounded admin authority is the
+      honest choice instead).
+
+      New tests: BreakGlassGrantTest (7 — activate/expire/revoke lifecycle,
+      bounded-expiry validation, blank approval-reference/reason rejected);
+      ManageBreakGlassServiceTest (8 — full activation success, missing
+      approval reference denied, missing reason denied, duration beyond the
+      bounded maximum denied, no session denied, insufficient assurance
+      denied, revoke ends an active grant early, reconcile expires past the
+      bounded window). Full ./mvnw verify green: 180 unit/domain/ArchUnit
+      tests (all 7 LayerDependencyTest rules) + 7 Testcontainers Postgres IT
+      tests (confirming the new V013 migration and BreakGlassGrant
+      persistence round-trip cleanly), BUILD SUCCESS. This closes phase-04
+      (Authentication Assurance Step-Up) entirely — SPEC-UA-016 through
+      SPEC-UA-019 are all now implemented.

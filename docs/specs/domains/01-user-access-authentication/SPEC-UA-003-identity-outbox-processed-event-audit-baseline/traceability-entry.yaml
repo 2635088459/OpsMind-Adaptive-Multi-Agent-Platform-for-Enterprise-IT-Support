@@ -2,7 +2,7 @@ SPEC-UA-003:
   domain: 01-user-access-authentication
   name: Identity Outbox Processed Event And Audit Baseline
   cn_name: 身份 Outbox、Processed Event 与审计基线
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-00-engineering-foundation
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,15 @@ SPEC-UA-003:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >-
+      Real transactional outbox (outbox_events, staged in the same
+      transaction as aggregate state + audit via EventPublisherPort ->
+      OutboxEventPublisherAdapter; drained by OutboxDispatchService ->
+      RabbitIdentityEventPublisher onto the shared opsmind.events exchange,
+      admin-triggered per the platform's own no-in-process-scheduler
+      convention), real durable identity_audit_records persistence, and a
+      real processed_events unique-constraint-backed dedup port/adapter
+      ready for a future consumer. Verified via IdentityPersistenceIT
+      against Testcontainers PostgreSQL.

@@ -1,0 +1,60 @@
+SPEC-EI-009:
+  domain: 07-evaluation-improvement
+  name: Evaluation Run Aggregate State Machine
+  cn_name: Evaluation Run 聚合与状态机
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-02-benchmark-run-and-executor
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    "实现 EvaluationRun 聚合、run/case 状态机、target/baseline/grader bundle 绑定" — the
+    EvaluationRun aggregate/run-level state machine and version binding already
+    existed (SPEC-EI-001). The real gap was the CASE-level state machine this spec's
+    own goal explicitly names: `ExecuteCaseService.execute_case()` had NO try/except
+    around its own `AgentRuntimeEvaluationPort` call, so a runner exception propagated
+    unhandled, leaving the case permanently unaccounted-for and blocking the run in
+    SCORING forever (`IncompleteRunException`'s own pre-existing docstring already
+    promised "or be explicitly marked skipped/failed" — a promise nothing had ever
+    implemented); there was no way to explicitly mark a case SKIPPED; and
+    `finalize_scoring()`'s own completeness check only ever asked "does every case
+    have a score," never "is every case accounted for." Closed: new
+    `CaseExecutionStatus` (COMPLETED/FAILED/SKIPPED) replaces the old `completed: bool`
+    field on `CaseExecutionResult`, which was written on every save but never actually
+    read/branched on anywhere; `execute_case()` now catches the runner exception and
+    records a FAILED result instead of propagating; a new `skip_case()` use case (+
+    `POST .../skip` REST endpoint) records SKIPPED; `score_case()` now refuses to
+    grade a non-COMPLETED result (`CaseExecutionNotCompletedException` — grading a
+    FAILED/SKIPPED case's empty placeholder fields would be meaningless);
+    `finalize_scoring()` now treats FAILED/SKIPPED cases as accounted-for and
+    finalizes the run as PARTIAL (never COMPARING — the release gate must never
+    evaluate an incomplete result set) via the domain's own pre-existing but
+    previously-unreachable `mark_partial()`. Two state-machine edges added to
+    `EvaluationRun`'s own transition table: SCORING -> PARTIAL (the only reachable
+    path for `IncompleteRunException`'s own long-standing promise — score_case() is
+    what normally drives RUNNING -> SCORING, so a run with at least one already-scored
+    case discovers its own unscoreable siblings only after reaching SCORING), and
+    `finalize_scoring()` is now also callable directly from RUNNING (via the
+    pre-existing RUNNING -> PARTIAL edge 03-state-machine's own diagram already named)
+    for the edge case where score_case() is never called at all — every case in the
+    run ends up FAILED/SKIPPED. New migration
+    b7e4a0c5f1d3_case_execution_result_status.py replaces the `completed` column with
+    `status`/`failure_reason`.
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application/test_pipeline_walkthrough.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "129 passed total (110 non-integration + 19 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings — full suite after SPEC-EI-005 through SPEC-EI-010"

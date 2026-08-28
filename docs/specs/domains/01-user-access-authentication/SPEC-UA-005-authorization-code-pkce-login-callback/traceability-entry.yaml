@@ -2,7 +2,7 @@ SPEC-UA-005:
   domain: 01-user-access-authentication
   name: Authorization Code PKCE Login Callback
   cn_name: Authorization Code + PKCE 登录回调
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-01-oidc-token-trust
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,28 @@ SPEC-UA-005:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >-
+      Real spring-boot-starter-oauth2-client wired into a second, @Order(1)
+      SecurityFilterChain (browserLoginFilterChain, session-scoped to
+      /oauth2/** and /login/** only; the existing stateless resource-server
+      chain stays @Order(2) for everything else). PKCE forced on via
+      OAuth2AuthorizationRequestCustomizers#withPkce() regardless of client
+      confidentiality; state/nonce validation and the code exchange are
+      Spring Security's own oauth2Login machinery, not reimplemented.
+      BrowserLoginSuccessHandler links the trusted UserIdentity and starts
+      the real UserSession from the verified OidcUser only (never request
+      input), sets a Secure/HttpOnly/SameSite=Lax cookie carrying this
+      service's own opaque session id (never a token), and redirects.
+      BrowserLoginFailureHandler audits every rejected callback (DENIED,
+      reason is the exception class name only, never its message, which can
+      embed raw claim/token fragments) and redirects. api.browser package
+      (deliberately empty since SPEC-UA-001) is now filled in. Verified with
+      real OidcIdToken/OAuth2AuthenticationToken construction (no HTTP, no
+      Keycloak — Spring Security's own login-flow filters are framework
+      code, not retested) plus the full IdentityPersistenceIT Testcontainers
+      suite still green; a real PathPatternRequestMatcher-based
+      securityMatcher was required instead of the String-varargs overload,
+      which needs a HandlerMappingIntrospector bean unavailable under
+      webEnvironment=NONE.

@@ -20,12 +20,13 @@ public record RoleAssignmentView(
     Instant validUntil,
     String grantedBy,
     String revokedBy,
-    Instant revokedAt
+    Instant revokedAt,
+    String revocationReason
 ) {
     public static RoleAssignmentView from(RoleAssignment a) {
         return new RoleAssignmentView(
             a.roleAssignmentId(), a.userIdentityId(), a.tenantId().value(), a.roleCode(), a.scope(), a.permissions(),
-            a.status(), a.validFrom(), a.validUntil(), a.grantedBy(), a.revokedBy(), a.revokedAt()
+            a.status(), a.validFrom(), a.validUntil(), a.grantedBy(), a.revokedBy(), a.revokedAt(), a.revocationReason()
         );
     }
 }

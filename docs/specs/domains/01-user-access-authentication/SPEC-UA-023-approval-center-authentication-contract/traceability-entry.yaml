@@ -2,7 +2,7 @@ SPEC-UA-023:
   domain: 01-user-access-authentication
   name: Approval Center Authentication Contract
   cn_name: Approval Center 认证契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-05-experience-access-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,75 @@ SPEC-UA-023:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      11-security's own footer does NOT claim this spec despite being named
+      in the per-spec doc's own lld_mapping -- the same per-spec-doc
+      mismatch class as SPEC-UA-010/014/015/021. Real mapping:
+      05-api-contracts (footer names it directly) + 14-testing-strategy
+      (footer range "SPEC-UA-020 through SPEC-UA-027" includes it, unnamed
+      in the per-spec doc -- the same "bonus section" class as
+      SPEC-UA-012/019/021). 14-testing-strategy's own E2E row names
+      "Approver step-up" as the third persona journey.
+
+      Unlike SPEC-UA-020 (SELF ownership) and SPEC-UA-022 (SUPPORT_QUEUE/
+      TENANT organizational coverage), this proves the ASSURANCE leg
+      (SPEC-UA-016/017/018) end to end over real HTTP for the first time:
+      built ApprovalCenterAuthenticationContractIT (reuses SPEC-UA-020's
+      own harness). Test 1 -- the full round trip: an Approver's low-
+      assurance session (acr=urn:mace:acr:0/pwd) makes an authorization
+      decision requiring AAL2/otp return REQUIRE_STEP_UP (not DENY --
+      SPEC-UA-016's own distinct third outcome, with the achieved level
+      visible on the raw response); a real step-up challenge is then
+      requested, verified with genuine re-authentication evidence
+      (nonce extracted from the real `redirect` URL, exactly as a browser
+      client would receive it), and consumed -- and a second consume of
+      the same proof is rejected 409, proving "consumed once"
+      (11-security's own literal wording) holds over real HTTP. Consuming
+      a step-up challenge does NOT retroactively elevate the session's own
+      stored assurance anywhere in this domain's real model
+      (ManageStepUpService never touches UserSessionRepository at all) --
+      deliberately did not re-call /authorization-decisions a second time
+      expecting ALLOW, since no LLD section or real code implements a
+      session-wide upgrade; the opaque one-time-consumed proof IS the real
+      contract. Test 2 -- real HTTP proof of a mandatory security case
+      (14-testing-strategy's own "step-up ... double consumption" /
+      token-substitution-and-replay list): evidence carrying a forged nonce
+      is rejected, not silently accepted.
+
+      Found and fixed two real defects while building this spec's own real
+      HTTP round trip (invisible to every prior unit test, which uses an
+      in-memory repository double that cannot reproduce real transactional
+      rollback): (1) StepUpEvidenceRejectedException (SPEC-UA-018) had no
+      GlobalRestExceptionHandler mapping at all and fell through to the
+      generic Exception handler, returning 500 INTERNAL_SERVER_ERROR for
+      an entirely expected, client-triggerable rejection -- added a proper
+      403 STEPUP_EVIDENCE_REJECTED handler, matching this codebase's own
+      established convention for "the caller's own proof was insufficient".
+      (2) far more serious: ManageStepUpService#verify's own catch block
+      records a failed attempt via challengeRepository.save(...) and then
+      re-throws the very exception it is handling -- since verify() is
+      @Transactional, Spring's default rollback-on-unchecked-exception
+      silently discarded that save alongside everything else in the same
+      transaction, meaning the maxAttempts anti-brute-force mechanism
+      (03-state-machine's own PENDING --failAttempt(3x)--> FAILED edge)
+      has never actually worked since SPEC-UA-017/018 shipped it -- a
+      rejected attempt was never actually counted. Fixed via a new
+      StepUpChallengeRepository#saveIsolated port method
+      (@Transactional(REQUIRES_NEW) on the real persistence adapter,
+      mirroring SpringDataProcessedEventJpaRepository#insertIsolated's own
+      identical reasoning) called from a DIFFERENT bean than
+      ManageStepUpService itself, deliberately avoiding this codebase's own
+      previously-confirmed self-invocation/AOP-proxy pitfall (the same bug
+      class already caught once for the time-driven reconciliation
+      methods). The in-memory InMemoryStepUpChallengeRepository test double
+      needed the new method too but cannot exhibit the bug at all (no real
+      transaction/rollback concept to honor) -- exactly why this defect was
+      only ever findable via a real Testcontainers-backed HTTP round trip,
+      not another unit test.
+
+      2 new tests. Full ./mvnw clean verify green: 197 tests total (180
+      unit/domain/ArchUnit + 17 Testcontainers-IT: 7 persistence + 2
+      SPEC-UA-020 + 3 SPEC-UA-021 + 3 SPEC-UA-022 + 2 this spec), BUILD
+      SUCCESS.

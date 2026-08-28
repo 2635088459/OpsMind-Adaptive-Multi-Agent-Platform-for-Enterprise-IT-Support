@@ -2,7 +2,7 @@ SPEC-UA-022:
   domain: 01-user-access-authentication
   name: Support Console Authentication Contract
   cn_name: Support Console 认证契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-05-experience-access-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,35 @@ SPEC-UA-022:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footer spec-mapping lists (05-api-contracts names it directly;
+      14-testing-strategy's own footer range "SPEC-UA-020 through
+      SPEC-UA-027" includes it) -- no per-spec-doc mismatch, the same clean
+      match SPEC-UA-020 had. 14-testing-strategy's own E2E row names
+      "Support queue scope" as the second persona journey after Employee.
+
+      Unlike SPEC-UA-020 (which only ever exercised the SELF scope), this
+      spec proves the ORGANIZATIONAL scope-coverage path
+      ResourceScope#covers (SPEC-UA-014) end to end over real HTTP for the
+      first time: built SupportConsoleAuthenticationContractIT, reusing
+      SPEC-UA-020's own @DynamicPropertySource + StubHttpServer +
+      webEnvironment=RANDOM_PORT real-signed-JWT-over-real-HTTP harness. (1)
+      a SUPPORT_AGENT granted at one SUPPORT_QUEUE can access that exact
+      queue (ALLOW) but not a different queue (DENY) -- the exact-match
+      requirement non-TENANT scopes still enforce; (2) a TENANT-wide grant
+      of the same role covers ANY queue -- the broader-covers-narrower rule
+      SPEC-UA-014 built, exercised end to end for the first time (SPEC-UA-020
+      never touched a non-SELF scope); (3) a Support persona holding no
+      matching role assignment at all is denied by default
+      (02-business-invariants #5), with the real NO_MATCHING_ROLE_ASSIGNMENT
+      reason code asserted on the raw response. Role granting for every
+      fixture uses the autowired ManageRoleAssignmentUseCase directly (a
+      Support Agent holds no identity:role:grant permission of its own per
+      SPEC-UA-011's catalog) -- the same "not part of the contract under
+      test" reasoning SPEC-UA-020 already established. 3 new tests. Full
+      ./mvnw verify green: 198 tests total (183 unit/domain/ArchUnit + 15
+      Testcontainers-IT: 7 persistence + 2 SPEC-UA-020 + 3 SPEC-UA-021 + 3
+      this spec), BUILD SUCCESS.

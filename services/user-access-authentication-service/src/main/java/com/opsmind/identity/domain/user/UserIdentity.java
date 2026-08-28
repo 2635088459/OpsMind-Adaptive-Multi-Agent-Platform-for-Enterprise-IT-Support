@@ -32,6 +32,7 @@ public final class UserIdentity {
     private final Instant lastSyncedAt;
     private final Instant disabledAt;
     private final Instant deprovisionedAt;
+    private final Instant piiRedactedAt;
     private final Instant createdAt;
     private final Instant updatedAt;
     private final long version;
@@ -39,7 +40,7 @@ public final class UserIdentity {
     private UserIdentity(
         String userIdentityId, TenantId tenantId, ExternalSubject externalSubject, String username, String displayName,
         String email, IdentityType identityType, UserStatus status, long profileVersion, Instant linkedAt,
-        Instant lastSyncedAt, Instant disabledAt, Instant deprovisionedAt, Instant createdAt, Instant updatedAt, long version
+        Instant lastSyncedAt, Instant disabledAt, Instant deprovisionedAt, Instant piiRedactedAt, Instant createdAt, Instant updatedAt, long version
     ) {
         this.userIdentityId = Objects.requireNonNull(userIdentityId, "userIdentityId");
         this.tenantId = Objects.requireNonNull(tenantId, "tenantId");
@@ -54,6 +55,7 @@ public final class UserIdentity {
         this.lastSyncedAt = lastSyncedAt;
         this.disabledAt = disabledAt;
         this.deprovisionedAt = deprovisionedAt;
+        this.piiRedactedAt = piiRedactedAt;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
         this.version = version;
@@ -65,7 +67,7 @@ public final class UserIdentity {
     ) {
         return new UserIdentity(
             userIdentityId, tenantId, externalSubject, username, displayName, email, identityType,
-            UserStatus.ACTIVE, 0L, now, now, null, null, now, now, 0L
+            UserStatus.ACTIVE, 0L, now, now, null, null, null, now, now, 0L
         );
     }
 
@@ -73,11 +75,11 @@ public final class UserIdentity {
     public static UserIdentity reconstruct(
         String userIdentityId, TenantId tenantId, ExternalSubject externalSubject, String username, String displayName,
         String email, IdentityType identityType, UserStatus status, long profileVersion, Instant linkedAt,
-        Instant lastSyncedAt, Instant disabledAt, Instant deprovisionedAt, Instant createdAt, Instant updatedAt, long version
+        Instant lastSyncedAt, Instant disabledAt, Instant deprovisionedAt, Instant piiRedactedAt, Instant createdAt, Instant updatedAt, long version
     ) {
         return new UserIdentity(
             userIdentityId, tenantId, externalSubject, username, displayName, email, identityType, status,
-            profileVersion, linkedAt, lastSyncedAt, disabledAt, deprovisionedAt, createdAt, updatedAt, version
+            profileVersion, linkedAt, lastSyncedAt, disabledAt, deprovisionedAt, piiRedactedAt, createdAt, updatedAt, version
         );
     }
 
@@ -87,7 +89,7 @@ public final class UserIdentity {
         }
         return new UserIdentity(
             userIdentityId, tenantId, externalSubject, username, displayName, email, identityType,
-            UserStatus.DISABLED, profileVersion, linkedAt, lastSyncedAt, now, deprovisionedAt, createdAt, now, version + 1
+            UserStatus.DISABLED, profileVersion, linkedAt, lastSyncedAt, now, deprovisionedAt, piiRedactedAt, createdAt, now, version + 1
         );
     }
 
@@ -97,7 +99,7 @@ public final class UserIdentity {
         }
         return new UserIdentity(
             userIdentityId, tenantId, externalSubject, username, displayName, email, identityType,
-            UserStatus.ACTIVE, profileVersion, linkedAt, lastSyncedAt, null, deprovisionedAt, createdAt, now, version + 1
+            UserStatus.ACTIVE, profileVersion, linkedAt, lastSyncedAt, null, deprovisionedAt, piiRedactedAt, createdAt, now, version + 1
         );
     }
 
@@ -108,7 +110,7 @@ public final class UserIdentity {
         }
         return new UserIdentity(
             userIdentityId, tenantId, externalSubject, username, displayName, email, identityType,
-            UserStatus.DEPROVISIONED, profileVersion, linkedAt, lastSyncedAt, disabledAt, now, createdAt, now, version + 1
+            UserStatus.DEPROVISIONED, profileVersion, linkedAt, lastSyncedAt, disabledAt, now, piiRedactedAt, createdAt, now, version + 1
         );
     }
 
@@ -119,7 +121,30 @@ public final class UserIdentity {
         }
         return new UserIdentity(
             userIdentityId, tenantId, externalSubject, username, displayName, email, identityType, status,
-            incomingProfileVersion, linkedAt, now, disabledAt, deprovisionedAt, createdAt, now, version + 1
+            incomingProfileVersion, linkedAt, now, disabledAt, deprovisionedAt, piiRedactedAt, createdAt, now, version + 1
+        );
+    }
+
+    /**
+     * SPEC-UA-031 (07-data-model: "Email/display name may be encrypted and
+     * erased by retention"). Nulls the three fields that carry no authority
+     * of their own (02-business-invariants already says as much) while
+     * preserving the immutable {@code (tenantId, issuer, subject)} identity
+     * key and every audit-relevant timestamp. Only meaningful once terminal
+     * ({@code DEPROVISIONED}) — a still-linked identity's PII is live data,
+     * not retention debt. Idempotent: redacting an already-redacted identity
+     * is a no-op, matching {@link #sync}'s own stale-write tolerance.
+     */
+    public UserIdentity redactPii(Instant now) {
+        if (piiRedactedAt != null) {
+            return this;
+        }
+        if (status != UserStatus.DEPROVISIONED) {
+            throw new IllegalStateException("cannot redact PII for user identity " + userIdentityId + ": not DEPROVISIONED");
+        }
+        return new UserIdentity(
+            userIdentityId, tenantId, externalSubject, null, null, null, identityType,
+            status, profileVersion, linkedAt, lastSyncedAt, disabledAt, deprovisionedAt, now, createdAt, now, version + 1
         );
     }
 
@@ -177,6 +202,10 @@ public final class UserIdentity {
 
     public Instant deprovisionedAt() {
         return deprovisionedAt;
+    }
+
+    public Instant piiRedactedAt() {
+        return piiRedactedAt;
     }
 
     public Instant createdAt() {

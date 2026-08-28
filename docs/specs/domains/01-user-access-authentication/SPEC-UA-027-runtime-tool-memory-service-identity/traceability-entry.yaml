@@ -2,7 +2,7 @@ SPEC-UA-027:
   domain: 01-user-access-authentication
   name: Runtime Tool Memory Service Identity
   cn_name: Runtime、Tool、Memory 服务身份契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-06-cross-domain-identity-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,62 @@ SPEC-UA-027:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Neither named LLD section claims this spec in its own footer -- same
+      per-spec-doc mismatch class as its phase-06 siblings; 14-testing-strategy
+      is the real, unnamed owner (its own footer range ends at
+      "SPEC-UA-027", the last spec THAT section itself claims). Third spec
+      of phase-06 (Cross-Domain Identity Contracts) -- NOT the phase's
+      final spec: SPEC-UA-028 (Identity Lifecycle Events) and, per its own
+      06-event-contracts footer ("SPEC-UA-003, SPEC-UA-009, SPEC-UA-012,
+      SPEC-UA-028, SPEC-UA-029"), almost certainly SPEC-UA-029 too, are
+      also filed under phase-06 -- the domain-06-approval-fact consumer
+      this session's own memory has deferred since SPEC-UA-008 ("the same
+      IdP-event-consumer-is-a-later-spec's-job pattern") lives here, not
+      in this spec.
+
+      Checked all three named services' own real code first (mirrors
+      SPEC-UA-021/025/026's own discipline) and found a genuinely different
+      situation from those two siblings: agent-runtime-service,
+      tool-integration-gateway, and memory-knowledge-service (all
+      Python/FastAPI) have ZERO real JWT/OAuth2/client-credentials
+      validation code anywhere in any of the three (grepped every src
+      tree). memory-knowledge-service's own real
+      StaticAuthorizationPolicyAdapter instead trusts a plain request-body
+      actor_id/AccessScope, never a verified token. Unlike SPEC-UA-025/026
+      (where the target service genuinely already authenticates via real
+      client-credentials JWTs), there is no real caller-side integration
+      to point at here. Honestly scoped as domain 01's own PROVIDER-SIDE
+      readiness proof instead -- ValidateWorkloadIdentityUseCase is a
+      caller-agnostic mechanism that works for any correctly-shaped token
+      regardless of which real service eventually presents one, not a
+      claim that real integration already exists on the other side
+      (mirrors SPEC-UA-026's own honest treatment of
+      SupportAgentDirectoryPort's self-documented gap).
+
+      Combining three services into one spec is itself real, additional
+      scope -- deliberately did NOT repeat SPEC-UA-025/026's own tests a
+      third time with yet another service name. Built
+      RuntimeToolMemoryServiceIdentityContractIT (reuses the established
+      harness), proving 3 facets none of the two siblings exercised: (1)
+      the real "not yet valid" half of ServiceIdentity#isValid -- a
+      validFrom in the future (SPEC-UA-026 only ever tested an
+      already-past validUntil); (2) real scope-allow-list REJECTION -- an
+      otherwise-matching audience whose scope is outside the registered
+      allow-list (SPEC-UA-026 only ever tested ALLOW via partial scope
+      overlap, never the reject path directly); (3) NEW to this spec
+      specifically, motivated by combining three services in one go --
+      three separately registered workloads coexist in the same real
+      table and each resolves to its own distinct, correct
+      serviceIdentityId, plus a token shaped for one workload's own
+      subject but carrying a DIFFERENT workload's own audience is still
+      rejected (the workload-side analogue of SPEC-UA-024's own
+      human-actor non-collision proof). 3 new tests. Full ./mvnw clean
+      verify green: 209 tests total (180 unit/domain/ArchUnit + 29
+      Testcontainers-IT: 7 persistence + 2 SPEC-UA-020 + 3 SPEC-UA-021 + 3
+      SPEC-UA-022 + 2 SPEC-UA-023 + 4 SPEC-UA-024 + 3 SPEC-UA-025 + 2
+      SPEC-UA-026 + 3 this spec), BUILD SUCCESS. **This closes phase-06
+      (Cross-Domain Identity Contracts) entirely -- SPEC-UA-025 through
+      SPEC-UA-027 are all now implemented.**

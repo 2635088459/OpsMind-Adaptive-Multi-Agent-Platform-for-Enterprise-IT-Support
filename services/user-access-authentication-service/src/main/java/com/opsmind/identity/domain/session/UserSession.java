@@ -31,6 +31,7 @@ public final class UserSession {
     private final String revokedBy;
     private final Instant revokedAt;
     private final String revocationReason;
+    private final Instant endSessionNotifiedAt;
     private final Instant createdAt;
     private final Instant updatedAt;
     private final long version;
@@ -38,7 +39,7 @@ public final class UserSession {
     private UserSession(
         String userSessionId, TenantId tenantId, ExternalSubject externalSubject, String idpSessionIdHash, String tokenIdHash,
         String clientId, AuthenticationAssurance assurance, String deviceIdHash, SessionStatus status, Instant startedAt,
-        Instant lastSeenAt, Instant expiresAt, String revokedBy, Instant revokedAt, String revocationReason,
+        Instant lastSeenAt, Instant expiresAt, String revokedBy, Instant revokedAt, String revocationReason, Instant endSessionNotifiedAt,
         Instant createdAt, Instant updatedAt, long version
     ) {
         this.userSessionId = Objects.requireNonNull(userSessionId, "userSessionId");
@@ -59,6 +60,7 @@ public final class UserSession {
         this.revokedBy = revokedBy;
         this.revokedAt = revokedAt;
         this.revocationReason = revocationReason;
+        this.endSessionNotifiedAt = endSessionNotifiedAt;
         this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
         this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
         this.version = version;
@@ -70,7 +72,7 @@ public final class UserSession {
     ) {
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            SessionStatus.ACTIVE, now, now, expiresAt, null, null, null, now, now, 0L
+            SessionStatus.ACTIVE, now, now, expiresAt, null, null, null, null, now, now, 0L
         );
     }
 
@@ -78,12 +80,12 @@ public final class UserSession {
     public static UserSession reconstruct(
         String userSessionId, TenantId tenantId, ExternalSubject externalSubject, String idpSessionIdHash, String tokenIdHash,
         String clientId, AuthenticationAssurance assurance, String deviceIdHash, SessionStatus status, Instant startedAt,
-        Instant lastSeenAt, Instant expiresAt, String revokedBy, Instant revokedAt, String revocationReason,
+        Instant lastSeenAt, Instant expiresAt, String revokedBy, Instant revokedAt, String revocationReason, Instant endSessionNotifiedAt,
         Instant createdAt, Instant updatedAt, long version
     ) {
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            status, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, revocationReason, createdAt, updatedAt, version
+            status, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, revocationReason, endSessionNotifiedAt, createdAt, updatedAt, version
         );
     }
 
@@ -98,7 +100,7 @@ public final class UserSession {
         }
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            SessionStatus.REVOKED, startedAt, lastSeenAt, expiresAt, Objects.requireNonNull(revokedBy, "revokedBy"), now, reason, createdAt, now, version + 1
+            SessionStatus.REVOKED, startedAt, lastSeenAt, expiresAt, Objects.requireNonNull(revokedBy, "revokedBy"), now, reason, null, createdAt, now, version + 1
         );
     }
 
@@ -108,7 +110,7 @@ public final class UserSession {
         }
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            SessionStatus.EXPIRED, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, "expired", createdAt, now, version + 1
+            SessionStatus.EXPIRED, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, "expired", endSessionNotifiedAt, createdAt, now, version + 1
         );
     }
 
@@ -118,7 +120,7 @@ public final class UserSession {
         }
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            SessionStatus.COMPROMISED, startedAt, lastSeenAt, expiresAt, revokedBy, now, reason, createdAt, now, version + 1
+            SessionStatus.COMPROMISED, startedAt, lastSeenAt, expiresAt, revokedBy, now, reason, endSessionNotifiedAt, createdAt, now, version + 1
         );
     }
 
@@ -128,7 +130,7 @@ public final class UserSession {
         }
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            SessionStatus.TERMINATED, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, "normal termination", createdAt, now, version + 1
+            SessionStatus.TERMINATED, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, "normal termination", endSessionNotifiedAt, createdAt, now, version + 1
         );
     }
 
@@ -139,7 +141,24 @@ public final class UserSession {
         }
         return new UserSession(
             userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
-            status, startedAt, now, expiresAt, revokedBy, revokedAt, revocationReason, createdAt, now, version + 1
+            status, startedAt, now, expiresAt, revokedBy, revokedAt, revocationReason, endSessionNotifiedAt, createdAt, now, version + 1
+        );
+    }
+
+    /**
+     * SPEC-UA-009 (04-use-cases §Logout/revocation: "request IdP end-session/revocation";
+     * 10-failure-handling: "Keep local revocation and retry if IdP is
+     * unavailable"). Legal only once already {@code REVOKED} — records that
+     * the best-effort IdP notification succeeded, so reconciliation stops
+     * retrying it. Metadata-only: does not itself change {@code status}.
+     */
+    public UserSession markEndSessionNotified(Instant now) {
+        if (status != SessionStatus.REVOKED) {
+            throw new IllegalUserSessionTransitionException(status, status);
+        }
+        return new UserSession(
+            userSessionId, tenantId, externalSubject, idpSessionIdHash, tokenIdHash, clientId, assurance, deviceIdHash,
+            status, startedAt, lastSeenAt, expiresAt, revokedBy, revokedAt, revocationReason, now, createdAt, now, version + 1
         );
     }
 
@@ -201,6 +220,10 @@ public final class UserSession {
 
     public String revocationReason() {
         return revocationReason;
+    }
+
+    public Instant endSessionNotifiedAt() {
+        return endSessionNotifiedAt;
     }
 
     public Instant createdAt() {

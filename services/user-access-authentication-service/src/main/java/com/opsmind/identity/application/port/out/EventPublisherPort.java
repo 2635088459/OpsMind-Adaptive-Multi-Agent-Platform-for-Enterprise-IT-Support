@@ -1,14 +1,15 @@
 package com.opsmind.identity.application.port.out;
 
 /**
- * 13-package-and-class-design §Output Ports; 08-transaction-and-outbox: the
- * real outbox table/dispatcher is SPEC-UA-003's job (Identity Outbox
- * Processed Event And Audit Baseline). This port exists now so application
- * services can depend on the seam from day one; the SPEC-UA-001-scoped
- * adapter only logs, matching {@code infrastructure.messaging}'s own
- * javadoc.
+ * 13-package-and-class-design §Output Ports; 08-transaction-and-outbox:
+ * "Aggregate state, audit record, and outbox event commit in one PostgreSQL
+ * transaction." SPEC-UA-001's own placeholder adapter only logged; the real
+ * SPEC-UA-003 adapter ({@code infrastructure.persistence.adapter.OutboxEventPublisherAdapter})
+ * durably appends a {@code PENDING} row to {@code outbox_events} in the
+ * caller's own transaction — actual RabbitMQ delivery is a separate,
+ * later step ({@code application.service.OutboxDispatchService}).
  */
 public interface EventPublisherPort {
 
-    void publish(String eventType, String aggregateId, String payloadJson);
+    void publish(String eventType, String aggregateType, String aggregateId, String payloadJson, String correlationId);
 }

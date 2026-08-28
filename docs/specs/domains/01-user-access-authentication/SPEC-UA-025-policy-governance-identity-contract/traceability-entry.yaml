@@ -2,7 +2,7 @@ SPEC-UA-025:
   domain: 01-user-access-authentication
   name: Policy Governance Identity Contract
   cn_name: Policy Governance 身份契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-06-cross-domain-identity-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,46 @@ SPEC-UA-025:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Neither named LLD section (05-api-contracts, 06-event-contracts)
+      claims this spec in its own footer -- the same per-spec-doc mismatch
+      class as SPEC-UA-010/014/015/021/023/024. The unclaimed-in-the-per-spec-doc
+      owner is 14-testing-strategy again (footer range "SPEC-UA-020 through
+      SPEC-UA-027"). First spec of phase-06 (Cross-Domain Identity
+      Contracts), a genuinely different phase from phase-05
+      (SPEC-UA-020~024): those specs already proved the "01<->02"/"01<->06"
+      pairings from 14-testing-strategy's own Contract row for HUMAN actors
+      (a ticket submitter's own browser JWT, an approver's own browser
+      JWT). This phase's own three sibling specs (025 Policy Governance,
+      026 Ticket Workflow, 027 Runtime/Tool/Memory Service Identity, per
+      their own traceability entries) instead cover that same Contract
+      row's fourth, still-unclaimed surface -- "workload identity" -- one
+      calling domain's own real service at a time: does SPEC-UA-010's own
+      real ValidateWorkloadIdentityUseCase mechanism correctly trust (or
+      reject) a MACHINE caller shaped like that domain's own real service,
+      as opposed to a human browsing through it. All 7 per-spec docs read
+      and confirmed 100% generic template with zero distinguishing content
+      -- this scoping came entirely from the sibling traceability entries'
+      own names plus SPEC-UA-010's own already-real mechanism.
+
+      Built PolicyGovernanceIdentityContractIT (reuses the established
+      @DynamicPropertySource + StubHttpServer + webEnvironment=RANDOM_PORT
+      harness). 3 tests: (1) the full round trip -- self-register a
+      ServiceIdentity for a policy-approval-governance-service-shaped
+      workload (the registering caller's own verified JWT issuer/subject
+      become the new ServiceIdentity's own external subject, per
+      02-business-invariants #7), then a real client-credentials-shaped
+      token (aud=opsmind-identity, scope=identity:workload) for the same
+      subject is trusted and its lastSeenAt recorded; (2) a token outside
+      the registered audience allow-list is rejected 403
+      WORKLOAD_IDENTITY_NOT_TRUSTED (11-security: "separate audiences/
+      scopes"); (3) NEW, ties SPEC-UA-010's own registration/disable
+      lifecycle to its own validation check for the first time via real
+      HTTP -- a disabled ServiceIdentity is no longer trusted even
+      presenting an otherwise perfectly matching audience/scope. 3 new
+      tests. Full ./mvnw clean verify green: 204 tests total (180
+      unit/domain/ArchUnit + 24 Testcontainers-IT: 7 persistence + 2
+      SPEC-UA-020 + 3 SPEC-UA-021 + 3 SPEC-UA-022 + 2 SPEC-UA-023 + 4
+      SPEC-UA-024 + 3 this spec), BUILD SUCCESS.

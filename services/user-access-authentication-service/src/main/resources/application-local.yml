@@ -1,4 +1,16 @@
 spring:
+  datasource:
+    # Same shared Postgres instance/database as the other Java services
+    # (infrastructure/docker-compose/local-platform.yml); this service owns
+    # the `identity` schema within it, not a separate database.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ticket_workflow}
+    username: ${DB_USERNAME:ticket_workflow}
+    password: ${DB_PASSWORD:ticket_workflow}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
   security:
     oauth2:
       resourceserver:
@@ -10,6 +22,85 @@ spring:
           # ("Validate issuer, audience, signature, expiry, token type"). Same
           # local Keycloak realm every other OpsMind service targets.
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
+      client:
+        # SPEC-UA-005: real Authorization Code + PKCE login/callback
+        # (config.SecurityConfig#browserLoginFilterChain). client-secret has
+        # no default — a confidential client's secret is never committed;
+        # PKCE is forced on regardless of client type (see the filter chain's
+        # own javadoc), so this still satisfies "Authorization Code + PKCE"
+        # even for a confidential Keycloak client.
+        registration:
+          opsmind:
+            client-id: ${KEYCLOAK_CLIENT_ID:user-access-authentication-service}
+            client-secret: ${KEYCLOAK_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+          # SPEC-UA-018: the same Keycloak client as `opsmind` above, registered
+          # with a SECOND valid redirect-uri for real step-up re-authentication
+          # (StepUpAuthorizationRequestResolver forces prompt=login on this
+          # registration only) — requires this exact redirect-uri to also be
+          # added to the Keycloak client's own "Valid Redirect URIs" list.
+          opsmind-stepup:
+            provider: opsmind
+            client-id: ${KEYCLOAK_CLIENT_ID:user-access-authentication-service}
+            client-secret: ${KEYCLOAK_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          opsmind:
+            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
+
+app:
+  identity:
+    login:
+      # SPEC-UA-005. See BrowserLoginProperties's own javadoc for why
+      # default-tenant-id is a fixed, server-side value rather than derived
+      # from a claim: no per-tenant realm/claim convention exists yet.
+      default-tenant-id: ${IDENTITY_DEFAULT_TENANT_ID:opsmind}
+      session-ttl: PT8H
+      session-cookie-name: OPSMIND_SESSION
+      success-redirect-uri: ${IDENTITY_LOGIN_SUCCESS_REDIRECT_URI:/}
+      failure-redirect-uri: ${IDENTITY_LOGIN_FAILURE_REDIRECT_URI:/login?error}
+    oidc:
+      # SPEC-UA-004: the fixed, per-issuer allow-list `jwtDecoder` (SecurityConfig)
+      # builds the real decoder from — RS256 matches Keycloak's own realm default.
+      # allowed-audiences is deliberately left unset here (defaults to no audience
+      # restriction, see OidcIssuerProperties's own javadoc): no other Java service
+      # in this platform validates an audience claim against the shared Keycloak
+      # realm today, so defaulting this to a made-up required value would break
+      # real interop rather than harden it. Set OIDC_ALLOWED_AUDIENCES (comma-separated)
+      # to opt in once a real audience claim is configured on the shared realm.
+      allowed-algorithms: ${OIDC_ALLOWED_ALGORITHMS:RS256}
+      discovery-cache-ttl: PT15M
+      # SPEC-UA-006 (10-failure-handling: "Token clock skew: validate nbf/exp
+      # within a small fixed window"). Bounded to 2 minutes max by
+      # OidcIssuerProperties itself regardless of what's configured here.
+      clock-skew: ${OIDC_CLOCK_SKEW:PT60S}
+      # SPEC-UA-032 (10-failure-handling: "JWKS endpoint unavailable | Use only
+      # keys within max-stale ..."). Bounded to 2 hours max by
+      # OidcIssuerProperties itself regardless of what's configured here.
+      jwks-max-stale: ${OIDC_JWKS_MAX_STALE:PT30M}
+      admin:
+        # SPEC-UA-009 (Logout/revocation: "request IdP end-session/revocation").
+        # A separate, opt-in client-credentials registration from the browser-login
+        # one above — never committed, empty by default. Left unset,
+        # KeycloakOidcProviderAdapter treats every session revoke's end-session
+        # notification as a graceful, already-"notified" no-op rather than an
+        # endlessly-retried failure a missing credential can never fix. Requires a
+        # dedicated confidential Keycloak client (e.g. "opsmind-admin-cli") granted
+        # the realm-management "manage-users" role to actually succeed once set.
+        client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:}
+        client-secret: ${KEYCLOAK_ADMIN_CLIENT_SECRET:}
+    step-up:
+      # SPEC-UA-018 (Step Up Proof Verification). Where the browser lands after
+      # the real Keycloak re-authentication round trip completes or is rejected —
+      # deliberately separate from app.identity.login's own success/failure URIs,
+      # since a step-up flow's destination is conceptually a "back to what you
+      # were doing" redirect, not a fresh session landing page.
+      success-redirect-uri: ${IDENTITY_STEP_UP_SUCCESS_REDIRECT_URI:/}
+      failure-redirect-uri: ${IDENTITY_STEP_UP_FAILURE_REDIRECT_URI:/step-up?error}
 
 server:
   port: ${SERVER_PORT:8087}

@@ -1,0 +1,57 @@
+SPEC-EI-004:
+  domain: 07-evaluation-improvement
+  name: Evaluation Dataset Aggregate
+  cn_name: Evaluation Dataset 聚合
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-01-dataset-and-test-assets
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    "实现 EvaluationDataset 聚合、状态机和版本化测试资产所有权" — the EvaluationDataset
+    aggregate and its full 03-state-machine (DRAFT -> REVIEWING -> PUBLISHED ->
+    DEPRECATED -> ARCHIVED) already existed from SPEC-EI-001, but two real gaps
+    remained per this spec's own narrower "dataset aggregate and lifecycle" scope:
+    (1) `EvaluationDataset.deprecate()`/`archive()` were live domain methods with
+    zero application-layer callers anywhere in the codebase (dead code, only ever
+    exercised at the domain-unit-test level); (2) `lineage_parent_id` was a
+    caller-supplied, unvalidated field on CreateDatasetCommand with no real
+    "versioned test asset ownership" mechanism — no service actually enforced the
+    parent be PUBLISHED, checked the new version string, or moved the parent's own
+    test cases forward as the new version's own rows. Both closed:
+    PublishDatasetService gained real deprecate()/archive() methods (new
+    DeprecateDatasetCommand/ArchiveDatasetCommand, both audited per 11-security's own
+    "dataset publish/deprecate" requirement) reusing the same
+    CAS-via-expected_status pattern publish() already established; CreateDatasetService
+    gained create_next_version() (new CreateDatasetVersionCommand) — refuses a
+    non-PUBLISHED parent or a reused version string, then copies the parent's own
+    EvaluationTestCase rows forward as brand-new rows scoped to the new dataset_id
+    (never shared across dataset_id, proven by asserting the copied row's own
+    test_case_id differs from its parent's) — plus a new
+    DatasetRepository.find_versions(name) query (both in-memory and Postgres
+    adapters) making the lineage chain genuinely readable, not just a write-only
+    foreign key; wired to `GET /evaluation/datasets?name=` rather than a new path
+    segment, avoiding a `/datasets/versions` vs `/datasets/{dataset_id}` route-
+    ordering ambiguity entirely. New REST endpoints: `POST .../deprecate`,
+    `POST .../archive`, `POST .../versions`. No new migration — all of this runs on
+    tables SPEC-EI-002 already created. 16 new tests (10 application + 1 REST e2e +
+    1 real-Postgres integration for find_versions, plus assorted assertions) — 96
+    total, 3 import-linter contracts kept, 0 pyflakes warnings.
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application
+    integration: services/evaluation-improvement-service/tests/integration
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "96 passed (pytest, incl. 15 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings"

@@ -63,4 +63,36 @@ class UserIdentityTest {
         assertThat(staleSync.username()).isEqualTo("alice2");
         assertThat(staleSync.profileVersion()).isEqualTo(5);
     }
+
+    /** SPEC-UA-031 (07-data-model: "Email/display name may be encrypted and erased by retention"). */
+    @Test
+    void redactPiiNullsUsernameDisplayNameAndEmailOnceDeprovisioned() {
+        UserIdentity deprovisioned = link().deprovision(NOW.plusSeconds(1));
+
+        UserIdentity redacted = deprovisioned.redactPii(NOW.plusSeconds(2));
+
+        assertThat(redacted.username()).isNull();
+        assertThat(redacted.displayName()).isNull();
+        assertThat(redacted.email()).isNull();
+        assertThat(redacted.piiRedactedAt()).isEqualTo(NOW.plusSeconds(2));
+        assertThat(redacted.status()).isEqualTo(UserStatus.DEPROVISIONED);
+        assertThat(redacted.externalSubject()).isEqualTo(SUBJECT);
+        assertThat(redacted.version()).isEqualTo(deprovisioned.version() + 1);
+    }
+
+    @Test
+    void redactPiiIsIdempotent() {
+        UserIdentity redacted = link().deprovision(NOW.plusSeconds(1)).redactPii(NOW.plusSeconds(2));
+
+        UserIdentity redactedAgain = redacted.redactPii(NOW.plusSeconds(3));
+
+        assertThat(redactedAgain).isSameAs(redacted);
+    }
+
+    @Test
+    void redactPiiRejectsANonDeprovisionedIdentity() {
+        UserIdentity active = link();
+
+        assertThatThrownBy(() -> active.redactPii(NOW.plusSeconds(1))).isInstanceOf(IllegalStateException.class);
+    }
 }

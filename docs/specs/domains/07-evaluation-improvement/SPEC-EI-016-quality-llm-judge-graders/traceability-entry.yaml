@@ -1,0 +1,29 @@
+SPEC-EI-016:
+  domain: 07-evaluation-improvement
+  name: Quality Llm Judge Graders
+  cn_name: Quality LLM Judge Graders
+  status: planned
+  service: evaluation-improvement-service
+  phase: phase-03-graders-and-scoring
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Planned spec for 实现 explanation quality、evidence grounding、handoff completeness、user instruction clarity 的 LLM Judge。
+    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
+    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+  lld_mapping:
+    - 01-domain-model
+    - 10-failure-handling
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    contract: pending
+    security: pending
+    result: pending

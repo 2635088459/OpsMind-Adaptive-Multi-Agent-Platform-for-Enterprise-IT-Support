@@ -2,7 +2,7 @@ SPEC-UA-024:
   domain: 01-user-access-authentication
   name: User Resolution Confirmation Contract
   cn_name: 用户解决确认认证契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-05-experience-access-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,53 @@ SPEC-UA-024:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Neither named LLD section (05-api-contracts, 06-event-contracts)
+      claims this spec in its own footer -- the same per-spec-doc mismatch
+      class as SPEC-UA-010/014/015/021/023. The unclaimed-in-the-per-spec-doc
+      owner is 14-testing-strategy (footer range "SPEC-UA-020 through
+      SPEC-UA-027"), whose own "Contract" test-level row names "01<->Portal/
+      API Gateway, 01<->02, 01<->06, and workload identity" -- SPEC-UA-021
+      already built the "01<->02" half; this is the "01<->06" half. Per-spec
+      docs themselves are entirely generic templates with zero real content
+      for this spec (confirmed by reading all 7); no other domain's own LLD
+      names "user resolution" or "resolution confirmation" anywhere either.
+
+      Checked 06-policy-approval-governance's own real, checked-in code
+      directly (the same discipline SPEC-UA-021 established) rather than
+      guessing at the spec name: GovernanceRequestContext#actorId reads
+      Authentication#getName() directly (the JWT's own sub claim) with zero
+      synchronous call to domain 01, exactly mirroring domain 02's own
+      PublicTicketController#createTicket. JwtIdentityAuthorizationAdapter
+      #isIndependentApprover(requesterId, approverId) then does nothing
+      more than compare two such actor strings by plain inequality -- "user
+      resolution confirmation," concretely: domain 06's entire
+      separation-of-duties guarantee depends on domain 01's own subject
+      identity being STABLE (the same real external subject always
+      resolves to the same value across separate tokens/sessions) and
+      NON-COLLIDING (two different real external subjects never resolve to
+      the same value), never on any call back to domain 01 to actually
+      confirm it -- this spec is domain 01's own provider-side proof of
+      exactly that property.
+
+      Built UserResolutionConfirmationContractIT (new contracts test
+      package entry, reuses SPEC-UA-021's own harness/schema-validation
+      style) plus an independently-authored
+      approval-decision-actor-v1.schema.json (sub/iss required; scope/
+      risk_clearance present-but-not-required-to-carry-any-specific-value,
+      grounded directly in JwtIdentityAuthorizationAdapter's own RBAC/ABAC
+      claim reads -- deliberately not gating domain 01's own JWT acceptance
+      on domain 06's own scope/claim vocabulary, mirroring SPEC-UA-021's
+      identical domain-boundary reasoning). 4 tests: (1)/(2) mirror
+      SPEC-UA-021's own provider-side claim-shape and domain-boundary
+      proof; (3) NEW -- two separately signed tokens for the identical
+      external subject resolve to the identical userIdentityId/subject
+      (stability); (4) NEW -- two different external subjects (a requester
+      and an approver) never resolve to the same userIdentityId/subject
+      (non-collision) -- together the exact property
+      isIndependentApprover's own correctness depends on. 4 new tests. Full
+      ./mvnw clean verify green: 201 tests total (180 unit/domain/ArchUnit +
+      21 Testcontainers-IT: 7 persistence + 2 SPEC-UA-020 + 3 SPEC-UA-021 +
+      3 SPEC-UA-022 + 2 SPEC-UA-023 + 4 this spec), BUILD SUCCESS.

@@ -2,7 +2,7 @@ SPEC-UA-007:
   domain: 01-user-access-authentication
   name: Principal Claims Normalization
   cn_name: Principal Claims 标准化
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-01-oidc-token-trust
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,24 @@ SPEC-UA-007:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >-
+      Two 05-api-contracts rows closed. (1) POST /tokens/introspect-context
+      (new — IntrospectPrincipalUseCase/Service + TokenIntrospectionController):
+      read-only, side-effect-free, introspects only the caller's own already-
+      verified bearer Jwt (never a raw token accepted as input, so never one
+      to log), returns normalized principal + assurance (acr/amr/auth_time)
+      + optional session status; an optionally-supplied userSessionId is
+      only ever honored when it actually belongs to the same verified
+      (tenantId, issuer, subject) — otherwise treated identically to "not
+      found," verified by a dedicated test asserting cross-subject session
+      lookups disclose nothing. (2) GET /users/me (existing since SPEC-UA-001)
+      gained its own previously-missing "effective roles/scopes" via a new
+      ManageRoleAssignmentUseCase#listEffectiveForUser (ACTIVE-and-currently-
+      valid only, unlike #listForUser) and had its tenantId source fixed
+      from a client-supplied @RequestParam to the same server-side
+      BrowserLoginProperties#defaultTenantId SPEC-UA-005 already
+      established, closing a real 02-business-invariants #7 inconsistency
+      left over from the original skeleton. This closes phase-01 (OIDC And
+      Token Trust) — SPEC-UA-004/005/006/007 all implemented.

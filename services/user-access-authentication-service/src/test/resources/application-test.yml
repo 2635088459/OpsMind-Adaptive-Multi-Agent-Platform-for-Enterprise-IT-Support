@@ -1,9 +1,39 @@
 spring:
+  flyway:
+    enabled: true
   security:
     oauth2:
       resourceserver:
         jwt:
           issuer-uri: https://test-issuer.opsmind.invalid/realms/test
+      client:
+        # SPEC-UA-005: explicit endpoints (not issuer-uri) so building the
+        # ClientRegistrationRepository bean never triggers a real discovery
+        # call at test context startup — TestSecurityConfig overrides the
+        # JwtDecoder bean the same way, but oauth2Login's own client
+        # registration has no such override seam.
+        registration:
+          opsmind:
+            client-id: test-client
+            client-secret: test-secret
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+          # SPEC-UA-018: same test provider, second registration for step-up.
+          opsmind-stepup:
+            provider: opsmind
+            client-id: test-client
+            client-secret: test-secret
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          opsmind:
+            authorization-uri: https://test-issuer.opsmind.invalid/protocol/openid-connect/auth
+            token-uri: https://test-issuer.opsmind.invalid/protocol/openid-connect/token
+            jwk-set-uri: https://test-issuer.opsmind.invalid/protocol/openid-connect/certs
+            user-info-uri: https://test-issuer.opsmind.invalid/protocol/openid-connect/userinfo
+            user-name-attribute: sub
 
 management:
   tracing:

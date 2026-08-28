@@ -2,7 +2,7 @@ SPEC-UA-029:
   domain: 01-user-access-authentication
   name: Identity Security Audit Events
   cn_name: 身份安全审计事件
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-07-security-observability-privacy
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,65 @@ SPEC-UA-029:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footer spec-mapping lists (06-event-contracts: "...SPEC-UA-028,
+      SPEC-UA-029"; 12-observability: "SPEC-UA-003, SPEC-UA-029,
+      SPEC-UA-030, SPEC-UA-032") -- clean match, no per-spec-doc mismatch.
+      First spec of phase-07 (Security Observability Privacy), a
+      genuinely different phase from phase-06 (which SPEC-UA-025~028 fully
+      closed) despite 06-event-contracts' own footer naming both
+      SPEC-UA-028 and SPEC-UA-029 together.
+
+      identity.security.alert.v1 (06-event-contracts §Published events:
+      "alertType, severity, subjectRef, sessionRef, reasonCode") had zero
+      real producer anywhere in this codebase -- confirmed via grep before
+      building anything. 12-observability's own "Alerts cover ... IdP/JWKS
+      failure, spikes in deny/401 or unknown kid, audit-chain break,
+      poisoned outbox, break-glass use, and revocation backlog" names
+      several conditions; most (IdP/JWKS failure, audit-chain break,
+      poisoned outbox, revocation backlog) are operational/metrics-level
+      concerns better suited to SPEC-UA-030's own "Identity Metrics Logs
+      Traces" (a real Micrometer counter, not a discrete business event) --
+      "break-glass use" is the one literally named condition that is both
+      (a) a discrete, correlatable business fact worth a real event (not
+      just a counter) and (b) already backed by a fully-built aggregate
+      (SPEC-UA-019/028's own BreakGlassGrant) ready to wire onto,
+      deliberately narrowed to this rather than inventing detection logic
+      for the other, metrics-shaped conditions.
+
+      Wired identity.security.alert.v1 onto exactly two BreakGlassGrant
+      transitions in ManageBreakGlassService: (1) activate() itself -- the
+      literal "break-glass use"; (2) a reconcileApprovalOutcome-triggered
+      revoke (SPEC-UA-028's own new path) -- a grant retroactively pulled
+      because the approval that justified it was denied/expired after the
+      fact, a genuinely security-significant escalation. Deliberately did
+      NOT wire it onto routine admin-initiated revoke() or ordinary
+      bounded-time reconcileExpired() -- neither is itself an alert-worthy
+      "use" signal the way activation or a denied/expired-approval
+      correction is; a dedicated test proves a routine admin revoke
+      publishes no additional alert. New EventPublisherPort dependency
+      injected into ManageBreakGlassService (previously had none at all --
+      break-glass had never published any event before this spec); a small
+      private publishSecurityAlert helper mirrors ManageStepUpService's
+      own established Map<String,Object>-payload publish pattern. Both
+      wiring points sit inside their own already-successful (never
+      catch-and-rethrow) transactional paths, so neither needed
+      SPEC-UA-023's own saveIsolated-style REQUIRES_NEW workaround --
+      08-transaction-and-outbox's own "commit in one transaction"
+      guarantee holds normally here.
+
+      6 new tests: ManageBreakGlassServiceTest +3 (activation publishes
+      the alert with the real payload shape, a denied activation publishes
+      nothing, a routine admin revoke publishes no additional alert beyond
+      activation's own), plus 2 new assertions on
+      reconcileApprovalOutcomeRevokesAnActiveGrantWhenTheUnderlyingApprovalWasDenied
+      and a new real-outbox-row assertion added to
+      ApprovalDecisionConsumerIT's own
+      consumingAnApprovalDeniedEventRevokesTheReferencingActiveGrant test
+      (SPEC-UA-028's own real RabbitMQ round trip now also proves the
+      security alert lands in the real outbox_events table, not just the
+      unit-level fake). Full ./mvnw clean verify green: 231 tests total
+      (198 unit/domain/ArchUnit + 33 Testcontainers-IT), BUILD SUCCESS.

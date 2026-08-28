@@ -1,0 +1,44 @@
+SPEC-EI-007:
+  domain: 07-evaluation-improvement
+  name: Dataset Artifact Hash Lineage
+  cn_name: Dataset Artifact、Hash 与 Lineage
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-01-dataset-and-test-assets
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    "实现 dataset artifact 引用、artifact hash、input hash 和 lineage parent 追踪" — per-test-case
+    `input_hash` and `lineage_parent_id` already existed (SPEC-EI-001/SPEC-EI-004). The
+    real gap: no dataset-LEVEL `content_hash` existed anywhere, so a published
+    dataset's exact content was never independently verifiable/reproducible without
+    re-reading every one of its own test cases by hand. Closed: new
+    `EvaluationDataset.content_hash` (None until publish(), frozen at that moment) —
+    a SHA-256 over the sorted-by-case_key list of every one of the dataset's own test
+    cases' own `input_hash` values (sorted, never insertion order, since
+    save_many() gives no ordering guarantee), so the same set of cases always
+    produces the same hash regardless of how they were added. PublishDatasetService
+    computes it from the real TestCaseRepository at publish() time (the domain
+    aggregate itself has no test-case access). Exposed end-to-end: DatasetView ->
+    DatasetResponse -> Postgres column (new migration
+    868b42a3c2c6_add_dataset_content_hash.py). New tests cover None-before-publish,
+    frozen-after-publish, determinism-independent-of-dataset-identity, and a real
+    Postgres round trip.
+  lld_mapping:
+    - 07-data-model
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain/test_dataset.py
+    application: services/evaluation-improvement-service/tests/application/test_publish_dataset_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "129 passed total (110 non-integration + 19 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings — full suite after SPEC-EI-005 through SPEC-EI-010"

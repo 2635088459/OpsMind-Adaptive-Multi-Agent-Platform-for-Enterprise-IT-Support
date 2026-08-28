@@ -15,4 +15,20 @@ public record AuthenticationAssurance(String acr, List<String> amr, Instant auth
             throw new IllegalArgumentException("authTime must not be null");
         }
     }
+
+    /**
+     * SPEC-UA-016's own exact-acr-match / must-contain-amr comparison,
+     * extracted here so SPEC-UA-019's own break-glass strong-authentication
+     * check (and any future caller) reuses the identical rule rather than
+     * re-deriving it: a {@code null} {@code requiredAcr} means no level
+     * requirement; {@code null}/empty {@code requiredMethods} means no
+     * method requirement. Deliberately no ACR/AAL ordering — no LLD section
+     * anywhere in this domain defines one, so only an exact match is ever
+     * treated as satisfying a required level.
+     */
+    public boolean satisfies(String requiredAcr, List<String> requiredMethods) {
+        boolean levelSatisfied = requiredAcr == null || requiredAcr.equals(acr);
+        boolean methodsSatisfied = requiredMethods == null || requiredMethods.isEmpty() || amr.containsAll(requiredMethods);
+        return levelSatisfied && methodsSatisfied;
+    }
 }

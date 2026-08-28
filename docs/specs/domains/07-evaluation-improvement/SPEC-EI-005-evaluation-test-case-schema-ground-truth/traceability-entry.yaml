@@ -1,0 +1,44 @@
+SPEC-EI-005:
+  domain: 07-evaluation-improvement
+  name: Evaluation Test Case Schema Ground Truth
+  cn_name: Evaluation Test Case Schema 与 Ground Truth
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-01-dataset-and-test-assets
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    "定义 test case schema、ground truth、allowed/forbidden tools、approval expectation、
+    verification condition 和 criticality" — the EvaluationTestCase domain aggregate
+    already carried every one of these fields since SPEC-EI-001, and AddTestCasesCommand
+    already accepted them all on write. The real, narrower gap: the READ side
+    (TestCaseView / GET responses) only ever exposed 5 truncated fields
+    (test_case_id/dataset_id/case_key/scenario/criticality) — ground_truth,
+    user_request_redacted, allowed_tools/forbidden_tools, required_approval, and
+    verification_condition were all write-only, unreadable back through any query API
+    once a case was created. Closed: TestCaseView/TestCaseResponse both extended to the
+    full schema; two new query methods (DatasetQueryUseCase.find_test_case(testCaseId) /
+    find_test_cases(datasetId)) plus two new REST endpoints (`GET
+    /evaluation/datasets/{datasetId}/cases`, `GET
+    /evaluation/datasets/{datasetId}/cases/{testCaseId}`) make the full schema
+    genuinely queryable, not just accept-only. No new migration — all fields already
+    existed on the Postgres row from SPEC-EI-002. New tests cover the full-schema round
+    trip and both not-found paths.
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application/test_create_dataset_service.py
+    integration: services/evaluation-improvement-service/tests/integration
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "129 passed total (110 non-integration + 19 real-Postgres integration tests via testcontainers), 3 import-linter contracts kept, 0 pyflakes warnings — full suite after SPEC-EI-005 through SPEC-EI-010"

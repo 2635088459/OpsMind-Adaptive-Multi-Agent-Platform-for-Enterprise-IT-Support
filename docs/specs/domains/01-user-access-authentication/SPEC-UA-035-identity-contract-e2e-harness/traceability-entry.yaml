@@ -2,7 +2,7 @@ SPEC-UA-035:
   domain: 01-user-access-authentication
   name: Identity Contract And E2E Harness
   cn_name: 身份契约与 E2E Harness
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-09-final-verification-release
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -15,6 +15,60 @@ SPEC-UA-035:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      14-testing-strategy's own footer genuinely claims this spec, and its
+      own body gives an unusually literal scope statement: "SPEC-UA-035
+      supplies the cross-domain harness."
+
+      SPEC-UA-020 through SPEC-UA-027 (phase-05/06) each independently
+      built the exact same real-HTTP contract-test setup: generate an RSA
+      keypair, start a JDK-only StubHttpServer before Spring context
+      refresh serving a real discovery document + JWKS, register it as
+      issuer-uri via @DynamicPropertySource so the REAL SecurityConfig#jwtDecoder
+      bean validates real signed tokens over real HTTP, plus port/
+      restTemplate/baseUrl(...)/bearer(...) helpers -- 8 test classes, each
+      with its own byte-for-byte-identical copy of roughly 40 lines of
+      this setup. New IdentityContractTestHarness (test-support abstract
+      base class) extracts exactly that identical piece once; all 8
+      existing classes were refactored to extend it instead of duplicating
+      it -- a real, ADOPTED shared harness, not a second, unused utility
+      class sitting beside the still-duplicated originals.
+
+      Deliberately did NOT also generalize each class's own signedJwt(...)/
+      signedWorkloadJwt(...) helper -- claim sets genuinely vary per test
+      (plain human login vs. client-credentials-shaped workload tokens
+      with aud/scope/jti) enough that forcing one generic signature would
+      either lose real per-test intent or become over-generic; those stay
+      local to each subclass, the same "share only the genuinely identical
+      piece" discipline PostgresContainerSupport itself already
+      established (shares only the container, never a test's own fixture
+      logic).
+
+      Real regression caught and fixed during this refactor, found only by
+      running all 8 adopting classes together (never by any single class
+      run in isolation, and initially masked by an unrelated mistake of
+      running two `./mvnw` invocations concurrently against the same
+      target/ directory, which had to be ruled out first via a clean,
+      solo re-run): since all 8 subclasses now inherit the exact same
+      registerIssuer method (identical Method object via reflection),
+      Spring's test-context cache would otherwise treat them as sharing
+      one cacheable context -- meaning only the first subclass to run
+      would get its own keycloakStub wired in for real, and every later
+      one would silently reuse that first context's already-closed stub
+      server. Fixed with @DirtiesContext(classMode = AFTER_CLASS) on the
+      harness. This is purely a safety net for however these tests might
+      be invoked in the future (e.g. ad hoc via a single shared surefire
+      fork) -- the project's own real release-gate execution path
+      (failsafe, reuseForks=false, one fresh JVM per *IT class) was never
+      actually at risk, since each class already gets its own isolated
+      fork/classloader there regardless of shared static fields.
+
+      No new tests were added (a pure extraction/refactor of existing,
+      already-passing test infrastructure) -- test COUNT is unchanged
+      from SPEC-UA-034: confirmed identical, 258 total (221 unit + 37
+      Testcontainers-IT) both before and after, run standalone (not
+      concurrently with any other Maven invocation) to rule out
+      cross-process interference. Full ./mvnw clean verify green, BUILD
+      SUCCESS.

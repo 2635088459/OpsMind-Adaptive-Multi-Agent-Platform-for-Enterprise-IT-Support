@@ -2,7 +2,7 @@ SPEC-UA-002:
   domain: 01-user-access-authentication
   name: Identity Schema Baseline
   cn_name: 身份数据 Schema 基线
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-00-engineering-foundation
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,14 @@ SPEC-UA-002:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >-
+      Real Postgres schema (Flyway V001-V010, `identity` schema) + JPA
+      entity/mapper/adapter persistence for all 5 aggregates + authorization
+      decisions, replacing SPEC-UA-001's in-memory adapters (moved to
+      src/test/support as fast unit-test fakes). Verified against a
+      Testcontainers PostgreSQL instance running the real migrations
+      (IdentityPersistenceIT), including the partial unique
+      `uq_role_assignments_active` constraint and Persistable-based
+      optimistic-version handling for client-assigned ids.

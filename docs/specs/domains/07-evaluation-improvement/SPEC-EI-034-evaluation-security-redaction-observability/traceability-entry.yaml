@@ -1,0 +1,29 @@
+SPEC-EI-034:
+  domain: 07-evaluation-improvement
+  name: Evaluation Security Redaction Observability
+  cn_name: Evaluation Security、Redaction 与 Observability
+  status: planned
+  service: evaluation-improvement-service
+  phase: phase-08-security-observability-recovery
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Planned spec for 实现 evaluation RBAC/ABAC、sensitive evidence access、redaction、metrics/logs/traces 和 alerts。
+    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
+    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+  lld_mapping:
+    - 11-security
+    - 12-observability
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: pending
+    integration: pending
+    contract: pending
+    security: pending
+    result: pending

@@ -2,7 +2,7 @@ SPEC-UA-033:
   domain: 01-user-access-authentication
   name: Session Revocation Reconciliation
   cn_name: Session 撤销对账
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-08-failure-recovery-degraded-mode
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,76 @@ SPEC-UA-033:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footers -- clean match (09-concurrency-and-idempotency:
+      "SPEC-UA-003, SPEC-UA-006, SPEC-UA-009, SPEC-UA-012, SPEC-UA-018,
+      SPEC-UA-033, SPEC-UA-034"; 10-failure-handling: "SPEC-UA-006,
+      SPEC-UA-009, SPEC-UA-019, SPEC-UA-032, SPEC-UA-033, SPEC-UA-034").
+
+      09-concurrency-and-idempotency's own literal "Session revocation is
+      idempotent: repeated calls return the existing final state and never
+      replace original revoke actor/reason" is already fully real
+      (ManageSessionService#revoke already returns the existing REVOKED
+      session as-is on a repeat call, since SPEC-UA-009) -- nothing new
+      needed there, confirmed by re-reading the existing implementation
+      rather than assumed.
+
+      Real, new scope is 10-failure-handling's own "Delayed revocation
+      event | High-risk action performs synchronous session/assurance
+      check | Reconciliation scan" row. The "synchronous session/assurance
+      check" half is also already real: EvaluateAuthorizationService's own
+      applyAssurance (SPEC-UA-016) already does a live, uncached
+      UserSessionRepository lookup whenever a caller's own request names a
+      requiredAssuranceLevel/requiredAssuranceMethods -- this codebase's
+      own concrete realization of "high-risk action," with no caching
+      layer anywhere to go stale in the first place. The "Reconciliation
+      scan" half was the real, genuinely unbuilt piece: UserSession's own
+      class javadoc literally names this spec directly ("revocation-list
+      reconciliation are SPEC-UA-009's and SPEC-UA-033's") -- another
+      already-built-but-unwired pointer, same pattern as almost every
+      prior spec in this domain.
+
+      Investigated whether the pointer meant wiring UserSession#markCompromised
+      (COMPROMISED status, zero real callers, matching an unused
+      IdentityAuditAction.USER_SESSION_COMPROMISED value since SPEC-UA-001)
+      -- traced its real textual anchor to 03-state-machine's own "security
+      signal" trigger and 06-event-contracts' own "Keycloak/admin adapter:
+      ... credential compromise ... facts" consumed-event category, which
+      (per SPEC-UA-028's own scoping work) has zero real producer anywhere
+      in this monorepo. Correctly left markCompromised/COMPROMISED (and
+      the similarly-unwired terminate()/TERMINATED, "normal termination,"
+      also with zero further grounding anywhere in this domain's LLD)
+      genuinely unbuilt rather than inventing a fake detection signal --
+      same honest-gap discipline SPEC-UA-027/030 already established.
+
+      The real, well-grounded gap instead: a UserIdentity transitioning to
+      DISABLED/DEPROVISIONED does not itself revoke that same identity's
+      own still-ACTIVE UserSessions -- exactly "Revocation propagates with
+      eventual consistency" (02-business-invariants #12, referenced for
+      context though its own footer does not claim this spec). New
+      ManageSessionUseCase#reconcileForInactiveIdentities scans the
+      bounded set of currently-ACTIVE sessions (new
+      UserSessionRepository#findAllActive, not every ever-deactivated
+      identity, which only grows unboundedly) and checks each one's own
+      owner via the already-existing UserIdentityRepository#findByExternalSubject
+      (SPEC-UA-002) -- a missing or non-ACTIVE owner revokes the session
+      through the exact same real UserSession#revoke transition #revoke
+      already uses (actor "system:reconciliation", matching every other
+      reconcile method's own established convention). Revoked sessions
+      flow into SPEC-UA-009's own existing reconcileEndSessionNotifications
+      scan automatically -- zero new wiring needed there, since both use
+      the identical REVOKED-with-endSessionNotifiedAt-null shape. New
+      admin endpoint POST /internal/identity/v1/admin/sessions/reconcile-inactive-identities
+      on the existing ReconciliationController, matching every other
+      reconcile* endpoint's own convention exactly.
+
+      New tests: ManageSessionServiceTest (+4: revokes a DISABLED user's
+      active session, revokes a DEPROVISIONED user's active session,
+      leaves an ACTIVE user's session alone, idempotent across repeated
+      runs), extended IdentityPersistenceIT (+1 real-Postgres test:
+      findAllActive returns an active session and excludes an already-revoked
+      one). Full ./mvnw clean verify green: 255 tests total (219 unit + 36
+      Testcontainers-IT), BUILD SUCCESS.

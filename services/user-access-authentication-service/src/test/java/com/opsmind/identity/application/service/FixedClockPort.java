@@ -6,7 +6,7 @@ import java.time.Instant;
 
 final class FixedClockPort implements ClockPort {
 
-    private final Instant instant;
+    private Instant instant;
 
     FixedClockPort(Instant instant) {
         this.instant = instant;
@@ -15,5 +15,10 @@ final class FixedClockPort implements ClockPort {
     @Override
     public Instant now() {
         return instant;
+    }
+
+    /** Moves this clock forward for reconciliation tests that assert a time-driven transition only fires once its instant is reached. */
+    void advanceTo(Instant instant) {
+        this.instant = instant;
     }
 }

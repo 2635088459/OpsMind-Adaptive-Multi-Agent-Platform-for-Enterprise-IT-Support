@@ -31,16 +31,21 @@ public final class IdentityRequestContext {
     }
 
     public static VerifiedIssuerAndSubject verifiedIssuerAndSubject(Authentication authentication) {
-        if (!(authentication instanceof JwtAuthenticationToken jwtAuth)) {
-            throw new RequestValidationException("a verified JWT principal is required");
-        }
-        Jwt jwt = jwtAuth.getToken();
+        Jwt jwt = verifiedJwt(authentication);
         String issuer = jwt.getIssuer() == null ? null : jwt.getIssuer().toString();
         String subject = jwt.getSubject();
         if (issuer == null || issuer.isBlank() || subject == null || subject.isBlank()) {
             throw new RequestValidationException("the verified JWT is missing iss or sub");
         }
         return new VerifiedIssuerAndSubject(issuer, subject);
+    }
+
+    /** The raw verified {@link Jwt} itself — for callers (SPEC-UA-007's introspection endpoint) that need claims beyond issuer/subject, e.g. {@code acr}/{@code amr}/{@code auth_time}. */
+    public static Jwt verifiedJwt(Authentication authentication) {
+        if (!(authentication instanceof JwtAuthenticationToken jwtAuth)) {
+            throw new RequestValidationException("a verified JWT principal is required");
+        }
+        return jwtAuth.getToken();
     }
 
     public static String correlationId(HttpServletRequest request) {

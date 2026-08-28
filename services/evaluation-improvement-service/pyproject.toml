@@ -1,0 +1,93 @@
+[project]
+name = "evaluation-improvement-service"
+version = "0.1.0"
+description = "OpsMind Evaluation Improvement Service"
+requires-python = ">=3.12"
+
+# Module Foundation.
+#
+# SPEC-EI-001 established module and package boundaries with in-memory placeholder
+# adapters (docs/low-level-design/domains/07-evaluation-improvement/
+# 13-package-and-class-design), mirroring memory-knowledge-service's own SPEC-MK-001
+# precedent exactly. SPEC-EI-002 (evaluation-schema-baseline) adds the real
+# `evaluation` PostgreSQL schema via SQLAlchemy + Alembic. The real RabbitMQ-backed
+# outbox publisher and processed-event persistence are SPEC-EI-003
+# (outbox-processed-event-audit-baseline) scope; real LangSmith Dataset/Experiment
+# mapping is SPEC-EI-013 (langsmith-experiment-linkage) scope. Neither dependency is
+# declared here yet — adding it ahead of an adapter that actually uses it would
+# misstate this spec's own real scope.
+dependencies = [
+    "fastapi>=0.118",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "httpx>=0.28",
+    "import-linter>=2.1",
+    "pyflakes>=3.2",
+    "testcontainers[postgres]>=4.9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/evaluationimprovement"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "unit: fast, no external I/O",
+    "integration: requires Docker (Postgres via testcontainers)",
+]
+
+[tool.importlinter]
+root_packages = ["evaluationimprovement"]
+include_external_packages = true
+
+# SPEC-EI-001 domain-rules: "07 只能输出 evaluation facts、gate decision、candidate
+# proposal 和 rollback recommendation，不能直接执行业务副作用" and
+# 13-package-and-class-design layering. Mirrors memory-knowledge-service's own
+# import-linter contracts and the Java sibling services' ArchUnit
+# LayerDependencyTest.
+[[tool.importlinter.contracts]]
+name = "Layers: interfaces -> application -> domain"
+type = "layers"
+layers = [
+    "evaluationimprovement.interfaces",
+    "evaluationimprovement.application",
+    "evaluationimprovement.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain must not depend on the web/ORM frameworks"
+type = "forbidden"
+source_modules = ["evaluationimprovement.domain"]
+forbidden_modules = ["fastapi", "pydantic", "sqlalchemy", "uvicorn"]
+
+[[tool.importlinter.contracts]]
+name = "Application must not depend on infrastructure"
+type = "forbidden"
+source_modules = ["evaluationimprovement.application"]
+forbidden_modules = ["evaluationimprovement.infrastructure"]
+
+# "Interfaces must not depend on infrastructure directly" is enforced by
+# tests/architecture/test_interfaces_boundary.py instead of an import-linter
+# "forbidden" contract: that contract type follows the whole transitive import
+# graph, which would also flag every router's legitimate
+# `interfaces -> evaluationimprovement.container -> infrastructure` composition-root
+# edge (evaluationimprovement.container is the one module allowed to wire concrete
+# adapters — see its own docstring). The AST-based test checks only *direct*
+# imports, which is the rule that actually matters here.

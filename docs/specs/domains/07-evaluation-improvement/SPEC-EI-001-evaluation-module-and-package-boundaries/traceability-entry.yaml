@@ -1,0 +1,75 @@
+SPEC-EI-001:
+  domain: 07-evaluation-improvement
+  name: Evaluation Module And Package Boundaries
+  cn_name: Evaluation 模块与包边界
+  status: implemented
+  service: evaluation-improvement-service
+  phase: phase-00-engineering-foundation
+  tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
+  implementation_notes: >
+    Domain/application/infrastructure/interfaces package skeleton delivered under
+    services/evaluation-improvement-service (Python package evaluationimprovement),
+    mirroring memory-knowledge-service's own SPEC-MK-001 precedent exactly. Layer
+    boundaries enforced via import-linter contracts (pyproject.toml
+    [tool.importlinter]) plus an AST-based pytest check under tests/architecture, and
+    a third architecture test (test_no_production_mutation.py) that fails the moment
+    any function anywhere in the service is named after a verb that would mutate a
+    foreign domain's aggregate (Ticket/Workflow/Tool/Memory/Policy/Agent/Prompt) —
+    02-business-invariants INV-EI-001. All 10 named application services
+    (create_dataset, publish_dataset, create_run, execute_case, score_run,
+    compare_regression, evaluate_release_gate, create_improvement_candidate,
+    manage_canary, dispatch_outbox_events) plus two pragmatic additions
+    (audit_query, grader_catalog, mirroring memory-knowledge-service's own
+    beyond-the-literal-list precedent) are implemented with real, working logic
+    against SPEC-EI-001-scoped in-memory adapters — not stubs: full state machines
+    for EvaluationDataset/EvaluationRun/ImprovementCandidate+Canary
+    (03-state-machine), append-only EvaluationScore with real supersede semantics
+    (INV-EI-007), a real regression comparator that derives GateDecision from
+    zero-tolerance safety counters (policy_violation/forbidden_tool/
+    unauthorized_memory_access, all read from CaseExecutionResult — never from any
+    grader's opinion) and critical-case failures (INV-EI-004/INV-EI-008), a real
+    release-gate service that layers a named GatePolicyConfig's own dimension
+    thresholds on top of that decision without ever loosening it, a real
+    GraderRegistry with two working deterministic graders (ClassificationAccuracyGrader,
+    ToolAllowlistGrader — the latter folding in the zero-tolerance forbidden-tool
+    check) and one honestly-labeled always-UNSCORED LLM Judge placeholder proving
+    INV-EI-003 (LLM Judge can never influence a safety gate) structurally, a real
+    idempotency guard (CommandIdempotencyGuard, natural-key convergence for
+    candidate creation) and audit recorder shared across services, and an outbox
+    dispatch loop with exponential backoff/dead-letter (found+fixed a real bug here:
+    InMemoryOutboxRepository.find_dispatchable originally only ever re-offered
+    PENDING rows, so a row marked FAILED by a backoff never came back for retry —
+    caught by test_dispatch_outbox_events_service.py's own dead-letter test, not
+    inspection). Postgres/Alembic (07-data-model), the real RabbitMQ publisher and
+    processed-event/audit persistence (08-transaction-and-outbox), and real LangSmith
+    Dataset/Experiment mapping (13-package-and-class-design's own langsmith/ package)
+    are intentionally deferred to SPEC-EI-002 (schema baseline), SPEC-EI-003
+    (outbox/processed-event/audit baseline), and SPEC-EI-013
+    (langsmith-experiment-linkage) respectively — every deferred adapter/port already
+    exists (LangSmithPort, ProcessedEventRepository, real persistence seam) so a later
+    spec only ever replaces an in-memory adapter, never invents a new port. Also found
+    +fixed: CompareRegressionService's own critical_failures computation originally
+    counted ANY failing score (including an LLM_JUDGE one) toward a critical-case
+    failure, which would have silently violated INV-EI-003 the first time a judge
+    grader was wired up — caught by
+    tests/contracts/test_safety_gate_determinism_contract.py, not inspection; fixed to
+    only ever consider DETERMINISTIC-graded failures. 70 tests (pytest), 3
+    import-linter contracts kept, 0 pyflakes warnings.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 02-business-invariants
+  forbidden:
+    - direct_production_agent_prompt_mutation
+    - direct_ticket_state_write
+    - direct_workflow_state_write
+    - direct_tool_execution
+    - direct_memory_content_write
+    - policy_approval_ownership_bypass
+    - cross_domain_distributed_transaction
+  test_evidence:
+    unit: services/evaluation-improvement-service/tests/domain
+    application: services/evaluation-improvement-service/tests/application
+    architecture: services/evaluation-improvement-service/tests/architecture
+    contract: services/evaluation-improvement-service/tests/contracts
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
+    result: "70 passed (pytest), 3 import-linter contracts kept, 0 pyflakes warnings"

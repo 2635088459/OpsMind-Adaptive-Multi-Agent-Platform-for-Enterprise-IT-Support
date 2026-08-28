@@ -2,7 +2,7 @@ SPEC-UA-006:
   domain: 01-user-access-authentication
   name: JWT Validation And JWKS Rotation
   cn_name: JWT 校验与 JWKS 轮换
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-01-oidc-token-trust
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,27 @@ SPEC-UA-006:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >-
+      OidcIssuerProperties gained a clockSkew field (default 60s, hard-capped
+      at 2 minutes — "bounded and never enlarged to accept expired tokens");
+      SecurityConfig#jwtDecoder now builds its validator explicitly from
+      JwtTimestampValidator(clockSkew) + JwtIssuerValidator + the existing
+      opt-in audience validator, replacing the implicit
+      JwtValidators.createDefaultWithIssuer default skew. JWKS rotation and
+      reject-unknown-kid behavior are Nimbus's own RemoteJWKSet mechanics,
+      not reimplemented — verified end-to-end instead against this
+      service's own jwtDecoder: a key added to the published JWKS after the
+      decoder's first fetch is picked up via the on-demand refresh-on-
+      unknown-kid path (rotation-add), and a kid published nowhere triggers
+      exactly one extra JWKS fetch (Nimbus's single-flight refresh, request-
+      counted at the stub HTTP server) before failing closed — never an
+      unbounded refresh storm. "Use only keys within max-stale" during an
+      IdP outage (continuing to trust already-cached-but-aging keys with an
+      explicit staleness bound) is left to SPEC-UA-032 (IdP Outage And JWKS
+      Degraded Mode) — a distinct degraded-mode concern this phase-01 spec
+      does not own. Token typ-header validation also left out: no way to
+      verify the right required value against a real Keycloak instance
+      without the Testcontainers Keycloak module this codebase deliberately
+      doesn't depend on (see SPEC-UA-004's own test_evidence).

@@ -1,17 +1,22 @@
 package com.opsmind.identity.api.internal;
 
 import com.opsmind.identity.api.IdentityRequestContext;
+import com.opsmind.identity.application.command.LogoutCommand;
+import com.opsmind.identity.application.command.RefreshSessionCommand;
 import com.opsmind.identity.application.command.RevokeSessionCommand;
 import com.opsmind.identity.application.command.StartSessionCommand;
 import com.opsmind.identity.application.dto.StartSessionRequest;
 import com.opsmind.identity.application.dto.UserSessionView;
 import com.opsmind.identity.application.port.in.ManageSessionUseCase;
+import com.opsmind.identity.application.port.out.HashingPort;
+import com.opsmind.identity.config.BrowserLoginProperties;
 import com.opsmind.identity.domain.session.UserSession;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,9 +34,13 @@ import java.time.Duration;
 public class SessionController {
 
     private final ManageSessionUseCase manageSessionUseCase;
+    private final HashingPort hashingPort;
+    private final BrowserLoginProperties browserLoginProperties;
 
-    public SessionController(ManageSessionUseCase manageSessionUseCase) {
+    public SessionController(ManageSessionUseCase manageSessionUseCase, HashingPort hashingPort, BrowserLoginProperties browserLoginProperties) {
         this.manageSessionUseCase = manageSessionUseCase;
+        this.hashingPort = hashingPort;
+        this.browserLoginProperties = browserLoginProperties;
     }
 
     @PostMapping("/internal/identity/v1/sessions")
@@ -62,5 +71,33 @@ public class SessionController {
             sessionId, IdentityRequestContext.actorId(authentication), "revoked by caller", IdentityRequestContext.correlationId(httpRequest)
         );
         return ResponseEntity.ok(UserSessionView.from(manageSessionUseCase.revoke(command)));
+    }
+
+    /** SPEC-UA-009 ("Session Refresh"): extends {@code lastSeenAt}, never revocation. */
+    @PostMapping("/internal/identity/v1/sessions/{sessionId}/refresh")
+    public ResponseEntity<UserSessionView> refresh(@PathVariable String sessionId, HttpServletRequest httpRequest) {
+        RefreshSessionCommand command = new RefreshSessionCommand(sessionId, IdentityRequestContext.correlationId(httpRequest));
+        return ResponseEntity.ok(UserSessionView.from(manageSessionUseCase.refresh(command)));
+    }
+
+    /**
+     * 05-api-contracts {@code POST /sessions/logout}: "Session derived from
+     * principal" — the session is resolved only from the caller's own
+     * verified token's {@code sid} claim, never a request body. Always 204,
+     * whether or not a matching session existed (never discloses which).
+     */
+    @PostMapping("/internal/identity/v1/sessions/logout")
+    public ResponseEntity<Void> logout(Authentication authentication, HttpServletRequest httpRequest) {
+        Jwt jwt = IdentityRequestContext.verifiedJwt(authentication);
+        IdentityRequestContext.VerifiedIssuerAndSubject verified = IdentityRequestContext.verifiedIssuerAndSubject(authentication);
+        String sid = jwt.getClaimAsString("sid");
+        if (sid != null && !sid.isBlank()) {
+            LogoutCommand command = new LogoutCommand(
+                browserLoginProperties.defaultTenantId(), verified.issuer(), verified.subject(), hashingPort.hash(sid),
+                IdentityRequestContext.correlationId(httpRequest)
+            );
+            manageSessionUseCase.logout(command);
+        }
+        return ResponseEntity.noContent().build();
     }
 }

@@ -2,7 +2,7 @@ SPEC-UA-013:
   domain: 01-user-access-authentication
   name: Tenant And Support Queue Scope
   cn_name: Tenant 与 Support Queue Scope
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-03-authorization-rbac-scope
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,46 @@ SPEC-UA-013:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections (02-business-invariants, 11-security) genuinely
+      claim this spec via their own footer spec-mapping lists. 04-use-cases
+      does not map this spec at all, so no authorization-decision-evaluation
+      wiring belongs here — EvaluateAuthorizationService's own javadoc
+      already defers "resource-scope, ownership, and assurance-requirement
+      checks" to SPEC-UA-014/015/016, not SPEC-UA-013. Real scope resolved
+      from ResourceScope's own javadoc, an already-built-but-unwired pointer
+      since SPEC-UA-001: "The richer tenant/queue scope model is
+      SPEC-UA-013's job." Before this spec, ResourceScope's compact
+      constructor validated only that scopeType was non-null — any
+      (scopeType, scopeId) combination was silently accepted, including
+      nonsensical ones (a SELF or TENANT scope carrying a scopeId; a
+      SUPPORT_QUEUE or RESOURCE scope with a null/blank one). Added real
+      structural validation matching each ScopeType's own documented meaning:
+      SELF/TENANT must never carry a scopeId (TENANT needs none at all —
+      tenant is already the row's own tenantId); SUPPORT_QUEUE/RESOURCE must
+      always carry a non-blank one. Enforced at construction, so it protects
+      every caller uniformly — including Jackson's own JSON deserialization
+      of GrantRoleAssignmentRequest#scope, with zero extra wiring needed.
+      Added the identical rule as a real Postgres CHECK constraint
+      (ck_role_assignments_scope_id_matches_type, V012 migration) —
+      11-security's own literal wording ("Controller, application use case,
+      and repository query all enforce tenant/scope") read as requiring
+      defense in depth at the persistence layer too, not just the domain
+      layer. Verified (not assumed) that 11-security's own "repository
+      query enforces tenant" requirement is already structurally satisfied
+      elsewhere in this domain: every natural-key repository lookup that
+      could theoretically span tenants already takes tenantId explicitly
+      (UserIdentityRepository#findByExternalSubject,
+      ServiceIdentityRepository#findByExternalSubject); RoleAssignment's own
+      id-based lookups (findById, findByUserIdentityId) need no separate
+      tenantId parameter because userIdentityId is itself generated once
+      per (tenantId, issuer, subject) and is never reused across tenants —
+      no cross-tenant leak vector exists there to close. New tests:
+      ResourceScopeTest (10 cases covering every ScopeType's own valid and
+      invalid scopeId combination). Full ./mvnw verify green: 131
+      unit/domain/ArchUnit tests (incl. all 7 LayerDependencyTest rules) + 7
+      Testcontainers Postgres IT tests (confirming the new V012 migration
+      and CHECK constraint apply cleanly against real, already-exercised
+      SUPPORT_QUEUE-scoped role-assignment data), BUILD SUCCESS.

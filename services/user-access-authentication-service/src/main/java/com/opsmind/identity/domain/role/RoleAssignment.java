@@ -69,6 +69,25 @@ public final class RoleAssignment {
         );
     }
 
+    /**
+     * SPEC-UA-012's own scheduled-grant path (03-state-machine §RoleAssignment:
+     * {@code PENDING --activate(validFrom)--> ACTIVE}). {@code validFrom} is a
+     * future instant the grant is not yet in effect for; {@link #activate}
+     * is the later, system-driven transition that makes it so.
+     */
+    public static RoleAssignment grantPending(
+        String roleAssignmentId, TenantId tenantId, String userIdentityId, RoleCode roleCode, ResourceScope scope,
+        List<String> permissions, Instant validFrom, Instant validUntil, String grantedBy, String grantReason, Instant now
+    ) {
+        if (!validFrom.isAfter(now)) {
+            throw new IllegalArgumentException("validFrom must be in the future for a PENDING grant; use grantActive otherwise");
+        }
+        return new RoleAssignment(
+            roleAssignmentId, tenantId, userIdentityId, roleCode, scope, permissions, RoleAssignmentStatus.PENDING,
+            validFrom, validUntil, grantedBy, grantReason, null, null, null, now, now, 0L
+        );
+    }
+
     /** Rehydrates a previously-persisted assignment. Used only by a future persistence mapper (SPEC-UA-002). */
     public static RoleAssignment reconstruct(
         String roleAssignmentId, TenantId tenantId, String userIdentityId, RoleCode roleCode, ResourceScope scope,
@@ -88,6 +107,40 @@ public final class RoleAssignment {
         return new RoleAssignment(
             roleAssignmentId, tenantId, userIdentityId, roleCode, scope, permissions, RoleAssignmentStatus.REVOKED,
             validFrom, validUntil, grantedBy, grantReason, Objects.requireNonNull(revokedBy, "revokedBy"), now, reason, createdAt, now, version + 1
+        );
+    }
+
+    /**
+     * System-driven once {@code now} reaches {@link #validFrom}
+     * (03-state-machine: {@code PENDING --activate(validFrom)--> ACTIVE}).
+     */
+    public RoleAssignment activate(Instant now) {
+        if (status != RoleAssignmentStatus.PENDING) {
+            throw new IllegalRoleAssignmentTransitionException(status, RoleAssignmentStatus.ACTIVE);
+        }
+        if (now.isBefore(validFrom)) {
+            throw new IllegalRoleAssignmentTransitionException(status, RoleAssignmentStatus.ACTIVE);
+        }
+        return new RoleAssignment(
+            roleAssignmentId, tenantId, userIdentityId, roleCode, scope, permissions, RoleAssignmentStatus.ACTIVE,
+            validFrom, validUntil, grantedBy, grantReason, revokedBy, revokedAt, revocationReason, createdAt, now, version + 1
+        );
+    }
+
+    /**
+     * Legal only from {@code PENDING} (03-state-machine: {@code PENDING
+     * --cancel--> CANCELLED}) — a grant an admin withdraws before it ever
+     * took effect. 07-data-model names no separate cancel actor/reason
+     * columns, so this reuses the revoke ones: generically "who ended this
+     * assignment and why," whichever transition did it.
+     */
+    public RoleAssignment cancel(String cancelledBy, String reason, Instant now) {
+        if (status != RoleAssignmentStatus.PENDING) {
+            throw new IllegalRoleAssignmentTransitionException(status, RoleAssignmentStatus.CANCELLED);
+        }
+        return new RoleAssignment(
+            roleAssignmentId, tenantId, userIdentityId, roleCode, scope, permissions, RoleAssignmentStatus.CANCELLED,
+            validFrom, validUntil, grantedBy, grantReason, Objects.requireNonNull(cancelledBy, "cancelledBy"), now, reason, createdAt, now, version + 1
         );
     }
 

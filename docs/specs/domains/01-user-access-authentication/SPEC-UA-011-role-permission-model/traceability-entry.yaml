@@ -2,7 +2,7 @@ SPEC-UA-011:
   domain: 01-user-access-authentication
   name: Role And Permission Model
   cn_name: 角色与权限模型
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-03-authorization-rbac-scope
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,64 @@ SPEC-UA-011:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both LLD sections named actually claim this spec via their own footer
+      spec-mapping lists (01-domain-model and 02-business-invariants both
+      list SPEC-UA-011), unlike SPEC-UA-010's mismatch. Real scope resolved
+      from two independent already-built-but-unwired pointers: RoleCode's own
+      javadoc ("The full role/permission model is SPEC-UA-011's job; this is
+      the stable vocabulary it builds on") and SecurityConfig's own javadoc
+      ("Per-endpoint RBAC/ABAC beyond 'authenticated' is
+      SPEC-UA-011/012/014's"). Built two complementary pieces. (1) A fixed,
+      server-side-authoritative RolePermissionCatalog (RoleCode -> permission
+      set), scoped to only the three identity-level permission strings this
+      domain's own LLD names anywhere (05-api-contracts' admin-authority
+      column: identity:role:grant, identity:role:revoke, identity:user:admin)
+      — deliberately not a richer catalog, since domain 01 supplies
+      identity-level facts only, never another domain's business permissions
+      (01-domain-model's own boundary statement). GrantRoleAssignmentCommand/
+      GrantRoleAssignmentRequest's own permissions field was removed entirely
+      (05-api-contracts' own POST /role-assignments field list never named
+      one) — ManageRoleAssignmentService#grant now derives permissions from
+      RolePermissionCatalog by roleCode alone, never trusting client input
+      (02-business-invariants #7's own spirit extended from "client headers"
+      to any client-supplied authority-bearing field). (2) A new
+      EnforceIdentityPermissionUseCase/Service — the first real per-endpoint
+      RBAC gate in this domain (zero @PreAuthorize/PermissionEvaluator/manual
+      authority check existed anywhere before this spec despite
+      @EnableMethodSecurity already being on). Given the caller's own
+      verified JWT issuer/subject (never a request body field), resolves
+      its UserIdentity, denies (02-business-invariants #5) unless one of its
+      currently-active RoleAssignments' own (catalog-derived) permissions
+      contains the required one. Deliberately built as a distinct
+      pre-flight use case invoked from controllers with plain resolved
+      strings (tenantId/issuer/subject/requiredPermission) rather than
+      folded into the existing grant/revoke/changeStatus/sync use cases
+      themselves — preserves the codebase's existing hard boundary
+      (Authentication never leaks past the controller layer into
+      application services) and kept the change's blast radius to only the
+      3 gated endpoints instead of rippling into every already-passing
+      UA-002/003/008 command signature. Wired onto RoleAssignmentController's
+      POST /role-assignments (identity:role:grant) and DELETE
+      /role-assignments/{id} (identity:role:revoke, matching 05-api-contracts'
+      own named authorities), and UserIdentityAdminController's PUT
+      /users/{id}/status and PUT /users/{id}/profile (identity:user:admin,
+      the latter closing a gap its own docstring already flagged since
+      SPEC-UA-008 but never enforced) — both controllers gained an
+      Authentication parameter where they previously had none. The
+      /role-assignments/{id}/cancel endpoint is deliberately left
+      unguarded: 05-api-contracts names no authority for it at all, and
+      inventing one would be fabricating scope no LLD section names.
+      New PermissionDeniedException -> 403 (GlobalRestExceptionHandler).
+      New tests: EnforceIdentityPermissionServiceTest (6 cases — allow,
+      no-identity denied, disabled-identity denied, no-matching-permission
+      denied, denies-once-revoked, one-permission-does-not-imply-another)
+      plus a new ManageRoleAssignmentServiceTest case proving
+      catalog-derived permissions for PLATFORM_ADMIN vs. EMPLOYEE. Full
+      ./mvnw verify green: 117 unit/domain/ArchUnit tests (incl. all 7
+      LayerDependencyTest architecture rules, confirming the new
+      cross-cutting permission gate did not violate the hexagonal
+      dependency-direction rules) + 7 Testcontainers Postgres IT tests,
+      BUILD SUCCESS.

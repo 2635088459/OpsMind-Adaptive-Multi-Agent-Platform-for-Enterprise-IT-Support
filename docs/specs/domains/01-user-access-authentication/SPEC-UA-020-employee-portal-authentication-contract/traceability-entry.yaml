@@ -2,7 +2,7 @@ SPEC-UA-020:
   domain: 01-user-access-authentication
   name: Employee Portal Authentication Contract
   cn_name: Employee Portal 认证契约
-  status: planned
+  status: implemented
   service: user-access-authentication-service
   phase: phase-05-experience-access-contracts
   tech_stack: "Java 21 / Spring Boot 3.5.x / Spring Security 6 / OAuth2 Resource Server + Client / Spring Data JPA / Flyway / PostgreSQL / RabbitMQ / Micrometer + OpenTelemetry Java / Keycloak (external IdP)"
@@ -16,6 +16,60 @@ SPEC-UA-020:
     - direct_cross_domain_state_write
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    result: pending
+    unit: passing
+    integration: passing
+    result: >
+      Both named LLD sections genuinely claim this spec via their own
+      footer spec-mapping lists, matching the per-spec doc's own
+      lld_mapping exactly (no mismatch this time). Unlike every prior
+      SPEC-UA-0xx spec in this domain, 05-api-contracts' Employee-relevant
+      endpoints (GET /users/me, POST /sessions, POST
+      /tokens/introspect-context, POST /authorization-decisions, POST
+      /sessions/{id}/revoke) were all already real production code from
+      SPEC-UA-001/005/007/014/015 — 14-testing-strategy's own row ("E2E:
+      Employee login/self-service ticket ... Contract: 01<->Portal/API
+      Gateway ... with consumer-driven request/response ... schemas")
+      identifies this spec's real scope as adding the missing real,
+      HTTP-level proof that journey actually works end-to-end, not new
+      production capability.
+
+      Built EmployeePortalAuthenticationContractIT: the first
+      @SpringBootTest(webEnvironment = RANDOM_PORT) in this codebase (every
+      prior IT used webEnvironment = NONE), combined with @Testcontainers
+      Postgres and a @DynamicPropertySource that starts a StubHttpServer
+      BEFORE context refresh (serving a real .well-known/openid-configuration
+      + JWKS for a freshly generated RSA keypair) and points
+      spring.security.oauth2.resourceserver.jwt.issuer-uri at its
+      runtime-assigned baseUrl() — deliberately NOT importing
+      TestSecurityConfig's always-throwing JwtDecoder stub, so the REAL
+      SecurityConfig#jwtDecoder bean (SPEC-UA-004/006's own discovery +
+      algorithm/audience/clock-skew validation) is exercised end-to-end for
+      the first time outside SecurityConfigJwtDecoderTest's own
+      directly-constructed-bean pattern. A TestRestTemplate drives a
+      genuinely signed RS256 bearer JWT through the real HTTP filter chain:
+      GET /users/me (auto-links + confirms empty effectiveRoles) -> a
+      fixture-only direct grant of EMPLOYEE/SELF via the autowired
+      ManageRoleAssignmentUseCase (an Employee holds no
+      identity:role:grant permission itself per SPEC-UA-011's own catalog,
+      so self-granting through the real REST contract is structurally
+      impossible - this is fixture setup, not part of the contract under
+      test) -> GET /users/me again (confirms the grant is now reflected) ->
+      POST /sessions (real session start) -> POST
+      /tokens/introspect-context (confirms normalized principal/session
+      status) -> POST /authorization-decisions twice with the identical
+      SELF-scope request differing only in resourceOwnerId, proving
+      SPEC-UA-014's scope-coverage algorithm and SPEC-UA-015's ownership
+      check both hold under real HTTP end-to-end (ALLOW for the caller's
+      own resource, DENY for someone else's) -> POST /sessions/{id}/revoke.
+      A second contract test confirms an unauthenticated request is
+      rejected 401 with a generic UNAUTHENTICATED error body that never
+      leaks JWT/signature validation internals (05-api-contracts' own
+      401-unauthenticated case; 11-security's own least-information-on-
+      failure spirit).
+
+      Full ./mvnw verify green: 182 unit/domain/ArchUnit/Testcontainers-IT
+      tests total (180 prior + 2 new), BUILD SUCCESS. This closes
+      phase-05's first spec (Experience Access Contracts) for the Employee
+      persona; SPEC-UA-021 through SPEC-UA-027 (Support/Approver/Admin/
+      workload-identity/logout-revoke/service-call E2E+contract coverage
+      per 14-testing-strategy's own remaining rows) are still open.

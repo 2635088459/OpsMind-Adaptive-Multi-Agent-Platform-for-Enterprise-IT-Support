@@ -16,5 +16,11 @@ public interface RoleAssignmentRepository {
     /** Used to make granting an already-active role idempotent (acceptance criteria: no repeated side effects). */
     Optional<RoleAssignment> findActive(String userIdentityId, RoleCode roleCode, ResourceScope scope, java.time.Instant now);
 
+    /** 03-state-machine: {@code PENDING} rows whose {@code validFrom} has been reached — due for {@link RoleAssignment#activate}. */
+    List<RoleAssignment> findPendingDue(java.time.Instant now);
+
+    /** 03-state-machine: {@code ACTIVE} rows past their own {@code validUntil} — due for {@link RoleAssignment#expire}. */
+    List<RoleAssignment> findActiveExpired(java.time.Instant now);
+
     RoleAssignment save(RoleAssignment roleAssignment);
 }

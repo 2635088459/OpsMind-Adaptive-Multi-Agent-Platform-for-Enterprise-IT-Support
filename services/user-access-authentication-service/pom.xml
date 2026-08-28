@@ -21,22 +21,28 @@
     <properties>
         <java.version>21</java.version>
         <archunit.version>1.4.2</archunit.version>
+        <!-- SPEC-UA-021: same pinned version ticket-workflow-service's own pom.xml already uses, for one consistent version across the monorepo. -->
+        <json-schema-validator.version>1.5.9</json-schema-validator.version>
         <maven.enforcer.min-version>3.9.0</maven.enforcer.min-version>
     </properties>
 
     <!--
-        SPEC-UA-001 (13-package-and-class-design): this pom deliberately omits
-        spring-boot-starter-data-jpa / flyway / postgresql / amqp — the same
-        deferral policy-approval-governance-service's own SPEC-PG-001 pom used.
-        Domain 01's trusted-identity/session/role/step-up state lives behind
-        the application/port repository interfaces only, backed by the
-        SPEC-UA-001-scoped in-memory adapters in infrastructure/persistence;
-        real PostgreSQL persistence is SPEC-UA-002's job (Identity Schema
-        Baseline) and the real outbox/RabbitMQ publisher is SPEC-UA-003's
-        (Identity Outbox Processed Event And Audit Baseline). Booting behind
-        autoconfiguration exclusions those specs would immediately have to
-        undo would be worse than simply not depending on them yet.
+        SPEC-UA-005: spring-boot-starter-oauth2-client pulls oauth2-oidc-sdk,
+        which depends on a slightly older nimbus-jose-jwt than
+        spring-boot-starter-oauth2-resource-server already pulls directly —
+        pinned here so the enforcer plugin's dependencyConvergence rule
+        (already active in this pom) has one resolved version instead of two.
     -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>nimbus-jose-jwt</artifactId>
+                <version>9.37.4</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Runtime Foundation -->
         <dependency>
@@ -51,6 +57,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
+        <!-- SPEC-UA-005: the real browser Authorization Code + PKCE login/callback (spring.security.oauth2.client.*, api.browser). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-client</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
@@ -58,6 +69,29 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- SPEC-UA-002: real PostgreSQL persistence behind the application/port repositories. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <!-- SPEC-UA-003: the real outbox dispatcher's broker leg. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springdoc</groupId>
@@ -89,9 +123,47 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- SPEC-UA-028: real @RabbitListener delivery in integration tests, the same way
+             policy-approval-governance-service's own consumer ITs already do. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
             <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- SPEC-UA-021: provider-side JSON Schema (Draft 2020-12) validation of the
+             ticket-submission principal contract 02-ticket-workflow's own real
+             PublicTicketController#createTicket depends on — same library/version
+             ticket-workflow-service's own JsonSchemaEventValidator already uses for
+             its published/consumed event schemas. -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>${json-schema-validator.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -129,6 +201,23 @@
                         <exclude>**/*IT.java</exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <!-- One fresh fork per IT class: each starts/stops its own Testcontainers
+                         Postgres (see policy-approval-governance-service's own pom.xml for the same reasoning). -->
+                    <reuseForks>false</reuseForks>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.jacoco</groupId>

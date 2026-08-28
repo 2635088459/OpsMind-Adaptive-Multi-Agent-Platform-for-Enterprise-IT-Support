@@ -33,6 +33,7 @@ public class AuthorizationDecisionController {
         EvaluateAuthorizationCommand command = new EvaluateAuthorizationCommand(
             request.tenantId(), IdentityRequestContext.actorId(authentication), request.subjectId(), request.sessionId(),
             request.action(), request.resourceType(), request.resourceId(), request.requiredRole(), request.requiredScope(),
+            request.resourceOwnerId(), request.requiredAssuranceLevel(), request.requiredAssuranceMethods(),
             IdentityRequestContext.correlationId(httpRequest)
         );
         AuthorizationDecision decision = evaluateAuthorizationUseCase.evaluate(command);
