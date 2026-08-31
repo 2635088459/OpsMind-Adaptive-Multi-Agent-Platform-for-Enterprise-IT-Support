@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["tempo:3200"],
+    "labels": { "job": "tempo" }
+  }
+]

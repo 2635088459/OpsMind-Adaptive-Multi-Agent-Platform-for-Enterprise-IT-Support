@@ -1,0 +1,27 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-020
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/HttpGoldenSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-020-traceability.md
+#
+# SPEC-OP-020 — the HTTP golden signals (rate/errors/duration) that every prior
+# spec's own self-monitoring rules deliberately left out (those cover the
+# PLATFORM's own health; this is the business request path's). Built against the
+# http.* namespace (SPEC-OP-006) — the same metric SPEC-OP-016's Golden Path
+# dashboard queries. Real data verified before this file was written (SPEC-OP-016
+# traceability).
+groups:
+  - name: http-server-recording
+    interval: 30s
+    rules:
+      - record: http:request:rate5m
+        expr: sum by (service_name, service_namespace) (rate(http_server_request_duration_seconds_count[5m]))
+      - record: http:error_ratio:rate5m
+        expr: |
+          sum by (service_name, service_namespace) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+          / sum by (service_name, service_namespace) (rate(http_server_request_duration_seconds_count[5m]))
+      - record: http:duration:p95
+        expr: histogram_quantile(0.95, sum by (le, service_name, service_namespace) (rate(http_server_request_duration_seconds_bucket[5m])))

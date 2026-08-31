@@ -96,6 +96,29 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("floating tag", result.stdout)
 
+    def test_committed_private_key_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            leak = (clone / "infrastructure" / "observability" / "collector"
+                    / "base" / "oops-committed.key")
+            leak.write_text("-----BEGIN " + "PRIVATE KEY-----\nMII...\n-----END "
+                            + "PRIVATE KEY-----\n", encoding="utf-8")
+            result = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("private key", result.stdout)
+
+    def test_private_key_under_dot_dir_is_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            tls_dir = (clone / "infrastructure" / "observability" / "collector"
+                       / "overlays" / "local" / ".tls")
+            tls_dir.mkdir(parents=True, exist_ok=True)
+            (tls_dir / "server.key").write_text(
+                "-----BEGIN " + "PRIVATE KEY-----\nMII...\n-----END "
+                + "PRIVATE KEY-----\n", encoding="utf-8")
+            result = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,8 +2,128 @@ SPEC-OP-007:
   domain: 08-observability-platform
   name: Structured Log And Redaction Contract
   cn_name: 结构化日志与脱敏契约
-  status: planned
+  status: implemented
   phase: phase-01-unified-signal-contracts
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-004, SPEC-OP-005, SPEC-OP-006]
+  tech_stack: "OTel LogRecord model + OTTL (IsMatch/replace_pattern/Substring/Len) / OTel Collector transform / Loki OTLP ingestion / Python 3.12 + PyYAML validator / GitHub Actions"
+  implementation_notes: >
+    The log contract, and the first phase-01 spec that redacts VALUES, not just
+    attribute keys. signals/structured-log.md (human) + .yaml (machine, schema
+    schemas/structured-log.schema.json) fix: severity_map (6 levels, severity_number
+    ranges 1-4/5-8/9-12/13-16/17-20/21-24 -> trace/debug/info/warn/error/fatal,
+    severity_number 0 always non-conformant); event.code dotted-lowercase taxonomy
+    ^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,4}$ (e.g. ticket.created,
+    agent.tool_call.failed); linkage.any_of [trace_id, correlation_id] (as attributes,
+    matching this repo's existing convention, not the native OTLP LogRecord trace-id
+    byte field); multiline.max_body_chars 32768 (one logical event per LogRecord;
+    Collector truncates + stamps rather than the producer splitting across records);
+    sampling_intent mapping each level to a governance retention_class (rate-based
+    dropping itself is SPEC-OP-011 scope). governance/telemetry-governance.yaml
+    bumped to v1.3.0: allow_fields.log.recommended gained "event.code"; new top-level
+    log_body_redaction section (6 named regex patterns + replacements: bearer_token,
+    jwt, email, credit_card, ssn, secret_kv) since deny_fields (SPEC-OP-003) only ever
+    deletes attribute KEYS and does nothing for a secret/PII value inside a free-text
+    body string. Enforcement, LOGS pipeline only: transform/log-schema-contract stamps
+    attributes["opsmind.log.violation"] (missing:trace_linkage / missing:severity /
+    bad:event_code, never drops the record - ADR-4) and truncates + stamps an oversized
+    body; transform/log-body-redaction runs replace_pattern(body, ...) for every
+    governance pattern and stamps attributes["opsmind.log.redacted"]="true" when any
+    matched (checked against the ORIGINAL body before any replacement). Found+fixed a
+    real bug mid-implementation: OTTL string literals require a DOUBLED backslash
+    (\\s/\\./\\b/\\S) even though the outer YAML wrapper is single-quoted (no YAML-level
+    escaping) - otelcol-contrib rejected every \s/\./\b as "invalid quoted string" on
+    first `validate`; every other phase-01 processor had avoided this because none of
+    their regexes needed a backslash-class at all. Also found+fixed my own event.code
+    pattern bug: the first draft's ^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){1,4}$ rejected my
+    own "agent.tool_call.failed" example fixture (underscore not in the character
+    class) - added _ to the class everywhere (yaml, collector OTTL, human doc).
+    Fixtures signals/fixtures/structured-log/: conformant-info-trace-linkage.json,
+    conformant-error-correlation-only.json (pass); nonconformant-unspecified-severity,
+    -missing-linkage, -bad-event-code, -raw-secret-in-body (email+token=... - a
+    conformant PRODUCER must never emit this per F7, defense-in-depth is not a license),
+    -oversized-body-not-truncated (via a `_body_repeat_count` fixture field so the repo
+    doesn't carry a 30KB+ literal string) (reject). validate-signal-contracts.py
+    extended: structured-log shape (severity_map non-overlapping ranges, event_code
+    pattern compiles, linkage non-empty, multiline fields), governance sync (linkage
+    keys + event.code attribute in allow_fields.log.recommended, sampling_intent
+    retention_class exists, redaction.collector_processor/redacted_attribute ==
+    governance log_body_redaction), per-fixture severity+linkage+event-code+body-safety
+    conformance (the fixture check itself re-scans body against every governance
+    log_body_redaction pattern), collector wiring for both new processors + governance
+    pattern-verbatim coverage. validate-telemetry-governance.py extended:
+    log_body_redaction shape + pattern compile + LOG_REDACTION_CONCEPTS baseline
+    coverage (bearer/jwt/email/card/ssn/password) mirroring BASELINE_CONCEPTS, +
+    collector-sync check that every governance pattern's regex source appears
+    verbatim in transform/log-body-redaction. 13 new self-tests (7 signal-contracts +
+    2 unit already counted there + 2 governance E2E). Runtime: deliberately NO new
+    Prometheus/Loki-ruler alert - logs have no metrics bridge in the phase-01 pipeline
+    shape (a bridge is Collector pipeline-structure scope, SPEC-OP-008+, and Loki's
+    already-present-but-unwired ruler -> Alertmanager notification wiring is
+    SPEC-OP-013/SPEC-OP-021); inventing one would be fake enforcement, so detection is
+    documented as a manual LogQL runbook instead (runbooks/StructuredLogContractViolation.md).
+    Smoke test pushes a log with an email + token=... secret in the body (linked by
+    trace_id) and a second log with neither trace_id nor correlation_id, and asserts
+    in Loki that the secret/PII is scrubbed with the exact [REDACTED_EMAIL] /
+    token=[REDACTED] replacements, opsmind.log.redacted is stamped, and
+    opsmind.log.violation=missing:trace_linkage is stamped on the unlinked record.
+  lld_mapping:
+    - 08-transaction-and-outbox
+    - 11-security
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - secret_or_pii_in_telemetry
+    - dropping_a_nonconformant_log_record
+    - silent_redaction_pattern_removal
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/structured-log.md
+      - infrastructure/observability/signals/structured-log.yaml
+      - infrastructure/observability/schemas/structured-log.schema.json
+    fixtures:
+      - infrastructure/observability/signals/fixtures/structured-log/conformant-info-trace-linkage.json
+      - infrastructure/observability/signals/fixtures/structured-log/conformant-error-correlation-only.json
+      - infrastructure/observability/signals/fixtures/structured-log/nonconformant-unspecified-severity.json
+      - infrastructure/observability/signals/fixtures/structured-log/nonconformant-missing-linkage.json
+      - infrastructure/observability/signals/fixtures/structured-log/nonconformant-bad-event-code.json
+      - infrastructure/observability/signals/fixtures/structured-log/nonconformant-raw-secret-in-body.json
+      - infrastructure/observability/signals/fixtures/structured-log/nonconformant-oversized-body-not-truncated.json
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/governance/telemetry-governance.yaml
+      - infrastructure/observability/schemas/telemetry-governance.schema.json
+    rules_runbook:
+      - infrastructure/observability/runbooks/StructuredLogContractViolation.md
+    tooling:
+      - scripts/validate-signal-contracts.py
+      - scripts/validate-telemetry-governance.py
+      - scripts/tests/test_validate_signal_contracts.py
+      - scripts/tests/test_validate_telemetry_governance.py
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0/0 (log_body_redaction shape + baseline-concept coverage + collector-sync); validate-signal-contracts.py 0/0 (structured-log shape, governance-sync, 2 pass + 5 reject fixtures, both new processors wired + governance pattern coverage); otelcol validate exit 0 after fixing the double-backslash OTTL string-literal bug"
+    unit: "scripts/tests — 46 passed (8 layout + 9 governance incl. 2 new log_body_redaction + 29 signal-contracts incl. 7 StructuredLogUnitTests + 4 new structured-log E2E)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed a log body
+      "login succeeded for jane.doe@example.com token=SHOULD-BE-REDACTED-1234" linked
+      by trace_id, and a second log with no trace_id/correlation_id attribute at all.
+      Loki query confirmed: raw email and raw token value absent; body carries
+      "[REDACTED_EMAIL]" and "token=[REDACTED]" verbatim; opsmind.log.redacted stamped
+      on the first record; opsmind.log.violation=missing:trace_linkage stamped on the
+      second. All SPEC-OP-002/003/004/005/006 smoke assertions still green. Stack
+      torn down clean. Verified 2026-08-31.
+    contract: "structured-log golden fixtures + 5 negative fixtures under version control; live producer-SDK conformance is SPEC-OP-025+"
+    security: "value-level redaction of bearer tokens/JWTs/emails/card numbers/SSNs/key=value secrets from free-text log bodies before Loki, on top of SPEC-OP-003's key-level deny-list; F7 (forbidden-business-writes.md) restated: this is defense-in-depth, a producer that logs these must still be fixed"
+    result: >
+      JSON log shape, severity mapping, event codes, trace/correlation linkage,
+      multiline/oversized-body handling, and value-level redaction defined and
+      enforced. Collector stamps schema violations (never drops a record) and
+      truncates oversized bodies on the logs pipeline; a second processor scrubs
+      6 classes of secret/PII patterns from free-text bodies and stamps when it does.
+      Smoke proves both against a real signal in a real Loki. No Prometheus/Loki-ruler
+      alert ships with this spec (honest scope boundary - logs have no metrics bridge
+      until SPEC-OP-008+/SPEC-OP-013); triage is the runbook's LogQL queries. This
+      closes phase-01 (Unified Signal Contracts, SPEC-OP-004~007) for domain 08. Full
+      evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-007-traceability.md

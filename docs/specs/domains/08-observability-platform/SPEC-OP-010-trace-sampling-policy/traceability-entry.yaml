@@ -1,9 +1,86 @@
 SPEC-OP-010:
   domain: 08-observability-platform
   name: Trace Sampling Policy
-  cn_name: Trace Sampling 策略
-  status: planned
+  cn_name: Trace 采样策略
+  status: implemented
   phase: phase-02-collector-intake-processing
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-004, SPEC-OP-005, SPEC-OP-006, SPEC-OP-007, SPEC-OP-008, SPEC-OP-009]
+  tech_stack: "OTel Collector tailsamplingprocessor (status_code/latency/string_attribute/probabilistic policies, OR semantics) / Python 3.12 PyYAML governance validator / Docker Compose"
+  implementation_notes: >
+    governance/telemetry-governance.yaml bumped to v1.4.0: new trace_sampling section
+    (probabilistic_sampling_percentage 10, slow_trace_threshold_ms 1000,
+    risky_attribute_key security.sensitive, smoke_test_attribute_key
+    opsmind.smoke_test, collector_processor tail_sampling) is the single source of
+    truth; collector/base/config.yaml : tail_sampling mirrors every value verbatim
+    (validate-telemetry-governance.py fails if they diverge, same pattern as every
+    prior governance-backed spec). tail_sampling (TRACES pipeline only, wired after
+    transform/governance so redaction always happens before a keep/drop decision, and
+    before batch) has 5 OR'd policies: errors (status_code ERROR, always kept), slow
+    (latency > 1000ms, always kept), risky-operation (string_attribute
+    security.sensitive=true, always kept — a NEW producer-facing contract point: set
+    this span attribute on a security/compliance-sensitive operation to guarantee
+    retention regardless of status/latency), smoke-test-traffic (string_attribute
+    opsmind.smoke_test=true, always kept — synthetic/canary traffic must stay visible
+    independent of the production floor it validates, standard practice), and
+    baseline-probabilistic (10% of everything else). num_traces (50000) bounds
+    worst-case buffer memory; memory_limiter upstream remains the system-level
+    fallback under real pressure. Local overlay tunes decision_wait 10s->3s and
+    num_traces 50000->5000 (timing/capacity knobs only, never policy structure or
+    percentages — same "overlay never redefines pipeline logic" rule as every
+    component).
+    Found+fixed TWO real bugs while building the smoke-test proof (not the feature
+    itself): (1) scripts/observability-stack.sh's `start` timestamp for every prior
+    spec's test spans was computed via a string-truncation trick
+    (`${ts%??????????}`) that silently produced a multi-DECADE span "duration" —
+    harmless before tail_sampling existed, but it would have made every single
+    existing test trace trivially match the new "slow" policy, masking whether
+    anything else actually keeps them. Fixed to real nanosecond arithmetic
+    (`ts - 50000000` for a normal ~50ms span, `ts - 2000000000` for the one
+    deliberately-slow trace). (2) Once duration was realistic, every PRE-EXISTING
+    "must be found in Tempo" smoke assertion (SPEC-OP-002~009) became genuinely
+    subject to the 10% probabilistic floor — correct production behavior, but it
+    would have made the smoke test itself flaky. Resolved the RIGHT way (not by
+    inflating the baseline percentage, which would defeat testing it): added the
+    smoke-test-traffic policy and tagged every pre-existing test span with
+    opsmind.smoke_test=true, EXCEPT the four traces built specifically to test
+    errors/slow/risky in isolation (tagging those too would make it impossible to
+    tell which policy actually kept them).
+  lld_mapping:
+    - 10-failure-handling
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - dropping_an_error_or_security_sensitive_trace
+    - governance_collector_drift
+  artifacts:
+    contract:
+      - infrastructure/observability/governance/telemetry-governance.yaml
+      - infrastructure/observability/schemas/telemetry-governance.schema.json
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/collector/overlays/local/config.yaml
+    tooling:
+      - scripts/validate-telemetry-governance.py
+      - scripts/tests/test_validate_telemetry_governance.py
+      - scripts/validate-collector-pipeline.py
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-telemetry-governance.py 0/0 (new trace_sampling shape + collector-sync checks, 2 new tests); validate-collector-pipeline.py 0/0 (tail_sampling in MASTER_ORDER + ALLOWED_AFTER_GOVERNANCE + traces-only restriction); otelcol validate exit 0"
+    unit: "scripts/tests — 60 passed total"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. A genuinely slow (>1s,
+      real arithmetic) OK-status trace confirmed KEPT by the 'slow' policy; a fast,
+      OK-status, security.sensitive=true trace confirmed KEPT by the
+      'risky-operation' policy; the pre-existing ERROR-status trace (SPEC-OP-009)
+      confirmed still kept (now doubly: 'errors' policy + trace-priority stamp).
+      Every SPEC-OP-002~009 smoke assertion stayed green under the FIXED realistic
+      timestamps, proven by the new smoke-test-traffic policy + tagging, not by
+      accident. Stack torn down clean. Verified 2026-08-31.
+    result: >
+      Tail sampling keeps every error, slow, and security-sensitive trace and
+      probabilistically floors everything else, with governance as the single
+      source of truth for every threshold. Two real bugs (one latent since
+      SPEC-OP-002, one that would have been introduced by this spec) were found and
+      fixed via the smoke test, not left for someone else to discover. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-010-traceability.md

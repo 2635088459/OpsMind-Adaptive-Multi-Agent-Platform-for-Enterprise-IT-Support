@@ -14,6 +14,7 @@ is immutable once `Accepted`; a reversal is a new ADR that supersedes it.
 | [0004](0004-observability-never-mutates-business-state.md) | Observability never mutates business state; business availability outranks telemetry | Accepted |
 | [0005](0005-thin-control-plane-api-only-when-gitops-insufficient.md) | A thin control-plane API is added only where GitOps cannot express a change safely | Accepted |
 | [0006](0006-repository-layout-and-ownership-model.md) | Repository layout and ownership model for `infrastructure/observability/` | Accepted |
+| [0007](0007-otlp-gateway-requires-tls-and-bearer-auth.md) | The OTLP gateway requires TLS and bearer-token auth in every environment, including local | Accepted |
 
 ## Format
 

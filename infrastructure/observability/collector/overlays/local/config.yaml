@@ -16,6 +16,12 @@ processors:
     send_batch_size: 2048
     send_batch_max_size: 4096
     timeout: 2s
+  # SPEC-OP-010 — decision_wait is a timing knob (how long to buffer a trace before
+  # deciding), never the sampling POLICY itself (percentages/thresholds stay the
+  # base/ floor everywhere). Shorter locally so `smoke` doesn't wait unnecessarily.
+  tail_sampling:
+    decision_wait: 3s
+    num_traces: 5000
 
 exporters:
   otlp/tempo:

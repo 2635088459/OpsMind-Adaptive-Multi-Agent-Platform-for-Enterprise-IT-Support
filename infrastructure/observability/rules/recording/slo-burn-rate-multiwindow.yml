@@ -1,0 +1,71 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-023
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: slo
+# meta.runbook: runbooks/SloBurnRateAlerts.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-023-traceability.md
+#
+# SPEC-OP-023 — the Google SRE multi-window burn-rate windows this domain's own
+# "http-availability" SLO (SPEC-OP-022) didn't have yet: 5m, 30m, 2h, 6h, 1d, 3d
+# (SPEC-OP-022 already provides the 1h window). Same formula, one more window
+# label each; the same `slo_error_budget_ratio`/`slo_burn_rate_ratio` contracted
+# names (SPEC-OP-006), never colon-named (see SPEC-OP-022's own note on why).
+#
+# Local retention (72h = 3d) can barely hold the LONGEST window here and only
+# once 3 real days of continuous data exist — the 1d/3d rows are correct by
+# formula and promtool-valid, but only the 5m/30m/1h/2h/6h windows are
+# realistically demonstrable against this local stack today (SPEC-OP-023
+# traceability records exactly which window was live-verified).
+groups:
+  - name: slo-burn-rate-multiwindow-recording
+    interval: 1m
+    rules:
+      - record: slo:http_availability:good_ratio5m
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[5m]))
+          / sum(rate(http_server_request_duration_seconds_count[5m]))
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "5m" }
+        expr: (1 - slo:http_availability:good_ratio5m) / (1 - 0.99)
+
+      - record: slo:http_availability:good_ratio30m
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[30m]))
+          / sum(rate(http_server_request_duration_seconds_count[30m]))
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "30m" }
+        expr: (1 - slo:http_availability:good_ratio30m) / (1 - 0.99)
+
+      - record: slo:http_availability:good_ratio2h
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[2h]))
+          / sum(rate(http_server_request_duration_seconds_count[2h]))
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "2h" }
+        expr: (1 - slo:http_availability:good_ratio2h) / (1 - 0.99)
+
+      - record: slo:http_availability:good_ratio6h
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[6h]))
+          / sum(rate(http_server_request_duration_seconds_count[6h]))
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "6h" }
+        expr: (1 - slo:http_availability:good_ratio6h) / (1 - 0.99)
+
+      - record: slo:http_availability:good_ratio1d
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[1d]))
+          / sum(rate(http_server_request_duration_seconds_count[1d]))
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "1d" }
+        expr: (1 - slo:http_availability:good_ratio1d) / (1 - 0.99)
+
+      - record: slo:http_availability:good_ratio3d
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[3d]))
+          / sum(rate(http_server_request_duration_seconds_count[3d]))
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "3d" }
+        expr: (1 - slo:http_availability:good_ratio3d) / (1 - 0.99)

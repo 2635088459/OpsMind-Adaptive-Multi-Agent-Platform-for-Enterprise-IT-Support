@@ -1,0 +1,89 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-OP-019",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/AgentLlmCostCapacity.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-019-traceability.md"
+  },
+  "uid": "opsmind-agent-llm-cost-capacity",
+  "title": "Agent / LLM Cost & Capacity",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-OP-019"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Token usage & cost (bounded labels only — agent_role / model, never run_id/ticket_id)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "stat", "title": "Cost (USD) — last 6h", "unit": "currencyUSD",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "instant": true,
+        "expr": "sum(increase(agent_llm_cost_usd_sum[6h]))" }] },
+
+    { "id": 3, "type": "stat", "title": "Tokens — last 6h", "unit": "none",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "instant": true,
+        "expr": "sum(increase(agent_llm_tokens_sum[6h]))" }] },
+
+    { "id": 4, "type": "timeseries", "title": "Cost rate by model", "unit": "currencyUSD",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (model) (rate(agent_llm_cost_usd_sum[5m]))",
+        "legendFormat": "{{model}}" }] },
+
+    { "id": 5, "type": "timeseries", "title": "Token rate by model", "unit": "none",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 7 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (model) (rate(agent_llm_tokens_sum[5m]))",
+        "legendFormat": "{{model}}" }] },
+
+    { "id": 6, "type": "timeseries", "title": "Cost per call (p95) by model", "unit": "currencyUSD",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, model) (rate(agent_llm_cost_usd_bucket[15m])))",
+        "legendFormat": "{{model}}" }] },
+
+    { "id": 7, "type": "row", "title": "Latency, loops (tool-call intensity), and worker capacity",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 } },
+
+    { "id": 8, "type": "timeseries", "title": "Agent run duration (p50/p95) by role", "unit": "s",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50 {{agent_role}}",
+          "expr": "histogram_quantile(0.50, sum by (le, agent_role) (rate(agent_run_duration_seconds_bucket[5m])))" },
+        { "refId": "B", "legendFormat": "p95 {{agent_role}}",
+          "expr": "histogram_quantile(0.95, sum by (le, agent_role) (rate(agent_run_duration_seconds_bucket[5m])))" }
+      ] },
+
+    { "id": 9, "type": "timeseries", "title": "Tool-calls per run (loop intensity proxy)", "unit": "none",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "No dedicated 'loop count' metric is contracted yet (metric-naming.yaml agent.* namespace). This is tool-call rate divided by run rate as the nearest available proxy for how many steps/tool-calls the average run takes — a genuinely higher number over time is worth investigating as loop growth.",
+      "targets": [{ "refId": "A",
+        "expr": "sum by (agent_role) (rate(agent_tool_calls_total[5m])) / sum by (agent_role) (rate(agent_run_duration_seconds_count[5m]))",
+        "legendFormat": "{{agent_role}}" }] },
+
+    { "id": 10, "type": "timeseries", "title": "Worker capacity (CPU utilization, agent-runtime)", "unit": "percentunit",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "No dedicated worker-pool/concurrency metric is contracted yet. CPU utilization (runtime.* namespace) on the agent-runtime service namespace is the nearest available capacity proxy until one exists.",
+      "targets": [{ "refId": "A",
+        "expr": "runtime_cpu_utilization_ratio{service_namespace=\"agent-runtime\"}",
+        "legendFormat": "{{service_name}}" }] }
+  ]
+}

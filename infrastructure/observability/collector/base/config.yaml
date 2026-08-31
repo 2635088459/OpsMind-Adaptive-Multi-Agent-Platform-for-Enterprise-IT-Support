@@ -13,18 +13,47 @@
 #   - SPEC-OP-004: resourcedetection + transform/resource-contract
 #   - SPEC-OP-005: transform/baggage-contract (strip baggage.* attributes)
 #   - SPEC-OP-006: transform/metric-cardinality (strip forbidden metric label keys)
-# Still deferred to later specs:
-#   - structured-log VALUE redaction (free-text bodies)  → SPEC-OP-007
-#   - tail sampling                                      → SPEC-OP-010
-#   - sending-queue / retry tuning                       → SPEC-OP-011
+#   - SPEC-OP-007: transform/log-schema-contract (severity/event-code/trace-linkage
+#     violation stamping + oversized-body truncation) + transform/log-body-redaction
+#     (value-level PII/secret scrubbing of free-text log bodies)
+#   - SPEC-OP-008: TLS + bearer-token auth on both otlp receiver protocols (ADR-0007);
+#     health_check gains check_collector_pipeline (real readiness, not just liveness)
+#   - SPEC-OP-009: attributes/semconv-compat (normalize old semconv names to the
+#     canonical ones SPEC-OP-004/006 already contract on) + filter/noise (drop
+#     synthetic health/readiness-probe spans+logs) + transform/trace-priority (stamp
+#     ERROR-status spans; a `routing` connector was tried first and rejected — its
+#     OTTL condition runs in RESOURCE-batch context, not per-span, confirmed by a
+#     real startup failure, not just a design guess) — see the canonical PROCESSOR
+#     ORDER contract this spec adds (scripts/validate-collector-pipeline.py)
+#   - SPEC-OP-010: tail_sampling (TRACES only) — keep every error/slow/risky-operation
+#     trace, probabilistically sample the rest; values mirror governance
+#     telemetry-governance.yaml : trace_sampling
+#   - SPEC-OP-011: file_storage-backed (WAL) sending_queue on otlp/tempo +
+#     otlphttp/loki (survives a collector restart); drop-accounting rules +
+#     runbook (rules/{recording,alerting}/collector-resilience.yml)
 
 receivers:
   otlp:
     protocols:
+      # ADR-0007 — TLS + bearer auth on BOTH protocols, in every environment
+      # including local. cert_file/key_file is a fixed conventional mount path;
+      # overlays supply the actual certificate material (never committed —
+      # repository-layout.md §5). scripts/observability-stack.sh generates an
+      # ephemeral self-signed dev cert into a gitignored directory before `up`.
       grpc:
         endpoint: 0.0.0.0:4317
+        tls:
+          cert_file: /etc/otelcol/tls/server.crt
+          key_file: /etc/otelcol/tls/server.key
+        auth:
+          authenticator: bearertokenauth
       http:
         endpoint: 0.0.0.0:4318
+        tls:
+          cert_file: /etc/otelcol/tls/server.crt
+          key_file: /etc/otelcol/tls/server.key
+        auth:
+          authenticator: bearertokenauth
 
 processors:
   # Guard the collector process itself: refuse new data before OOM.
@@ -144,6 +173,129 @@ processors:
       - context: datapoint
         statements: ['delete_matching_keys(attributes, "(?i)^(user[_.-]?id|ticket[_.-]?id|workflow[_.-]?id|request[_.-]?id|trace[_.-]?id|session[_.-]?id|email|url[_.-]?path[_.-]?raw|message[_.-]?id|correlation[_.-]?id|db[_.-]?statement|row[_.-]?id|pid|thread[_.-]?name|run[_.-]?id|prompt[_.-]?hash|case[_.-]?id|candidate[_.-]?id)$")']
 
+  # SPEC-OP-007 Structured Log & Redaction — LOGS pipeline only. Stamps a schema
+  # violation attribute (never drops the record, ADR-0004) for: no trace/correlation
+  # linkage, unspecified severity_number, or a malformed event.code; truncates a body
+  # over structured-log.yaml : multiline.max_body_chars and stamps that too.
+  transform/log-schema-contract:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - 'set(attributes["opsmind.log.violation"], "missing:trace_linkage") where attributes["trace_id"] == nil and attributes["correlation_id"] == nil'
+          - 'set(attributes["opsmind.log.violation"], "missing:severity") where severity_number == 0'
+          - 'set(attributes["opsmind.log.violation"], "bad:event_code") where attributes["event.code"] != nil and not IsMatch(attributes["event.code"], "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){1,4}$")'
+          - 'set(attributes["opsmind.log.truncated"], "true") where body != nil and Len(body) > 32768'
+          - 'set(body, Substring(body, 0, 32768)) where body != nil and Len(body) > 32768'
+
+  # SPEC-OP-007 Structured Log & Redaction — VALUE-level scrubbing of free-text log
+  # bodies (transform/governance above only deletes attribute KEYS). Patterns are the
+  # verbatim regex source from governance/telemetry-governance.yaml : log_body_redaction
+  # (validate-telemetry-governance.py fails if they diverge). The flag statement checks
+  # the ORIGINAL body against every pattern before any replace_pattern below mutates it.
+  transform/log-body-redaction:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - 'set(attributes["opsmind.log.redacted"], "true") where IsMatch(body, "(?i)Bearer\\s+[A-Za-z0-9._~+/=-]{8,}") or IsMatch(body, "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}") or IsMatch(body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}") or IsMatch(body, "\\b(?:[0-9][ -]?){13,16}\\b") or IsMatch(body, "\\b[0-9]{3}-[0-9]{2}-[0-9]{4}\\b") or IsMatch(body, "(?i)(password|passwd|api[_-]?key|secret|token)\\s*[:=]\\s*\\S+")'
+          - 'replace_pattern(body, "(?i)Bearer\\s+[A-Za-z0-9._~+/=-]{8,}", "Bearer [REDACTED]")'
+          - 'replace_pattern(body, "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}", "[REDACTED_JWT]")'
+          - 'replace_pattern(body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[REDACTED_EMAIL]")'
+          - 'replace_pattern(body, "\\b(?:[0-9][ -]?){13,16}\\b", "[REDACTED_CARD]")'
+          - 'replace_pattern(body, "\\b[0-9]{3}-[0-9]{2}-[0-9]{4}\\b", "[REDACTED_SSN]")'
+          - 'replace_pattern(body, "(?i)(password|passwd|api[_-]?key|secret|token)\\s*[:=]\\s*\\S+", "$1=[REDACTED]")'
+
+  # SPEC-OP-009 — the classic `attributes` processor (distinct from `transform`):
+  # normalize a producer still on an OLDER semconv naming onto the canonical keys
+  # SPEC-OP-004/006 already contract on. `insert`+`from_attribute` only sets the new
+  # key when it is absent and the old one is present — never clobbers a producer that
+  # already emits the new name, never invents a value out of nothing.
+  attributes/semconv-compat:
+    actions:
+      - key: http.request.method
+        from_attribute: http.method
+        action: insert
+      - key: http.method
+        action: delete
+      - key: http.response.status_code
+        from_attribute: http.status_code
+        action: insert
+      - key: http.status_code
+        action: delete
+
+  # SPEC-OP-009 — drop synthetic health/readiness-probe noise (Docker healthchecks,
+  # k8s liveness/readiness probes hitting domain services) before it reaches Tempo/
+  # Loki. This is unconditional DROP, not redaction: these spans/logs carry no
+  # business signal and only inflate storage + dashboards. A real request to the same
+  # path with a DIFFERENT name (e.g. an operator manually curling /health) still only
+  # matches if it reproduces the exact probe shape below.
+  filter/noise:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["http.route"] == "/health" or attributes["http.route"] == "/healthz" or attributes["http.route"] == "/actuator/health"'
+    logs:
+      log_record:
+        - 'IsMatch(body, "^(GET|HEAD) /(health|healthz|actuator/health)( |$)")'
+
+  # SPEC-OP-009 — a `routing` connector fans out at RESOURCE-BATCH granularity (its
+  # OTTL condition runs in ottlresource context — confirmed the hard way: an earlier
+  # draft tried `status.code` there and the Collector refused to even START, not just
+  # a validate-time complaint), so it is the wrong tool for a PER-SPAN decision like
+  # error-vs-ok. Same observable outcome (ERROR spans get stamped) via a plain
+  # transform/span statement instead — no pipeline fan-out, no duplicated processor
+  # chain, no resource-vs-span context mismatch to get wrong.
+  transform/trace-priority:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - 'set(attributes["opsmind.trace.priority"], "high") where status.code == STATUS_CODE_ERROR'
+
+  # SPEC-OP-010 Trace Sampling Policy — TRACES pipeline only, runs after redaction/
+  # governance (buffers and decides per COMPLETE trace, so earlier per-span
+  # processors have already run regardless of position). Every value below mirrors
+  # governance/telemetry-governance.yaml : trace_sampling verbatim
+  # (validate-telemetry-governance.py fails if they diverge). A trace is kept if ANY
+  # policy matches (OR semantics) — errors and slow and risky-namespace traces are
+  # ALWAYS kept; everything else gets the probabilistic floor. num_traces bounds
+  # worst-case memory (capacity); memory_limiter upstream is the system-level
+  # fallback if the collector is under pressure regardless of trace-buffer size.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 10
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: risky-operation
+        type: string_attribute
+        string_attribute:
+          key: security.sensitive
+          values: ["true"]
+      # Synthetic/smoke/canary traffic is always retained — a monitoring probe's own
+      # trace must be reliably visible independent of the production sampling floor
+      # it exists to validate. scripts/observability-stack.sh tags every push with
+      # this EXCEPT the traces specifically testing the errors/slow/risky policies in
+      # isolation (tagging those too would make it impossible to tell which policy
+      # actually kept them).
+      - name: smoke-test-traffic
+        type: string_attribute
+        string_attribute:
+          key: opsmind.smoke_test
+          values: ["true"]
+      - name: baseline-probabilistic
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
   batch:
     send_batch_size: 8192
     send_batch_max_size: 10000
@@ -164,6 +316,10 @@ exporters:
     sending_queue:
       enabled: true
       queue_size: 1000
+      num_consumers: 10
+      # SPEC-OP-011 — WAL: the queue survives a collector restart. Without this the
+      # in-memory queue (and anything buffered in it) is lost on crash/redeploy.
+      storage: file_storage
     retry_on_failure:
       enabled: true
       initial_interval: 1s
@@ -176,6 +332,8 @@ exporters:
     sending_queue:
       enabled: true
       queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
     retry_on_failure:
       enabled: true
       initial_interval: 1s
@@ -183,15 +341,33 @@ exporters:
       max_elapsed_time: 120s
 
 extensions:
+  # ADR-0007 — every producer authenticates with a bearer token before the Collector
+  # accepts its telemetry. The token is never committed; local/CI use a placeholder
+  # (collector/overlays/local/values.env), production sources a real secret.
+  bearertokenauth:
+    scheme: "Bearer"
+    token: "${env:OTEL_GATEWAY_AUTH_TOKEN}"
+  # ADR-0007 — check_collector_pipeline makes /  (13133) reflect real READINESS
+  # (the pipeline is actually exporting), not just that the process is alive.
   health_check:
     endpoint: 0.0.0.0:13133
+    check_collector_pipeline:
+      enabled: true
+      interval: 5s
+      exporter_failure_threshold: 5
   pprof:
     endpoint: 0.0.0.0:1777
   zpages:
     endpoint: 0.0.0.0:55679
+  # SPEC-OP-011 — persistent (WAL) backing store for otlp/tempo + otlphttp/loki
+  # sending_queue. A crash/redeploy no longer silently loses whatever was queued.
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    create_directory: true
+    timeout: 10s
 
 service:
-  extensions: [health_check, pprof, zpages]
+  extensions: [bearertokenauth, health_check, pprof, zpages, file_storage]
   telemetry:
     metrics:
       level: detailed
@@ -204,13 +380,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, transform/governance, batch]
+      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, tail_sampling, batch]
       exporters: [otlp/tempo]
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, transform/metric-cardinality, transform/governance, batch]
+      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, attributes/semconv-compat, transform/metric-cardinality, transform/governance, batch]
       exporters: [prometheus]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, transform/governance, batch]
+      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/log-schema-contract, transform/log-body-redaction, transform/governance, batch]
       exporters: [otlphttp/loki]

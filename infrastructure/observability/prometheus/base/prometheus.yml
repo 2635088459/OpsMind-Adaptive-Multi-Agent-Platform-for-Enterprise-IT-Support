@@ -1,14 +1,23 @@
 # owner: platform-observability
-# spec: SPEC-OP-002
+# spec: SPEC-OP-002; SPEC-OP-012 (file_sd discovery + WAL compression)
 # rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate prometheus
 #
 # Prometheus server config (ADR-0002). Scrape targets here are the observability
 # platform's own components — self-monitoring seed for SPEC-OP-033. Business /
 # infrastructure scrape targets (postgres_exporter, rabbitmq, node) are added by
-# SPEC-OP-018 / SPEC-OP-029. Rule authoring lives in ../rules/, never in an overlay.
+# SPEC-OP-018 / SPEC-OP-029 as NEW files under file_sd/ (SPEC-OP-012) — no edit to
+# this file needed. Rule authoring lives in ../rules/, never in an overlay.
+#
+# Authentication: query-API/web access control is explicitly SPEC-OP-030
+# (Observability Access Control)'s job, not this spec's — adding ad-hoc basic_auth
+# here now would be redone/duplicated once OP-030 defines the real cross-component
+# RBAC model. Scrape-side: targets scraped here are this platform's own internal
+# operational endpoints (not the producer-facing OTLP boundary SPEC-OP-008/ADR-0007
+# secures), consistent with that ADR's own stated boundary.
 #
 # Container paths (mounted by observability-stack.yml):
 #   /etc/prometheus/prometheus.yml         this file
+#   /etc/prometheus/file_sd/*.json         <- infrastructure/observability/prometheus/base/file_sd
 #   /etc/prometheus/rules/recording/*.yml  <- infrastructure/observability/rules/recording
 #   /etc/prometheus/rules/alerting/*.yml   <- infrastructure/observability/rules/alerting
 
@@ -31,27 +40,21 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
+  # Self-scrape stays static — Prometheus scraping itself never benefits from
+  # discovery, and it must work even if file_sd's directory were ever empty.
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
 
-  - job_name: otel-collector
-    static_configs:
-      # 8888 = collector's own telemetry; 8889 = app metrics it re-exposes.
-      - targets: ["otel-collector:8888", "otel-collector:8889"]
-
-  - job_name: alertmanager
-    static_configs:
-      - targets: ["alertmanager:9093"]
-
-  - job_name: loki
-    static_configs:
-      - targets: ["loki:3100"]
-
-  - job_name: tempo
-    static_configs:
-      - targets: ["tempo:3200"]
-
-  - job_name: grafana
-    static_configs:
-      - targets: ["grafana:3000"]
+  # SPEC-OP-012 — ONE file_sd_configs job, globbing the whole directory: dropping a
+  # genuinely NEW target file (e.g. SPEC-OP-018/029's postgres_exporter/
+  # rabbitmq_exporter/node_exporter) needs no prometheus.yml edit and no restart —
+  # confirmed live, not assumed (a target added to this directory while Prometheus
+  # was running appeared within one refresh_interval). job_name here is only the
+  # DEFAULT; every file under file_sd/ sets its own "labels":{"job": "..."}, which
+  # takes precedence — confirmed live that a target's own job label wins even though
+  # every file shares this one job_name/scrape_config (see the traceability doc).
+  - job_name: file-sd-observability-platform
+    file_sd_configs:
+      - files: ["/etc/prometheus/file_sd/*.json"]
+        refresh_interval: 15s

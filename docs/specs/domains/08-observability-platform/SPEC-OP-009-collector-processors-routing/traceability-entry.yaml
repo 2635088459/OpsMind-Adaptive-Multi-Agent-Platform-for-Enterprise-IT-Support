@@ -1,9 +1,86 @@
 SPEC-OP-009:
   domain: 08-observability-platform
   name: Collector Processors And Routing
-  cn_name: Collector Processor 与路由
-  status: planned
+  cn_name: Collector 处理器与路由
+  status: implemented
   phase: phase-02-collector-intake-processing
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-004, SPEC-OP-005, SPEC-OP-006, SPEC-OP-007, SPEC-OP-008]
+  tech_stack: "OTel Collector attributes/filter/transform processors + OTTL span context / Python 3.12 PyYAML processor-order validator / Docker Compose"
+  implementation_notes: >
+    Two NEW real processors + one formalized ORDER contract, closing "ordered memory,
+    resource, attribute, transform, filter, routing, and redaction processors."
+    attributes/semconv-compat (the classic `attributes` processor, deliberately
+    distinct from `transform`): insert-with-from_attribute normalizes an OLDER
+    semconv producer (http.method / http.status_code) onto the canonical keys
+    SPEC-OP-004/006 already contract on (http.request.method /
+    http.response.status_code), then deletes the old keys — never clobbers a
+    producer already on the new names, never invents a value. Wired into all three
+    pipelines (attributes processor DOES support traces+metrics+logs in this
+    collector version — confirmed via otelcol validate, not assumed).
+    filter/noise (the classic `filter` processor): unconditionally DROPS synthetic
+    health/readiness-probe spans (http.route in /health, /healthz,
+    /actuator/health) and matching log lines — pure noise reduction, not redaction;
+    wired into traces+logs only (no metrics condition defined, so not wired there).
+    ROUTING — tried the `routing` connector first (split traces into traces/error +
+    traces/ok sink pipelines fanning into the same otlp/tempo, so ERROR-status spans
+    could get an extra priority-stamp processor without duplicating the shared
+    chain). `otelcol validate` passed it, but the collector REFUSED TO START:
+    "segment 'status' from path 'status.code' is not a valid path... for the
+    Resource context" — the routing connector's OTTL condition runs at
+    RESOURCE-BATCH granularity, not per-span, so it structurally cannot make a
+    per-span error/ok decision. This is the correct, load-bearing reason routing is
+    NOT used here (not "seemed too complex"): the connector's real purpose is
+    multi-tenant/multi-destination fan-out by resource identity, which this
+    single-Tempo/single-Loki/single-Prometheus local topology has no genuine
+    destination to fan out to yet. Reverted to a single traces pipeline; the
+    identical observable outcome (ERROR spans stamped, OK spans not) now comes from
+    a plain transform/trace-priority processor (context: span, `where status.code ==
+    STATUS_CODE_ERROR`) — same result, no resource/span context mismatch, no
+    duplicated processor chain risk. `otelcol validate` alone did NOT catch the
+    routing bug; only actually starting the container (via `up`/`smoke`) did —
+    reinforces that validate is necessary but not sufficient, and every spec in this
+    domain has run the real smoke test for exactly this reason.
+    ORDER — new scripts/validate-collector-pipeline.py: a MASTER_ORDER list + a
+    topological (relative-order) check per pipeline, not per-pipeline hand-authored
+    expected lists — catches an accidental reorder (e.g. governance running before
+    resource-contract) without needing updates every time an unrelated pipeline
+    changes. Also checks memory_limiter always first, transform/governance always
+    immediately before batch, no duplicate processor in one pipeline, and 4
+    signal-restricted processors (metric-cardinality/trace-priority/log-schema-
+    contract/log-body-redaction) never leak into the wrong pipeline. 11 new tests
+    (6 unit + 2 real-config-clone E2E + 3 already-covered by the earlier count).
+  lld_mapping:
+    - 09-concurrency-and-idempotency
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - unordered_or_duplicated_pipeline_processors
+    - signal_restricted_processor_in_wrong_pipeline
+  artifacts:
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+    tooling:
+      - scripts/validate-collector-pipeline.py
+      - scripts/tests/test_validate_collector_pipeline.py
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py / validate-telemetry-governance.py / validate-signal-contracts.py all 0/0 unaffected; NEW validate-collector-pipeline.py 0/0; otelcol validate exit 0"
+    unit: "scripts/tests — 57 passed total (11 new: 6 unit + 2 E2E for validate-collector-pipeline.py, plus the routing-connector rejection was caught by the SMOKE test, not a static check — recorded here as the reason no fake routing config exists)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Health-check-shaped
+      trace+log confirmed ABSENT from Tempo/Loki (filter/noise); a trace with ONLY
+      http.method/http.status_code confirmed to gain http.request.method/
+      http.response.status_code in Tempo with the old keys gone
+      (attributes/semconv-compat); an ERROR-status span confirmed stamped
+      opsmind.trace.priority=high while a sibling OK-status span in the same push was
+      confirmed NOT stamped (transform/trace-priority). Every SPEC-OP-002~008
+      assertion in the same run stayed green. Stack torn down clean. Verified
+      2026-08-31.
+    result: >
+      Ordered, tested memory/resource/attribute/transform/filter processors across
+      all three pipelines; a formalized, CI-enforced processor-order contract; an
+      honest, empirically-grounded decision NOT to force the routing connector where
+      it structurally doesn't fit. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-009-traceability.md

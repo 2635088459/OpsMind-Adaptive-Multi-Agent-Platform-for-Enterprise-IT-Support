@@ -1,0 +1,53 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-015
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/TelemetryBackupRestore.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-015-traceability.md
+#
+# SPEC-OP-015 — if retention/compaction stops actually deleting old data, disk
+# fills and eventually every other backend/alert in this domain degrades with it.
+# This is DELETION EVIDENCE as a live signal, not a one-time manual check.
+groups:
+  - name: telemetry-retention-alerting
+    rules:
+      - alert: LokiRetentionNotRunning
+        expr: loki:compactor_retention_run_age:seconds > 21600
+        for: 15m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Loki compactor has not completed a retention run in {{ $value | humanizeDuration }}"
+          description: "loki_compactor_apply_retention_last_successful_run_timestamp_seconds is stale. Old chunks are not being deleted — disk usage will grow unbounded."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TelemetryBackupRestore.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: TempoRetentionErrors
+        expr: tempo:retention_errors:rate30m > 0
+        for: 15m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Tempo retention/compaction is failing to delete expired blocks"
+          description: "tempodb_retention_errors_total is increasing. Expired blocks are not being cleaned up — disk usage will grow unbounded."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TelemetryBackupRestore.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: TempoCompactionErrors
+        expr: tempo:compaction_errors:rate30m > 0
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Tempo block compaction is failing"
+          description: "Uncompacted blocks accumulate query cost and disk usage over time. Check Tempo's own logs for the underlying compaction error."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TelemetryBackupRestore.md"
+          dashboard: "Observability Platform Self-Monitoring"

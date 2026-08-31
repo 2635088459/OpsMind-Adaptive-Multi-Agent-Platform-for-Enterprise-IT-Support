@@ -2,8 +2,82 @@ SPEC-OP-014:
   domain: 08-observability-platform
   name: Tempo Trace Backend
   cn_name: Tempo Trace 后端
-  status: planned
+  status: implemented
   phase: phase-03-telemetry-backends-retention
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-012]
+  tech_stack: "Tempo v2.7.1 metrics_generator (span-metrics + service-graphs) + TraceQL + Prometheus exemplars API / real live end-to-end verification / Docker Compose"
+  implementation_notes: >
+    Unlike every prior phase-03 spec so far, Tempo's pipeline, block storage,
+    metrics_generator (span-metrics + service-graphs processors), and remote_write-
+    with-exemplars were ALL already fully configured since SPEC-OP-002 — this
+    spec's real work was PROVING the entire chain actually works end to end (it had
+    never been exercised), not building new config.
+    Proof, step by step, against a real running stack: pushed 3 real spans (first
+    attempt used malformed 33-char trace IDs from a shell string-interpolation bug —
+    caught immediately when Tempo returned 404 for them, not blamed on Tempo;
+    redone in Python with asserted-correct 32/16-char hex IDs). Confirmed via
+    GET /api/traces/<id>: 200, real span data. Confirmed metrics_generator logs
+    "collecting metrics active_series=42". Confirmed in Prometheus (after the
+    generator's own collection+remote_write cycle elapsed — an early check at 20s
+    was too soon and returned empty, corrected by waiting longer rather than
+    concluding it was broken): traces_spanmetrics_calls_total = 3 (matching the 3
+    spans pushed), traces_spanmetrics_latency_bucket, traces_service_graph_request_total
+    all present as real series with deployment_environment/service/span_name/
+    status_code labels. Confirmed TraceQL: GET /api/search?q={resource.service.name=...}
+    found the trace by attribute. Confirmed EXEMPLARS specifically (not just the
+    metric): GET /api/v1/query_exemplars on traces_spanmetrics_latency_bucket
+    returned an exemplar carrying the EXACT traceID pushed — the full
+    metric-to-trace jump Grafana dashboards depend on is real, not assumed from the
+    remote_write config having send_exemplars: true.
+    New self-monitoring: discovered real Tempo self-metrics
+    (tempo_discarded_spans_total, tempo_ingester_failed_flushes_total,
+    tempo_metrics_generator_spans_discarded_total,
+    tempo_metrics_generator_registry_collections_failed_total) via the same
+    live-metrics-discovery method used for SPEC-OP-011/012 rather than assumed
+    names. New rules/{recording,alerting}/tempo-health.yml: TempoDiscardingSpans
+    (warning — real data loss), TempoBlockFlushFailing (critical — Tempo is the
+    sole trace backend, ADR-0002), TempoMetricsGeneratorDroppingSpans (warning —
+    a derived-view gap only, traces themselves unaffected, called out explicitly
+    in the runbook to avoid over-escalating a view-only issue).
+    No config change was needed to tempo.yml itself — updated its header comment to
+    record that SPEC-OP-014 verified it live rather than silently claim credit for
+    work SPEC-OP-002 already did.
+  lld_mapping:
+    - 07-data-model
+    - 10-failure-handling
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - trace_data_loss_on_flush_failure
+  artifacts:
+    enforcement:
+      - infrastructure/observability/tempo/base/tempo.yml
+    rules_runbook:
+      - infrastructure/observability/rules/recording/tempo-health.yml
+      - infrastructure/observability/rules/alerting/tempo-health.yml
+      - infrastructure/observability/runbooks/TempoIngestHealth.md
+    tooling:
+      - .github/workflows/observability-platform-ci.yml
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0/0 (3 audit_ref warnings cleared by this file); other 3 validators unaffected; promtool check rules SUCCESS (3 recording + 3 alerting)"
+    unit: "scripts/tests — 60 passed, unaffected (Tempo config is not a Python-validated contract type)"
+    integration: >
+      Full live verification (this spec's actual deliverable): a real span reached
+      Tempo (GET /api/traces 200), TraceQL search found it by attribute,
+      metrics_generator produced traces_spanmetrics_calls_total=3 and
+      traces_service_graph_request_total in Prometheus (confirmed present in the
+      FULL label set, not just existence), and query_exemplars returned an exemplar
+      carrying the exact pushed trace ID. scripts/observability-stack.sh smoke —
+      SMOKE: PASS, new assertions (polling up to 60s for the generator's own
+      flush cycle): span-metrics reached Prometheus, and the exemplar links to the
+      correct trace ID. Every SPEC-OP-002~013 assertion in the same run stayed
+      green. Stack torn down clean. Verified 2026-08-31.
+    result: >
+      Tempo's block storage, TraceQL, metrics_generator (span-metrics +
+      service-graphs), and exemplar linkage are proven working end to end against
+      a live stack — a capability that had been fully configured but never
+      exercised since SPEC-OP-002. Self-monitoring closes the observability-of-Tempo
+      gap. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-014-traceability.md

@@ -1,0 +1,12 @@
+{
+  "_fixture": { "spec": "SPEC-OP-007", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "body exceeds multiline.max_body_chars (32768) without an opsmind.log.truncated marker — either the producer split/oversized one logical event, or it reached the Collector pre-truncation",
+    "collector_behavior": "transform/log-schema-contract truncates to 32768 chars and stamps attributes[\"opsmind.log.truncated\"]=\"true\"" },
+  "log": {
+    "severity_number": 17,
+    "severity_text": "ERROR",
+    "body": "REPEATED_STACK_FRAME_LINE_PADDING_FOR_FIXTURE_SIZE_ONLY_NOT_REAL_DATA_",
+    "_body_repeat_count": 500,
+    "attributes": { "trace_id": "0af7651916cd43dd8448eb211c80319c", "event.code": "agent.runtime.crash" }
+  }
+}

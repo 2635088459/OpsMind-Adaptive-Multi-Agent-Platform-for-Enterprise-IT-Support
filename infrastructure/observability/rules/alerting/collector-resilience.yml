@@ -1,0 +1,61 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-011
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/CollectorBackpressure.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-011-traceability.md
+#
+# SPEC-OP-011 — the Collector's OWN batch/queue/retry/backpressure health. All three
+# alerts fire on the Collector's real self-telemetry (scraped by Prometheus already,
+# SPEC-OP-002), not an invented signal — confirmed by deliberately taking Tempo
+# offline mid-development and observing every metric referenced here move for real.
+groups:
+  - name: collector-resilience-alerting
+    rules:
+      - alert: CollectorExportFailing
+        # A sustained export failure rate means the persistent queue (SPEC-OP-011
+        # WAL) is absorbing data that the backend is refusing — durable, but not
+        # infinite (bounded by queue_size + max_elapsed_time).
+        expr: otelcol:exporter_send_failed_spans:rate5m > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Collector exporter {{ $labels.exporter }} has been failing to send for 5m+"
+          description: "Check the downstream backend (Tempo/Loki) is reachable and healthy. The persistent queue is buffering, not dropping, but max_elapsed_time (120s) is a hard ceiling per item."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/CollectorBackpressure.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: CollectorQueueNearCapacity
+        expr: otelcol:exporter_queue_utilization:ratio > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Collector exporter {{ $labels.exporter }} sending_queue is {{ $value | humanizePercentage }} full"
+          description: "The persistent queue (queue_size vs queue_capacity) is close to full. Once full, new data is refused at enqueue time rather than buffered."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/CollectorBackpressure.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: CollectorReceiverThrottling
+        # memory_limiter (or any other receiver-side guard) refusing incoming data
+        # is the Collector's intended throttling/backpressure signal to producers —
+        # ADR-0004: business availability outranks telemetry, so producers must
+        # degrade gracefully here, never block on it.
+        expr: otelcol:receiver_refused_spans:rate5m > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Collector receiver {{ $labels.receiver }} is refusing incoming telemetry"
+          description: "Usually memory_limiter under pressure. Check otelcol_process_memory_rss and consider raising resources or reducing producer volume before this becomes sustained data loss."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/CollectorBackpressure.md"
+          dashboard: "Observability Platform Self-Monitoring"

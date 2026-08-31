@@ -1,0 +1,28 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-015
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/TelemetryBackupRestore.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-015-traceability.md
+#
+# Retention/compaction/deletion EVIDENCE across Loki and Tempo (SPEC-OP-015) —
+# Prometheus's own retention/compaction health is already covered by
+# rules/{recording,alerting}/prometheus-tsdb.yml (SPEC-OP-012). Metric names
+# verified against real running Loki v3.3.2 / Tempo v2.7.1 instances (not
+# assumed) — see the traceability doc.
+groups:
+  - name: telemetry-retention-recording
+    interval: 5m
+    rules:
+      - record: loki:compactor_retention_run_age:seconds
+        expr: time() - loki_compactor_apply_retention_last_successful_run_timestamp_seconds
+      - record: loki:compactor_deleted_marker_files:rate1h
+        expr: rate(loki_boltdb_shipper_retention_sweeper_marker_files_deleted_total[1h])
+      - record: tempo:retention_deleted:rate1h
+        expr: rate(tempodb_retention_deleted_total[1h])
+      - record: tempo:retention_errors:rate30m
+        expr: rate(tempodb_retention_errors_total[30m])
+      - record: tempo:compaction_errors:rate30m
+        expr: rate(tempodb_compaction_errors_total[30m])

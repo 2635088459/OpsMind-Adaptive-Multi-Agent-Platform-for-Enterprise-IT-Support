@@ -1,0 +1,22 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-011
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/CollectorBackpressure.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-011-traceability.md
+#
+# Drop-accounting + backpressure observability for the Collector's own exporters/
+# receivers/processors (SPEC-OP-011). Metric names verified against a real running
+# otelcol-contrib 0.116.1 (not assumed) — see the traceability doc.
+groups:
+  - name: collector-resilience-recording
+    interval: 30s
+    rules:
+      - record: otelcol:exporter_queue_utilization:ratio
+        expr: otelcol_exporter_queue_size / otelcol_exporter_queue_capacity
+      - record: otelcol:exporter_send_failed_spans:rate5m
+        expr: rate(otelcol_exporter_send_failed_spans[5m])
+      - record: otelcol:receiver_refused_spans:rate5m
+        expr: rate(otelcol_receiver_refused_spans[5m])

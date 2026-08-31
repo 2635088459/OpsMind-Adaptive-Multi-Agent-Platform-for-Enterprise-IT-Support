@@ -1,0 +1,40 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-020
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/HttpGoldenSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-020-traceability.md
+#
+# SPEC-OP-020 — business request-path alerts (distinct from every prior spec's
+# platform-self-monitoring alerts). ADR-0004 still applies: these alerts notify a
+# human/runbook, they never mutate domain state.
+groups:
+  - name: http-server-alerting
+    rules:
+      - alert: HighRequestErrorRate
+        expr: http:error_ratio:rate5m > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: "{{ $labels.service_namespace }}"
+        annotations:
+          summary: "{{ $labels.service_name }} 5xx error ratio is {{ $value | humanizePercentage }}"
+          description: "Sustained >5% error ratio on the HTTP request path. Check the service's own logs/traces (Golden Path dashboard trace drilldown) for the failing route."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/HttpGoldenSignals.md"
+          dashboard: "Golden Path & Service Overview"
+
+      - alert: HighRequestLatency
+        expr: http:duration:p95 > 1
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: "{{ $labels.service_namespace }}"
+        annotations:
+          summary: "{{ $labels.service_name }} p95 request latency is {{ $value | humanizeDuration }}"
+          description: "Sustained p95 latency over 1s on the HTTP request path. Check Saturation panels (Golden Path dashboard) for CPU/memory pressure before assuming a downstream dependency."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/HttpGoldenSignals.md"
+          dashboard: "Golden Path & Service Overview"

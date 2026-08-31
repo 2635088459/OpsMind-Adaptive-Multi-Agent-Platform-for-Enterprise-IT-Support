@@ -11,6 +11,9 @@
     "retention_classes",
     "signal_owners",
     "cardinality_budgets",
+    "log_body_redaction",
+    "trace_sampling",
+    "retention_mapping",
     "schema_review",
     "exceptions"
   ],
@@ -99,6 +102,62 @@
               "max_series": { "type": "integer", "minimum": 1 },
               "forbidden_labels": { "type": "array", "items": { "type": "string" } }
             }
+          }
+        }
+      }
+    },
+    "log_body_redaction": {
+      "type": "object",
+      "required": ["collector_processor", "redacted_attribute", "patterns"],
+      "additionalProperties": false,
+      "properties": {
+        "collector_processor": { "type": "string" },
+        "redacted_attribute": { "type": "string" },
+        "patterns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "pattern", "replacement", "reason"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "pattern": { "type": "string", "minLength": 1 },
+              "replacement": { "type": "string" },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "trace_sampling": {
+      "type": "object",
+      "required": ["probabilistic_sampling_percentage", "slow_trace_threshold_ms",
+                   "risky_attribute_key", "risky_attribute_values",
+                   "smoke_test_attribute_key", "collector_processor"],
+      "additionalProperties": false,
+      "properties": {
+        "probabilistic_sampling_percentage": { "type": "number", "minimum": 0, "maximum": 100 },
+        "slow_trace_threshold_ms": { "type": "integer", "minimum": 1 },
+        "risky_attribute_key": { "type": "string", "minLength": 1 },
+        "risky_attribute_values": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "smoke_test_attribute_key": { "type": "string", "minLength": 1 },
+        "collector_processor": { "type": "string" }
+      }
+    },
+    "retention_mapping": {
+      "type": "object",
+      "required": ["prometheus", "loki", "tempo"],
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(prometheus|loki|tempo)$": {
+          "type": "object",
+          "required": ["enforced_class", "mechanism", "per_class_gap"],
+          "additionalProperties": false,
+          "properties": {
+            "enforced_class": { "type": "string" },
+            "mechanism": { "type": "string" },
+            "per_class_gap": { "type": "string" }
           }
         }
       }

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Validate the OpsMind unified signal contracts (phase-01).
 
-SPEC-OP-004 (Resource Attribute Convention) today; SPEC-OP-005..007 extend this.
+SPEC-OP-004 (Resource Attribute Convention), SPEC-OP-005 (HTTP/AMQP Trace
+Propagation), SPEC-OP-006 (Metric Naming & Cardinality), SPEC-OP-007 (Structured
+Log & Redaction) — phase-01 in full.
 
 Checks:
   1. signals/resource-attributes.yaml: shape, SemVer, per-attribute fields,
@@ -42,6 +44,10 @@ TP_FIXTURES = OBS / "signals" / "fixtures" / "trace-propagation"
 MN_YAML = OBS / "signals" / "metric-naming.yaml"
 MN_SCHEMA = OBS / "schemas" / "metric-naming.schema.json"
 MN_FIXTURES = OBS / "signals" / "fixtures" / "metric-naming"
+
+SL_YAML = OBS / "signals" / "structured-log.yaml"
+SL_SCHEMA = OBS / "schemas" / "structured-log.schema.json"
+SL_FIXTURES = OBS / "signals" / "fixtures" / "structured-log"
 
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 LEVELS = {"required", "recommended", "optional"}
@@ -462,12 +468,191 @@ def check_metric_collector(mn: dict, gov: dict) -> None:
             err(f"collector {proc} regex does not cover governance forbidden label {lbl!r}")
 
 
+# ---------------------------------------------------------------------------
+# SPEC-OP-007 — structured log and redaction contract
+# ---------------------------------------------------------------------------
+def check_structured_log(sl: dict) -> None:
+    if not isinstance(sl, dict):
+        err("structured-log.yaml: top level is not a mapping")
+        return
+    for k in ("version", "severity_map", "unspecified_severity_number", "event_code",
+              "linkage", "multiline", "sampling_intent", "redaction",
+              "schema_contract_processor", "violation_attribute"):
+        if k not in sl:
+            err(f"structured-log.yaml: missing '{k}'")
+    if isinstance(sl.get("version"), str) and not SEMVER.match(sl["version"]):
+        err(f"structured-log.yaml: version {sl['version']!r} not SemVer")
+    smap = sl.get("severity_map", [])
+    if not smap:
+        err("structured-log.yaml: severity_map is empty")
+    covered: list[tuple[int, int]] = []
+    for e in smap:
+        for f in ("level", "severity_text_prefix", "severity_number_min", "severity_number_max"):
+            if f not in e:
+                err(f"severity_map entry missing '{f}': {e!r}")
+                continue
+        lo, hi = e.get("severity_number_min"), e.get("severity_number_max")
+        if isinstance(lo, int) and isinstance(hi, int):
+            if lo > hi:
+                err(f"severity_map {e.get('level')!r}: min {lo} > max {hi}")
+            covered.append((lo, hi))
+    for (lo1, hi1), (lo2, hi2) in zip(sorted(covered), sorted(covered)[1:]):
+        if hi1 >= lo2:
+            err(f"severity_map ranges overlap: ({lo1},{hi1}) and ({lo2},{hi2})")
+    try:
+        re.compile(sl.get("event_code", {}).get("pattern", ""))
+    except re.error as e:
+        err(f"structured-log.yaml: event_code.pattern does not compile ({e})")
+    if not sl.get("linkage", {}).get("any_of"):
+        err("structured-log.yaml: linkage.any_of is empty")
+    classes = set((sl.get("multiline") or {}).keys())
+    for f in ("one_event_per_record", "max_body_chars", "truncation_attribute"):
+        if f not in classes:
+            err(f"structured-log.yaml: multiline missing '{f}'")
+
+
+def check_structured_log_governance_sync(sl: dict, gov: dict) -> None:
+    gov_log = (gov or {}).get("allow_fields", {}).get("log", {})
+    gov_recommended = set(gov_log.get("recommended", []))
+    linkage = set(sl.get("linkage", {}).get("any_of", []))
+    missing = linkage - gov_recommended
+    if missing:
+        err(f"structured-log.yaml linkage.any_of {sorted(missing)} not in "
+            f"governance allow_fields.log.recommended {sorted(gov_recommended)}")
+    ec_attr = sl.get("event_code", {}).get("attribute")
+    if ec_attr and ec_attr not in gov_recommended:
+        err(f"structured-log.yaml event_code.attribute {ec_attr!r} not in "
+            f"governance allow_fields.log.recommended")
+    rc_names = set((gov or {}).get("retention_classes", {}).keys())
+    for s in sl.get("sampling_intent", []):
+        rc = s.get("retention_class")
+        if rc and rc not in rc_names:
+            err(f"structured-log.yaml sampling_intent level {s.get('level')!r}: "
+                f"retention_class {rc!r} not in governance retention_classes {sorted(rc_names)}")
+    gov_lbr = (gov or {}).get("log_body_redaction", {})
+    sl_proc = sl.get("redaction", {}).get("collector_processor")
+    gov_proc = gov_lbr.get("collector_processor")
+    if sl_proc and gov_proc and sl_proc != gov_proc:
+        err(f"structured-log.yaml redaction.collector_processor {sl_proc!r} != "
+            f"governance log_body_redaction.collector_processor {gov_proc!r}")
+    sl_flag = sl.get("redaction", {}).get("redacted_attribute")
+    gov_flag = gov_lbr.get("redacted_attribute")
+    if sl_flag and gov_flag and sl_flag != gov_flag:
+        err(f"structured-log.yaml redaction.redacted_attribute {sl_flag!r} != "
+            f"governance log_body_redaction.redacted_attribute {gov_flag!r}")
+
+
+def _structured_log_conformant(sl: dict, gov: dict, log: dict) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    unspecified = sl.get("unspecified_severity_number", 0)
+    sev_num = log.get("severity_number")
+    if not isinstance(sev_num, int) or sev_num == unspecified:
+        reasons.append(f"severity_number {sev_num!r} missing or unspecified ({unspecified})")
+    else:
+        entry = next((e for e in sl.get("severity_map", [])
+                      if e.get("severity_number_min", 1) <= sev_num <= e.get("severity_number_max", 0)),
+                     None)
+        if entry is None:
+            reasons.append(f"severity_number {sev_num} is outside every severity_map range")
+        else:
+            sev_text = str(log.get("severity_text") or "")
+            if not sev_text.upper().startswith(entry["severity_text_prefix"]):
+                reasons.append(f"severity_text {sev_text!r} does not match severity_number "
+                                f"{sev_num} (expected prefix {entry['severity_text_prefix']!r})")
+    body = log.get("body")
+    if not isinstance(body, str) or body == "":
+        reasons.append("body missing or not a non-empty string")
+    attrs = log.get("attributes") or {}
+    linkage = sl.get("linkage", {}).get("any_of", [])
+    if not any(attrs.get(k) for k in linkage):
+        reasons.append(f"missing linkage: none of {linkage} present in attributes")
+    ec = attrs.get(sl.get("event_code", {}).get("attribute", "event.code"))
+    if ec is not None:
+        pat = sl.get("event_code", {}).get("pattern", "^$")
+        if not re.match(pat, str(ec)):
+            reasons.append(f"event.code {ec!r} fails pattern {pat!r}")
+    if isinstance(body, str):
+        # Fixtures may declare `_body_repeat_count` to simulate an oversized body
+        # without embedding a giant literal string in the repo.
+        repeat = log.get("_body_repeat_count", 1)
+        effective_len = len(body) * (repeat if isinstance(repeat, int) and repeat > 0 else 1)
+        max_chars = sl.get("multiline", {}).get("max_body_chars", 1 << 30)
+        truncated = bool(attrs.get(sl.get("multiline", {}).get("truncation_attribute", "")))
+        if effective_len > max_chars and not truncated:
+            reasons.append(f"body length {effective_len} exceeds multiline.max_body_chars "
+                            f"{max_chars} without a truncation marker")
+        for p in (gov or {}).get("log_body_redaction", {}).get("patterns", []):
+            try:
+                if re.search(p["pattern"], body):
+                    reasons.append(f"body matches governance log_body_redaction pattern "
+                                    f"{p.get('name')!r} — producer must not emit this (F7)")
+            except re.error:
+                pass
+    return (not reasons, reasons)
+
+
+def check_structured_log_fixtures(sl: dict, gov: dict) -> None:
+    files = sorted(SL_FIXTURES.glob("*.json"))
+    if not files:
+        err(f"no fixtures in {SL_FIXTURES.relative_to(REPO)}")
+        return
+    seen_pass = seen_reject = 0
+    for p in files:
+        try:
+            doc = json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            err(f"{p.name}: invalid JSON ({e})")
+            continue
+        expect = doc.get("_fixture", {}).get("expect")
+        if expect not in {"pass", "reject"}:
+            err(f"{p.name}: _fixture.expect must be 'pass' or 'reject'")
+            continue
+        ok, reasons = _structured_log_conformant(sl, gov, doc.get("log", {}))
+        if expect == "pass":
+            seen_pass += 1
+            if not ok:
+                err(f"{p.name}: expected conformant but failed: {reasons}")
+        else:
+            seen_reject += 1
+            if ok:
+                err(f"{p.name}: expected non-conformant but it passed the contract")
+    if seen_pass == 0:
+        err("structured-log: no 'expect: pass' fixture")
+    if seen_reject == 0:
+        warn("structured-log: no 'expect: reject' fixture")
+
+
+def check_structured_log_collector(sl: dict, gov: dict) -> None:
+    if not COLLECTOR.is_file():
+        return
+    text = COLLECTOR.read_text(encoding="utf-8")
+    schema_proc = sl.get("schema_contract_processor", "transform/log-schema-contract")
+    redaction_proc = sl.get("redaction", {}).get("collector_processor", "transform/log-body-redaction")
+    for proc in (schema_proc, redaction_proc):
+        if proc not in text:
+            err(f"collector/base/config.yaml: missing processor '{proc}'")
+            continue
+        logs_line = next((l for l in text.splitlines()
+                          if "processors: [" in l and proc in l), None)
+        if logs_line is None:
+            err(f"collector: {proc} not wired into the logs pipeline")
+    viol = sl.get("violation_attribute", "")
+    if viol and viol not in text:
+        err(f"collector config does not set violation_attribute {viol!r}")
+    for p in (gov or {}).get("log_body_redaction", {}).get("patterns", []):
+        pat = p.get("pattern", "")
+        pat_yaml = pat.replace("\\", "\\\\")
+        if pat and pat not in text and pat_yaml not in text:
+            err(f"collector {redaction_proc} does not contain governance pattern "
+                f"{p.get('name', '?')!r}: {pat!r}")
+
+
 def main() -> int:
     if yaml is None:
         print("ERROR validate-signal-contracts: PyYAML not installed "
               "(pip install pyyaml / uv run --with pyyaml)")
         return 1
-    for schema in (RA_SCHEMA, TP_SCHEMA, MN_SCHEMA):
+    for schema in (RA_SCHEMA, TP_SCHEMA, MN_SCHEMA, SL_SCHEMA):
         if not schema.is_file():
             err(f"missing {schema.relative_to(REPO)}")
         else:
@@ -498,6 +683,14 @@ def main() -> int:
             check_metric_governance_sync(mn, gov)
         check_metric_fixtures(mn)
         check_metric_collector(mn, gov)
+
+    sl = load_yaml(SL_YAML)
+    if sl is not None:
+        check_structured_log(sl)
+        if gov is not None:
+            check_structured_log_governance_sync(sl, gov)
+        check_structured_log_fixtures(sl, gov)
+        check_structured_log_collector(sl, gov)
 
     for w in warnings:
         print(f"WARN  {w}")

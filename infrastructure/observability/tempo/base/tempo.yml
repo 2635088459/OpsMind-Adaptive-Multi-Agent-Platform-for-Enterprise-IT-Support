@@ -1,5 +1,6 @@
 # owner: platform-observability
-# spec: SPEC-OP-002
+# spec: SPEC-OP-002; SPEC-OP-014 (verified metrics_generator/TraceQL/exemplars live;
+#   added self-monitoring rules — no config change was needed, this was already right)
 # rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate tempo
 #
 # Tempo config (ADR-0002). Receives traces ONLY from the Collector over internal OTLP

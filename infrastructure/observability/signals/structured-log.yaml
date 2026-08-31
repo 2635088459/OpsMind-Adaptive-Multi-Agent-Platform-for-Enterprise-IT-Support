@@ -1,0 +1,86 @@
+# owner: platform-observability
+# spec: SPEC-OP-007
+# rollback: git revert <sha>; redeploy otel-collector
+#
+# Machine-readable structured-log + redaction contract. Human doc: structured-log.md.
+# Schema: ../schemas/structured-log.schema.json. Fixtures: fixtures/structured-log/.
+# Body-redaction PATTERNS themselves live in governance (log_body_redaction) — this
+# file only references the processor name and the multiline/linkage/event-code shape
+# (validate-signal-contracts.py checks the reference stays in sync).
+
+version: "1.0.0"
+
+severity_map:
+  - level: trace
+    severity_text_prefix: "TRACE"
+    severity_number_min: 1
+    severity_number_max: 4
+  - level: debug
+    severity_text_prefix: "DEBUG"
+    severity_number_min: 5
+    severity_number_max: 8
+  - level: info
+    severity_text_prefix: "INFO"
+    severity_number_min: 9
+    severity_number_max: 12
+  - level: warn
+    severity_text_prefix: "WARN"
+    severity_number_min: 13
+    severity_number_max: 16
+  - level: error
+    severity_text_prefix: "ERROR"
+    severity_number_min: 17
+    severity_number_max: 20
+  - level: fatal
+    severity_text_prefix: "FATAL"
+    severity_number_min: 21
+    severity_number_max: 24
+
+# severity_number 0 (SEVERITY_NUMBER_UNSPECIFIED) is never conformant.
+unspecified_severity_number: 0
+
+event_code:
+  pattern: "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*){1,4}$"
+  attribute: "event.code"
+  required: false   # recommended for actionable records; not every trace/debug line needs one
+
+linkage:
+  # A record must carry at least one of these attribute keys.
+  any_of: ["trace_id", "correlation_id"]
+
+multiline:
+  # One logical event (e.g. an exception + stack trace) is one LogRecord body with
+  # embedded newlines, never split across multiple records. Enforced at the producer;
+  # the Collector only guards body size.
+  one_event_per_record: true
+  max_body_chars: 32768
+  truncation_attribute: "opsmind.log.truncated"
+
+sampling_intent:
+  # Retention-class names must exist in governance/telemetry-governance.yaml retention_classes.
+  - level: trace
+    retention_class: debug
+  - level: debug
+    retention_class: debug
+  - level: info
+    retention_class: standard
+  - level: warn
+    retention_class: standard
+  - level: error
+    retention_class: standard
+  - level: fatal
+    retention_class: standard
+
+redaction:
+  # The patterns themselves are governed centrally; this is a reference + the flag
+  # attribute stamped when a pattern matched. validate-signal-contracts.py checks that
+  # collector_processor here == governance.log_body_redaction.collector_processor.
+  patterns_ref: "../governance/telemetry-governance.yaml#log_body_redaction"
+  collector_processor: "transform/log-body-redaction"
+  redacted_attribute: "opsmind.log.redacted"
+
+# The Collector processor that stamps schema-violation attributes + truncates
+# oversized bodies. validate-signal-contracts.py checks this is wired into the logs
+# pipeline.
+schema_contract_processor: "transform/log-schema-contract"
+violation_attribute: "opsmind.log.violation"

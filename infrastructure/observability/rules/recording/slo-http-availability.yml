@@ -1,0 +1,42 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-022
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: slo
+# meta.runbook: runbooks/SloErrorBudget.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-022-traceability.md
+#
+# SPEC-OP-022 — the first real SLO/error-budget model in this domain, on the
+# http.* golden signal SPEC-OP-020 already alerts on directly. Uses the
+# already-contracted `slo` metric-naming namespace (SPEC-OP-006:
+# slo_error_budget_ratio / slo_burn_rate_ratio, labels slo/objective/window) —
+# these are deliberately NOT colon-named (level:metric:operation) like this
+# domain's other recording rules: metric-naming.yaml's slo namespace fixes these
+# EXACT plain names as first-class contracted metrics, which takes precedence
+# over the recording-rule naming convention (validate-rule-catalog.py's naming
+# check is an informational warning for exactly this reason).
+#
+# Objective: 99% of HTTP requests succeed (non-5xx), evaluated here over a 1h
+# window — a LOCAL-scale substitute for a real 28-30 day SLO period (72h local
+# retention cannot hold 30 days of data). SPEC-OP-023's burn-rate alerts build on
+# these series.
+groups:
+  - name: slo-http-availability-recording
+    interval: 1m
+    rules:
+      - record: slo:http_availability:target_ratio
+        expr: vector(0.99)
+
+      - record: slo:http_availability:good_ratio1h
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code!~"5.."}[1h]))
+          / sum(rate(http_server_request_duration_seconds_count[1h]))
+
+      - record: slo_burn_rate_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "1h" }
+        expr: (1 - slo:http_availability:good_ratio1h) / (1 - 0.99)
+
+      - record: slo_error_budget_ratio
+        labels: { slo: "http-availability", objective: "0.99", window: "1h" }
+        expr: clamp_min(1 - ((1 - slo:http_availability:good_ratio1h) / (1 - 0.99)), 0)

@@ -2,8 +2,73 @@ SPEC-OP-019:
   domain: 08-observability-platform
   name: Agent LLM Cost And Capacity Dashboard
   cn_name: Agent、LLM 成本与容量 Dashboard
-  status: planned
+  status: implemented
   phase: phase-04-dashboards-correlation-analysis
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-006, SPEC-OP-016]
+  tech_stack: "Grafana dashboard JSON — agent.* namespace only, bounded labels enforced by construction"
+  implementation_notes: >
+    Closes phase-04. Every panel groups only by agent_role/model — the two
+    bounded labels signals/metric-naming.yaml's agent namespace allows.
+    run_id/ticket_id/workflow_id/user_id/prompt_hash are explicitly forbidden on
+    this namespace and stripped at the Collector
+    (transform/metric-cardinality, SPEC-OP-006) even if a producer tried to emit
+    them — this dashboard structurally cannot show a per-run/per-ticket cost
+    breakdown, by design, matching the goal's own explicit
+    "without high-cardinality labels" requirement.
+    Token/cost: 6h totals (stat panels) + rate-by-model using agent_llm_cost_usd /
+    agent_llm_tokens (both histograms per metric-naming.yaml's cost_usd/llm_tokens
+    bucket sets). Latency: agent_run_duration_seconds p50/p95 by agent_role.
+    "Loops" and "worker capacity" have NO dedicated contracted metric yet
+    (checked signals/metric-naming.yaml's agent namespace — no loop-count or
+    worker-pool/concurrency metric exists) — rather than inventing a fake one,
+    used documented, honestly-labeled PROXIES: tool-calls-per-run
+    (agent_tool_calls_total rate / agent_run_duration_seconds_count rate) for loop
+    intensity, and runtime_cpu_utilization_ratio scoped to the agent-runtime
+    service namespace for capacity. Both panels carry an explicit description
+    stating they are proxies, not the real metric, so a future spec adding a real
+    one is not confused with what already exists.
+    "Budget" also has no contracted metric yet — the runbook says so plainly
+    rather than fabricating a budget/threshold line with no real backing value.
+    PROVEN: pushed agent_llm_cost_usd, agent_llm_tokens, agent_run_duration_seconds,
+    agent_tool_calls_total, runtime_cpu_utilization_ratio with bounded
+    agent_role/model labels; confirmed the deployed-versions-style aggregate
+    queries return real values (cost/tokens/duration). The loop-intensity ratio
+    query returned NaN on a single-sample push (rate() over one data point is a
+    well-understood Prometheus characteristic, not a query defect) — confirmed the
+    query EXECUTES correctly against the real metric names/labels; a materially
+    non-trivial ratio needs sustained real traffic, which this smoke push does not
+    attempt to simulate.
+  lld_mapping:
+    - 04-use-cases
+    - 07-data-model
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - high_cardinality_label_on_agent_metrics
+    - fabricated_budget_or_capacity_metric
+  artifacts:
+    contract:
+      - infrastructure/observability/dashboards/agent-llm-cost-capacity.json
+      - infrastructure/observability/runbooks/AgentLlmCostCapacity.md
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-dashboards.py 0/0"
+    unit: "scripts/tests — 67 passed, unaffected"
+    integration: >
+      GET /api/search confirmed provisioning. Pushed real agent_llm_cost_usd /
+      agent_llm_tokens / agent_run_duration_seconds / agent_tool_calls_total /
+      runtime_cpu_utilization_ratio and confirmed the deployed-versions-style
+      cross-metric query returns them with correct agent_role/model labels; the
+      loop-intensity ratio query executes correctly (NaN on a single sample is
+      expected Prometheus rate() behavior, not a defect). scripts/observability-
+      stack.sh smoke — SMOKE: PASS, every SPEC-OP-002~018 assertion in the same
+      run stayed green. Stack torn down clean. Verified 2026-08-31.
+    result: >
+      Token/cost/latency panels are real, bounded-cardinality by construction, and
+      proven against real data. Loop and capacity panels are honest, documented
+      proxies for metrics that do not exist yet, not fabrications. This closes
+      phase-04 (Dashboards And Correlation Analysis, SPEC-OP-016~019) for domain
+      08. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-019-traceability.md

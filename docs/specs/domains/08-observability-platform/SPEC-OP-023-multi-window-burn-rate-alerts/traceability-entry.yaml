@@ -2,8 +2,110 @@ SPEC-OP-023:
   domain: 08-observability-platform
   name: Multi Window Burn Rate Alerts
   cn_name: 多窗口 Burn Rate 告警
-  status: planned
+  status: implemented
   phase: phase-05-alerts-slos-runbooks
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-006, SPEC-OP-022]
+  tech_stack: "Prometheus recording+alerting rules implementing the Google SRE 4-tier multi-window, multi-burn-rate alert table (https://sre.google/workbook/alerting-on-slos/) against slo_burn_rate_ratio, extended to 6 windows"
+  implementation_notes: >
+    Builds directly on SPEC-OP-022's slo_burn_rate_ratio (previously only a 1h
+    window). New rules/recording/slo-burn-rate-multiwindow.yml adds 5 more
+    windows (5m, 30m, 2h, 6h, 1d, 3d) for slo:http_availability:good_ratioXXX
+    and slo_burn_rate_ratio{window="XXX"}, same formula pattern as OP-022's 1h
+    window. New rules/alerting/slo-burn-rate-multiwindow.yml implements the
+    standard 4-tier table: SloFastBurnPage (critical, 1h+5m windows both >14.4x,
+    for:2m — ~2% of a 30-day budget in 1h), SloSlowBurnPage (critical, 6h+30m
+    both >6x, for:15m — ~5% in 6h), SloSlowBurnTicket (warning, 1d+2h both >3x,
+    for:1h — ~10% in 1d), SloSlowBurnTicketLong (warning, 3d+6h both >1x,
+    for:3h — sustained at-or-above the sustainable rate for days). Each alert
+    requires BOTH its long and short window over threshold — short window makes
+    it fast to fire, long window makes it resistant to a brief blip alone.
+    Explicitly distinct from SPEC-OP-022's SloErrorBudgetLow, which is a single-
+    window, slow cumulative-consumption signal — these 4 are the fast PAGES.
+    CRITICAL BUG FOUND AND FIXED during verification: the first draft of every
+    alert's expr used a plain `and` between the two window operands, e.g.
+    `slo_burn_rate_ratio{window="1h"} > 14.4 and slo_burn_rate_ratio{window="5m"}
+    > 14.4`. PromQL's default `and` vector-matches on ALL labels of both
+    operands, and since the operands are the SAME metric with a DIFFERENT
+    `window` label value (that's the whole point — comparing two windows), the
+    match set was empty and stayed empty — confirmed the hard way: all 4 alerts
+    stayed "inactive" even feeding a real, sustained 83.33x burn rate across
+    every window. Fixed by adding `ignoring(window)` to the second operand of
+    every alert's `and`, so vector matching ignores the one label that's
+    supposed to differ between operands. A second, minor bug in the same file:
+    the annotation template used `{{ $value | printf "%.1f" }}x`, but `printf`
+    is not a pipeable Prometheus template function (Go template pipe syntax
+    requires a function, and Prometheus's template FuncMap has no `printf`
+    entry) — fixed to `{{ $value | humanize }}x`.
+    PROVEN with a real sustained burn, not a single push: ran a ~140-second
+    background script continuously pushing failing+succeeding
+    http_server_request_duration_seconds datapoints on one continuous series
+    (same resource-attribute-consistency discipline learned in SPEC-OP-022),
+    producing a real ~83.33x burn rate visible across every window
+    simultaneously. Before the ignoring(window) fix, all 4 alerts stayed
+    "inactive" against this real over-threshold data — this is what proved the
+    bug was real, not theoretical. After hot-reloading Prometheus (POST
+    /-/reload, no container recreate needed — --web.enable-lifecycle was
+    already enabled) with the fix, confirmed via GET
+    /api/v1/rules?rule_name=X that all 4 alerts (SloFastBurnPage,
+    SloSlowBurnPage, SloSlowBurnTicket, SloSlowBurnTicketLong) plus
+    SloErrorBudgetLow correctly transitioned to "pending" state.
+    New runbooks/SloBurnRateAlerts.md documents the 4-tier table and includes a
+    "Known local-scale limitation" section: the 3d/6h window needs 72h+ of real
+    retention (this stack's local retention) to ever meaningfully evaluate in
+    this topology — stated plainly rather than left implicit.
+    INDEPENDENTLY RE-VERIFIED a second time same-day from a freshly re-created
+    stack: caught a real bug in the ad-hoc verification script itself (sent the
+    same cumulative count every push instead of a monotonically increasing
+    total, which made rate() legitimately see a flat counter and return NaN —
+    confirmed by checking the raw sum(rate(...)) before suspecting the rule);
+    fixed, then confirmed all 7 windows (5m/30m/1h/2h/6h/1d/3d) read exactly
+    79.99999999999993 simultaneously (2/(2+8)=0.2 success ratio,
+    (1-0.2)/(1-0.99)=80 exactly) and all 5 SLO alerts
+    (SloFastBurnPage/SloSlowBurnPage/SloSlowBurnTicket/SloSlowBurnTicketLong/
+    SloErrorBudgetLow) transitioned to "pending" via GET /api/v1/rules?type=alert.
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - slo_target_silently_retuned_to_stop_an_alert
+  artifacts:
+    contract:
+      - infrastructure/observability/rules/recording/slo-burn-rate-multiwindow.yml
+    enforcement:
+      - infrastructure/observability/rules/alerting/slo-burn-rate-multiwindow.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/SloBurnRateAlerts.md
+    tooling:
+      - .github/workflows/observability-platform-ci.yml
+      - scripts/observability-stack.sh
+      - infrastructure/observability/rules/CATALOG.md
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err (3 expected audit_ref warnings, cleared by this file); validate-rule-catalog.py 0 err (10 expected warnings — naming-convention exceptions for slo_burn_rate_ratio x6, same documented exception as SPEC-OP-022, plus the 2 already-known orphaned-runbook warnings); promtool check rules SUCCESS (12 recording + 4 alerting)"
+    unit: "scripts/tests — 76 passed, unaffected (no new Python contract type)"
+    integration: >
+      Manual sustained-burn verification drill: ran a ~140s background push
+      producing a real, continuous ~83.33x burn rate across all 6 windows on
+      one logical series. Before the fix: all 4 alerts stayed inactive despite
+      the real over-threshold data (this is what proved the ignoring(window)
+      bug was real). After adding ignoring(window) to every alert and
+      hot-reloading Prometheus (POST /-/reload): confirmed via
+      GET /api/v1/rules?rule_name=X that SloFastBurnPage, SloSlowBurnPage,
+      SloSlowBurnTicket, SloSlowBurnTicketLong, and SloErrorBudgetLow all
+      transitioned to "pending". scripts/observability-stack.sh smoke —
+      SMOKE: PASS (assertions loop over all 6 windows checking query-validity
+      and over the 4 alert names checking each is loaded — same
+      query-valid-not-value-asserted limitation already documented in
+      SPEC-OP-020/022 for a single smoke push); every SPEC-OP-002~022 assertion
+      in the same run stayed green. Stack torn down clean. Verified 2026-08-31.
+    result: >
+      The real Google SRE 4-tier multi-window burn-rate page/ticket alert table
+      now exists and is proven correct against real sustained over-threshold
+      data, not merely "syntactically valid." A genuine PromQL vector-matching
+      bug (default `and` matching on the very label the two operands are
+      deliberately supposed to differ on) was found, understood, and fixed
+      rather than papered over — documented as a reusable lesson for any future
+      cross-window PromQL comparison in this domain. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-023-traceability.md

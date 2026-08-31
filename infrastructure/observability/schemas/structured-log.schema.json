@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/observability/structured-log.schema.json",
+  "title": "OpsMind Structured Log And Redaction Contract",
+  "description": "Structure of infrastructure/observability/signals/structured-log.yaml. Spec: SPEC-OP-007. Checked by scripts/validate-signal-contracts.py.",
+  "type": "object",
+  "required": [
+    "version", "severity_map", "unspecified_severity_number", "event_code",
+    "linkage", "multiline", "sampling_intent", "redaction",
+    "schema_contract_processor", "violation_attribute"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "severity_map": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["level", "severity_text_prefix", "severity_number_min", "severity_number_max"],
+        "additionalProperties": false,
+        "properties": {
+          "level": { "type": "string" },
+          "severity_text_prefix": { "type": "string" },
+          "severity_number_min": { "type": "integer", "minimum": 1, "maximum": 24 },
+          "severity_number_max": { "type": "integer", "minimum": 1, "maximum": 24 }
+        }
+      }
+    },
+    "unspecified_severity_number": { "type": "integer", "const": 0 },
+    "event_code": {
+      "type": "object",
+      "required": ["pattern", "attribute", "required"],
+      "additionalProperties": false,
+      "properties": {
+        "pattern": { "type": "string" },
+        "attribute": { "type": "string" },
+        "required": { "type": "boolean" }
+      }
+    },
+    "linkage": {
+      "type": "object",
+      "required": ["any_of"],
+      "additionalProperties": false,
+      "properties": {
+        "any_of": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "multiline": {
+      "type": "object",
+      "required": ["one_event_per_record", "max_body_chars", "truncation_attribute"],
+      "additionalProperties": false,
+      "properties": {
+        "one_event_per_record": { "type": "boolean" },
+        "max_body_chars": { "type": "integer", "minimum": 1 },
+        "truncation_attribute": { "type": "string" }
+      }
+    },
+    "sampling_intent": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["level", "retention_class"],
+        "additionalProperties": false,
+        "properties": {
+          "level": { "type": "string" },
+          "retention_class": { "type": "string" }
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["patterns_ref", "collector_processor", "redacted_attribute"],
+      "additionalProperties": false,
+      "properties": {
+        "patterns_ref": { "type": "string" },
+        "collector_processor": { "type": "string" },
+        "redacted_attribute": { "type": "string" }
+      }
+    },
+    "schema_contract_processor": { "type": "string" },
+    "violation_attribute": { "type": "string" }
+  }
+}

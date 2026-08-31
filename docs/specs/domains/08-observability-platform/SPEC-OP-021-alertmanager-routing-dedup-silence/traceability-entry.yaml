@@ -2,8 +2,70 @@ SPEC-OP-021:
   domain: 08-observability-platform
   name: Alertmanager Routing Dedup And Silence
   cn_name: Alertmanager 路由、去重与静默
-  status: planned
+  status: implemented
   phase: phase-05-alerts-slos-runbooks
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-002, SPEC-OP-020]
+  tech_stack: "Alertmanager v0.28.0 route tree + inhibit_rules + REST API (POST /api/v2/alerts, /api/v2/silences, GET /api/v2/alerts/groups) — every capability proven via its OWN API, not just amtool check-config"
+  implementation_notes: >
+    SPEC-OP-002 shipped a minimal, explicitly-placeholder routing tree
+    ("The real routing tree, receivers, and inhibition catalog are SPEC-OP-021" —
+    its own comment) — this spec builds and PROVES the real one.
+    Route tree: severity=critical -> critical-page (group_wait 10s, group_interval
+    2m, repeat_interval 1h; nested by owner so a future per-domain paging target
+    is additive, not a restructure); severity=warning -> warning-notify (default
+    timing); unmatched falls back to default. group_by [alertname, severity,
+    namespace] dedupes across instances/jobs. No receiver has a real external
+    paging/chat target yet (none is provisioned in this repo) — each is a valid
+    Alertmanager receiver with zero notifier configs; routing CORRECTNESS is
+    proven via the API regardless of what the eventual endpoint is, matching this
+    domain's established "receivers are placeholder, routing logic is real"
+    pattern already used for governance/exceptions elsewhere.
+    Inhibition: (1) critical inhibits the matching warning for the same
+    alertname+namespace (already existed, kept); (2) NEW — TargetDown inhibits
+    every OTHER alert on the same job+instance (a down scrape target's other
+    alerts are downstream noise, not independent conditions).
+    PROVEN, not just amtool-parsed: fired 2 synthetic alerts (critical + warning)
+    directly at POST /api/v2/alerts and confirmed via GET /api/v2/alerts/groups
+    that each routed to the CORRECT receiver name. Created a REAL silence via
+    POST /api/v2/silences matching one alert and confirmed via GET /api/v2/alerts
+    that ITS status flipped to "suppressed" while the other stayed "active".
+    Fired a TargetDown + a co-located alert sharing job/instance and confirmed the
+    co-located one was inhibited (status "suppressed", inhibitedBy populated)
+    while TargetDown itself stayed "active" — the inhibition rule's actual runtime
+    behavior, not just its syntax. New runbook AlertRoutingAndSilencing.md
+    (an operational guide, not a single-alert runbook — documents the tree,
+    dedup semantics, and the exact silence-creation API call for on-call use).
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - unaudited_or_unbounded_silence
+    - receiver_calling_a_business_write_api
+  artifacts:
+    contract:
+      - infrastructure/observability/alertmanager/base/alertmanager.yml
+      - infrastructure/observability/runbooks/AlertRoutingAndSilencing.md
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "amtool check-config SUCCESS (2 inhibit rules, 3 receivers); validate-observability-layout.py / validate-rule-catalog.py both 0 err (1 new expected orphaned-runbook warning — this is an operational guide, not tied to a single alert, same category as the SPEC-OP-016~019 dashboard-usage runbooks)"
+    unit: "scripts/tests — 76 passed, unaffected (no new Python contract type — Alertmanager's own REST API is the verification surface here, not a static validator)"
+    integration: >
+      Real POST /api/v2/alerts + GET /api/v2/alerts/groups confirmed severity-
+      based routing (critical->critical-page, warning->warning-notify). Real
+      POST /api/v2/silences + GET /api/v2/alerts confirmed the matched alert's
+      status flipped to suppressed while an unrelated alert stayed active. Real
+      TargetDown + co-located alert confirmed the inhibition rule suppresses the
+      co-located alert while TargetDown itself stays active.
+      scripts/observability-stack.sh smoke — SMOKE: PASS, both new assertions
+      green; every SPEC-OP-002~020 assertion in the same run stayed green. Stack
+      torn down clean. Verified 2026-08-31.
+    result: >
+      Routing, deduplication/grouping, and silence/inhibition are real and proven
+      via Alertmanager's own API — not just a config that amtool accepts.
+      SPEC-OP-022 (SLI/SLO And Error Budget Model) continues phase-05.
+      Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-021-traceability.md

@@ -1,0 +1,115 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-OP-016",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/GoldenPathServiceOverview.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-016-traceability.md"
+  },
+  "uid": "opsmind-golden-path-overview",
+  "title": "Golden Path & Service Overview",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-OP-016"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service_namespace",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(service_namespace)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "annotations": { "list": [] },
+  "panels": [
+    { "id": 1, "type": "row", "title": "RED — Rate / Errors / Duration (HTTP ingress)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "timeseries", "title": "Request rate", "unit": "reqps",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{service_namespace=~\"$service_namespace\"}[5m]))",
+        "legendFormat": "{{service_name}}" }] },
+
+    { "id": 3, "type": "timeseries", "title": "Error rate (5xx / total)", "unit": "percentunit",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [
+        { "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 } ] } }, "overrides": [] },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{service_namespace=~\"$service_namespace\", http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{service_namespace=~\"$service_namespace\"}[5m]))",
+        "legendFormat": "{{service_name}}" }] },
+
+    { "id": 4, "type": "timeseries", "title": "p95 request duration", "unit": "s",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{service_namespace=~\"$service_namespace\"}[5m])))",
+        "legendFormat": "{{service_name}}" }] },
+
+    { "id": 5, "type": "row", "title": "Saturation", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 } },
+
+    { "id": 6, "type": "timeseries", "title": "CPU utilization", "unit": "percentunit",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "runtime_cpu_utilization_ratio{service_namespace=~\"$service_namespace\"}",
+        "legendFormat": "{{service_name}}" }] },
+
+    { "id": 7, "type": "timeseries", "title": "JVM/runtime memory used", "unit": "bytes",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "runtime_jvm_memory_used_bytes{service_namespace=~\"$service_namespace\"}",
+        "legendFormat": "{{service_name}}" }] },
+
+    { "id": 8, "type": "row", "title": "Golden Path stages (ticket → agent → tool → evaluation)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 } },
+
+    { "id": 9, "type": "timeseries", "title": "Stage: agent run duration (p95)", "unit": "s",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, agent_role) (rate(agent_run_duration_seconds_bucket[5m])))",
+        "legendFormat": "{{agent_role}}" }] },
+
+    { "id": 10, "type": "timeseries", "title": "Stage: tool-call rate by outcome", "unit": "ops",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (agent_role, outcome) (rate(agent_tool_calls_total[5m]))",
+        "legendFormat": "{{agent_role}} / {{outcome}}" }] },
+
+    { "id": 11, "type": "timeseries", "title": "Stage: evaluation case duration (p95)", "unit": "s",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, grader) (rate(evaluation_case_duration_seconds_bucket[5m])))",
+        "legendFormat": "{{grader}}" }] },
+
+    { "id": 12, "type": "row", "title": "Trace drilldown & deployed versions",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 } },
+
+    { "id": 13, "type": "traces", "title": "Recent traces (search)",
+      "gridPos": { "h": 9, "w": 14, "x": 0, "y": 26 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [{ "refId": "A", "queryType": "traceql", "query": "{}", "limit": 20 }] },
+
+    { "id": 14, "type": "table", "title": "Deployed versions", "gridPos": { "h": 9, "w": 10, "x": 14, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "instant": true, "format": "table",
+        "expr": "count by (service_name, service_namespace, service_version, deployment_environment) ({__name__=~\"http_server_request_duration_seconds_count|agent_run_duration_seconds_count|db_client_operation_duration_seconds_count|amqp_publish_duration_seconds_count\", service_namespace=~\"$service_namespace\"})" }] }
+  ]
+}

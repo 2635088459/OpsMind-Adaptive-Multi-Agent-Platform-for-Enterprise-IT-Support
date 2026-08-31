@@ -2,8 +2,90 @@ SPEC-OP-013:
   domain: 08-observability-platform
   name: Loki Log Backend
   cn_name: Loki Log 后端
-  status: planned
+  status: implemented
   phase: phase-03-telemetry-backends-retention
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-007, SPEC-OP-012]
+  tech_stack: "Loki v3.3.2 ruler (local storage, LogQL alerting rules) + Alertmanager v2 API / real live rule-evaluation verification / Docker Compose"
+  implementation_notes: >
+    Write/read path, schema, index/chunks, and base retention already existed
+    (SPEC-OP-002); this spec's real net-new work is wiring the ruler that has sat
+    present-but-unused since SPEC-OP-002 (flagged as a known deferred gap in
+    SPEC-OP-007's own traceability doc: "Loki ruler is present but unwired to
+    Alertmanager — SPEC-OP-013/021 scope") + query-safety limits, plus two
+    deliberate, documented non-decisions.
+    Ruler: changed ruler.storage.local.directory from /loki/rules (inside the
+    writable loki-data volume, never actually populated) to /etc/loki/rules — a NEW
+    read-only bind mount of infrastructure/observability/loki/rules/ (GitOps-
+    reviewed, same discipline as Prometheus rules); added
+    ruler.alertmanager_url: http://alertmanager:9093 + enable_alertmanager_v2: true.
+    New rule file loki/rules/fake/log-quality.yaml (tenant "fake" — the fixed tenant
+    id Loki uses under auth_enabled: false) with HighLogSchemaViolationRate, a
+    REAL LogQL metric alert on SPEC-OP-007's own opsmind.log.violation structured
+    metadata (count_over_time(...) > 0 for 10m) — this closes the exact gap
+    SPEC-OP-007 named, using SPEC-OP-007's own signal.
+    PROVEN, not just config-parsed: after `up`, GET /loki/api/v1/rules and
+    /prometheus/api/v1/rules confirmed the rule loaded from the bind mount; pushed a
+    log with no trace/correlation linkage, waited ~75s, and confirmed via
+    /prometheus/api/v1/rules that the rule transitioned inactive -> pending with
+    value=1 (LogQL genuinely matched real ingested structured metadata) and Loki's
+    own logs show the ruler executing that exact query against org_id=fake with
+    query_referenced_structured_metadata=true. Did not wait the full for:10m to
+    observe "firing" (standard Prometheus/Loki-ruler for->firing mechanics are not
+    something this spec needed to re-prove) — inactive->pending with a correct
+    matched value is the load-bearing proof this actually works end to end.
+    Query-safety limits added: max_query_series (10000), max_entries_limit_per_query
+    (5000), max_query_parallelism (16), per_stream_rate_limit (5MB) +
+    _burst (15MB) — bound how expensive a single (or ruler) LogQL query/stream can
+    be, independent of the existing ingestion-side limits.
+    Two deliberate non-decisions, documented directly in loki.yml's own header
+    rather than silently skipped: (1) write/read PATH SEPARATION — this spec keeps
+    the single-binary deployment; splitting is a horizontal-scaling concern with no
+    current volume justifying it, and the config is already structured so a future
+    split needs no rework. (2) TENANTS — auth_enabled: false / single tenant "fake"
+    stays; real multi-tenancy is explicitly SPEC-OP-031's scope (already referenced
+    by SPEC-OP-005's trace-propagation.yaml tenant.id baggage key). (3) PER-SEVERITY
+    retention_stream — tried to reason about it, but confirmed EMPIRICALLY via
+    /loki/api/v1/labels that only service_name/deployment_environment are indexed
+    labels today (severity is structured metadata, not a stream label), so a
+    severity-keyed retention_stream selector cannot work without first promoting
+    severity to an indexed label — a real cardinality-relevant decision that
+    deserves its own review, not a side effect of ruler wiring. Deferred to
+    SPEC-OP-015 (Telemetry Retention, Compaction, And Storage), which is explicitly
+    the spec that formalizes retention-by-signal-class across all 3 backends.
+  lld_mapping:
+    - 06-event-contracts
+    - 08-transaction-and-outbox
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - unbounded_logql_query_cost
+    - real_multi_tenancy_without_spec_op_031
+  artifacts:
+    enforcement:
+      - infrastructure/observability/loki/base/loki.yml
+      - infrastructure/observability/loki/rules/fake/log-quality.yaml
+      - infrastructure/docker-compose/observability-stack.yml
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0/0 (unaffected — loki/rules/ carries the lighter config header, not the full governed-artifact header, matching base/overlays convention); loki -verify-config passes"
+    unit: "scripts/tests — 60 passed, unaffected (Loki's own config/rules are not a Python-validated contract type)"
+    integration: >
+      Live ruler proof (beyond scripted smoke): GET /loki/api/v1/rules and
+      /prometheus/api/v1/rules confirmed the rule loaded; pushed an unlinked-log
+      probe and confirmed inactive -> pending with value=1 within ~75s, and Loki's
+      own query-execution logs show query_referenced_structured_metadata=true
+      against org_id=fake. scripts/observability-stack.sh smoke — SMOKE: PASS, new
+      assertion: /prometheus/api/v1/rules contains HighLogSchemaViolationRate.
+      Every SPEC-OP-002~012 assertion in the same run stayed green. Stack torn down
+      clean. Verified 2026-08-31.
+    result: >
+      Loki's ruler — present since SPEC-OP-002 but never wired — now evaluates a
+      real LogQL alert against SPEC-OP-007's own log-quality signal and is connected
+      to Alertmanager, closing a gap SPEC-OP-007's traceability explicitly named.
+      Query-safety limits bound LogQL cost. Write/read-path separation, real
+      multi-tenancy, and per-severity retention are recorded as deliberate,
+      evidence-backed scope decisions for later specs, not silent gaps. Full
+      evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-013-traceability.md

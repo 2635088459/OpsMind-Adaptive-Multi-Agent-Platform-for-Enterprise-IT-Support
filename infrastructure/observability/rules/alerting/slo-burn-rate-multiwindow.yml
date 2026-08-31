@@ -1,0 +1,87 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-023
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/SloBurnRateAlerts.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-023-traceability.md
+#
+# SPEC-OP-023 — the standard Google SRE multi-window, multi-burn-rate alert
+# table for a 99%/30-day SLO (https://sre.google/workbook/alerting-on-slos/).
+# Each alert requires BOTH its long AND short window to exceed the threshold —
+# the short window makes it fast to fire, the long window makes it resistant to
+# a brief blip alone. Distinct from SPEC-OP-022's SloErrorBudgetLow (a single-
+# window, slow cumulative-consumption signal) — these are the FAST PAGES.
+groups:
+  - name: slo-burn-rate-multiwindow-alerting
+    rules:
+      - alert: SloFastBurnPage
+        # 2% of the 30-day budget in 1 hour. `ignoring(window)` is required: the
+        # two operands are the SAME metric with DIFFERENT `window` label values,
+        # so PromQL's default `and` (which matches on ALL labels) would never
+        # find a match between them without explicitly excluding the one label
+        # that's supposed to differ — confirmed the hard way: a first draft
+        # without `ignoring(window)` stayed "inactive" even feeding it a burn
+        # rate of 83x, orders of magnitude over the 14.4 threshold.
+        expr: |
+          slo_burn_rate_ratio{slo="http-availability",window="1h"} > 14.4
+          and ignoring(window) slo_burn_rate_ratio{slo="http-availability",window="5m"} > 14.4
+        for: 2m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "http-availability SLO fast-burn: {{ $value | humanize }}x sustainable error rate"
+          description: "Both the 1h and 5m windows exceed 14.4x burn rate — at this rate the 30-day error budget is exhausted in under 2 days. Page-worthy."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/SloBurnRateAlerts.md"
+          dashboard: "Golden Path & Service Overview"
+
+      - alert: SloSlowBurnPage
+        # 5% of the 30-day budget in 6 hours.
+        expr: |
+          slo_burn_rate_ratio{slo="http-availability",window="6h"} > 6
+          and ignoring(window) slo_burn_rate_ratio{slo="http-availability",window="30m"} > 6
+        for: 15m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "http-availability SLO slow-burn: {{ $value | humanize }}x sustainable error rate"
+          description: "Both the 6h and 30m windows exceed 6x burn rate — the 30-day budget is exhausted in about 5 days at this rate. Page-worthy but less urgent than the fast burn."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/SloBurnRateAlerts.md"
+          dashboard: "Golden Path & Service Overview"
+
+      - alert: SloSlowBurnTicket
+        # 10% of the 30-day budget in 1 day.
+        expr: |
+          slo_burn_rate_ratio{slo="http-availability",window="1d"} > 3
+          and ignoring(window) slo_burn_rate_ratio{slo="http-availability",window="2h"} > 3
+        for: 1h
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "http-availability SLO slow-burn: {{ $value | humanize }}x sustainable error rate (1d/2h window)"
+          description: "Both the 1d and 2h windows exceed 3x burn rate. Not urgent enough to page — file/investigate as a ticket."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/SloBurnRateAlerts.md"
+          dashboard: "Golden Path & Service Overview"
+
+      - alert: SloSlowBurnTicketLong
+        # 10% of the 30-day budget in 3 days.
+        expr: |
+          slo_burn_rate_ratio{slo="http-availability",window="3d"} > 1
+          and ignoring(window) slo_burn_rate_ratio{slo="http-availability",window="6h"} > 1
+        for: 3h
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "http-availability SLO slow-burn: {{ $value | humanize }}x sustainable error rate (3d/6h window)"
+          description: "Both the 3d and 6h windows exceed 1x burn rate — burning the budget at exactly the sustainable rate or faster, sustained for days. Lowest urgency of the 4-tier table; needs 72h+ of real local retention (or production storage) to ever evaluate meaningfully."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/SloBurnRateAlerts.md"
+          dashboard: "Golden Path & Service Overview"

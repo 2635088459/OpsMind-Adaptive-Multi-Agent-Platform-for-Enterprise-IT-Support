@@ -2,8 +2,91 @@ SPEC-OP-015:
   domain: 08-observability-platform
   name: Telemetry Retention Compaction And Storage
   cn_name: 遥测保留、压缩与存储
-  status: planned
+  status: implemented
   phase: phase-03-telemetry-backends-retention
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-003, SPEC-OP-012, SPEC-OP-013, SPEC-OP-014]
+  tech_stack: "Prometheus admin snapshot API + Loki/Tempo filesystem tar backup, a REAL proven backup->wipe->restore round trip / real deletion-evidence self-metrics / Docker Compose"
+  implementation_notes: >
+    Closes phase-03. Real net-new work: backup/restore (genuinely proven, not just
+    documented), deletion-evidence self-monitoring for Loki+Tempo (Prometheus's own
+    was already SPEC-OP-012's job), and an honest governance-level statement of
+    what "retention by signal/class" actually means given all 3 backends' real
+    constraints — governance.yaml had explicitly forward-referenced this spec
+    ("Real production durations are set by SPEC-OP-015") since SPEC-OP-002.
+    Backup/restore — PROVEN, not assumed: enabled --web.enable-admin-api on
+    Prometheus; POST /api/v1/admin/tsdb/snapshot produced a real snapshot directory
+    on disk (confirmed via `docker exec ... ls`). For Loki (filesystem storage, no
+    admin snapshot API): pushed a canary log line, confirmed queryable, stopped
+    Loki, tar-backed-up the loki-data volume via a throwaway alpine container,
+    **fully removed** the Loki container + volume (a `docker stop` alone left the
+    volume "in use" and unremovable — the container itself must be `rm`'d first,
+    a real Docker mechanic caught mid-test), recreated the volume EMPTY, restored
+    from the tarball, brought Loki back up via compose, and confirmed the EXACT
+    canary log line was still queryable. This is the actual procedure now written
+    into runbooks/TelemetryBackupRestore.md, not a theoretical one.
+    Deletion evidence — new rules/{recording,alerting}/telemetry-retention.yml
+    against metric names discovered live (not assumed) on real Loki/Tempo
+    instances: loki_compactor_apply_retention_last_successful_run_timestamp_seconds
+    (staleness -> LokiRetentionNotRunning, critical), tempodb_retention_errors_total
+    / tempodb_compaction_errors_total (-> TempoRetentionErrors critical /
+    TempoCompactionErrors warning), loki_boltdb_shipper_retention_sweeper_marker_files_deleted_total
+    and tempodb_retention_deleted_total as recording-rule EVIDENCE that deletion is
+    actually happening (Prometheus's own WAL/compaction health was already
+    SPEC-OP-012's job — not duplicated here).
+    Governance retention_mapping (v1.5.0, new section): states PLAINLY that
+    Prometheus/Loki/Tempo open-source each enforce exactly ONE global retention
+    duration today (mapped to the "standard" class) — no native per-signal-class
+    tiering exists without either (a) promoting Loki's severity to an indexed label
+    (a real cardinality decision SPEC-OP-013 explicitly deferred here, and this
+    spec explicitly declines to force through either, for the same reason: it
+    deserves its own dedicated cardinality review, not a side effect of retention
+    work) or (b) a different/tiered storage backend, which ADR-0002 rules out
+    absent a real production need. This closes the loop honestly rather than
+    silently implying per-class retention is enforced when it structurally is not.
+    --web.enable-admin-api was the only tempo.yml/loki.yml/prometheus.yml config
+    change; block_retention/retention_period/tsdb.retention.* values themselves are
+    already correct floor-vs-local overlay values from SPEC-OP-002, unchanged.
+  lld_mapping:
+    - 07-data-model
+    - 08-transaction-and-outbox
+    - 10-failure-handling
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - unbounded_disk_growth_from_stalled_retention
+    - claiming_per_class_retention_that_does_not_exist
+  artifacts:
+    contract:
+      - infrastructure/observability/governance/telemetry-governance.yaml
+      - infrastructure/observability/schemas/telemetry-governance.schema.json
+    enforcement:
+      - infrastructure/docker-compose/observability-stack.yml
+    rules_runbook:
+      - infrastructure/observability/rules/recording/telemetry-retention.yml
+      - infrastructure/observability/rules/alerting/telemetry-retention.yml
+      - infrastructure/observability/runbooks/TelemetryBackupRestore.md
+    tooling:
+      - scripts/validate-telemetry-governance.py
+      - .github/workflows/observability-platform-ci.yml
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-telemetry-governance.py 0/0 (new retention_mapping shape + enforced_class-in-retention_classes checks); other 3 validators unaffected; promtool check rules SUCCESS (5 recording + 3 alerting)"
+    unit: "scripts/tests — 60 passed, unaffected (no new test added — retention_mapping reuses the existing hand-rolled governance-check pattern with no new fixture-driven behavior to unit test beyond what check_retention_mapping already asserts inline)"
+    integration: >
+      Real backup->wipe->restore round trip on Loki (see implementation_notes for
+      the exact commands and the container-rm gotcha) — a canary log line survived
+      a full volume deletion and restore from a filesystem tarball. Real Prometheus
+      admin snapshot: POST /api/v1/admin/tsdb/snapshot produced a real directory on
+      disk. scripts/observability-stack.sh smoke — SMOKE: PASS, new assertions:
+      the telemetry-retention recording rule evaluates, and the admin snapshot API
+      responds success. Every SPEC-OP-002~014 assertion in the same run stayed
+      green. Stack torn down clean. Verified 2026-08-31.
+    result: >
+      Backup/restore is proven, not theoretical. Deletion is now an observable,
+      alertable fact for Loki and Tempo, not an assumption. Governance states
+      honestly what retention-by-class does and does not achieve today, closing a
+      gap this spec had been explicitly named to close since SPEC-OP-002. This
+      closes phase-03 (Telemetry Backends And Retention, SPEC-OP-012~015) for
+      domain 08. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-015-traceability.md

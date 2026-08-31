@@ -2,8 +2,57 @@ SPEC-OP-017:
   domain: 08-observability-platform
   name: Domain Operational Dashboards
   cn_name: 领域运行 Dashboard
-  status: planned
+  status: implemented
   phase: phase-04-dashboards-correlation-analysis
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-002, SPEC-OP-006, SPEC-OP-007, SPEC-OP-013, SPEC-OP-016]
+  tech_stack: "Grafana templated dashboard ($domain variable over label_values(service_namespace)) + LogQL structured-metadata filtering"
+  implementation_notes: >
+    One templated dashboard (dashboards/domain-operational-overview.json), not
+    seven near-duplicate per-domain files — a `$domain` template variable
+    (label_values(service_namespace)) scopes every panel, matching exactly what
+    Grafana templating exists for; a new domain appears in the picker the moment
+    it emits conformant resource attributes, zero dashboard-file change needed.
+    Lifecycle: request/operation rate + error/failure rate, unioned across every
+    namespace a domain might use (http/db/amqp/agent/evaluation — SPEC-OP-006) so
+    only the ones actually emitted produce series. Backlog & throughput: AMQP
+    publish-vs-consume rate (a sustained gap is backlog growth) + DB p95 latency.
+    Audit: recent logs for the domain + specifically anything carrying
+    opsmind.log.violation (SPEC-OP-007) — a domain's own structured-log-contract
+    compliance at a glance.
+    PROVEN, not just authored: pushed a log tagged service.namespace="agent-runtime"
+    (this repo's smoke-test logs had never set this resource attribute before —
+    confirmed via GET /loki/api/v1/labels earlier in SPEC-OP-013 that
+    service_namespace is NOT an indexed stream label, only structured metadata) and
+    confirmed the exact LogQL filter this dashboard uses
+    ({service_name=~".+"} | service_namespace = "agent-runtime") returns the real
+    pushed log line with the correct stream/structured-metadata shape
+    (event_code, severity_text, trace_id all present as expected).
+  lld_mapping:
+    - 04-use-cases
+    - 06-event-contracts
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - per_domain_dashboard_file_duplication
+  artifacts:
+    contract:
+      - infrastructure/observability/dashboards/domain-operational-overview.json
+      - infrastructure/observability/runbooks/DomainOperationalOverview.md
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-dashboards.py 0/0; unaffected by the other 4 validators"
+    unit: "scripts/tests — 67 passed, unaffected (no new Python contract type for this spec specifically — reuses SPEC-OP-016's validator)"
+    integration: >
+      GET /api/search confirmed provisioning. Pushed a log with
+      service.namespace="agent-runtime" and confirmed via a direct LogQL query
+      (matching the dashboard's own audit-panel query) that it returns the real
+      log line with correct structured metadata (event_code, severity_text,
+      trace_id). scripts/observability-stack.sh smoke — SMOKE: PASS, every prior
+      spec's assertion stayed green. Stack torn down clean. Verified 2026-08-31.
+    result: >
+      A single, maintainable, templated per-domain operational dashboard proven
+      against a real log carrying the exact structured-metadata shape it queries
+      for — not just authored against an assumed shape. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-017-traceability.md

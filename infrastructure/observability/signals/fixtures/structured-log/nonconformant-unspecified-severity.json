@@ -1,0 +1,11 @@
+{
+  "_fixture": { "spec": "SPEC-OP-007", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "severity_number 0 (SEVERITY_NUMBER_UNSPECIFIED) is never conformant",
+    "collector_behavior": "transform/log-schema-contract stamps attributes[\"opsmind.log.violation\"]=\"missing:severity\" rather than dropping the record (ADR-0004)" },
+  "log": {
+    "severity_number": 0,
+    "severity_text": "",
+    "body": "something happened",
+    "attributes": { "trace_id": "0af7651916cd43dd8448eb211c80319c" }
+  }
+}

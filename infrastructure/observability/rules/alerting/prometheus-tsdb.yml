@@ -1,0 +1,41 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-012
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/PrometheusTsdbCapacity.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-012-traceability.md
+#
+# SPEC-OP-012 — Prometheus's own storage-engine health. A WAL corruption or
+# compaction failure threatens the platform's ability to observe everything else, so
+# it gets its own, higher-severity alert class distinct from SPEC-OP-006's
+# cardinality budgets (which are about SERIES volume, not storage-engine integrity).
+groups:
+  - name: prometheus-tsdb-alerting
+    rules:
+      - alert: PrometheusTsdbWalCorruption
+        expr: prometheus:tsdb_wal_corruptions:rate30m > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Prometheus WAL corruption detected"
+          description: "prometheus_tsdb_wal_corruptions_total is increasing. Prometheus repairs a corrupt WAL segment by truncating it on next start (data loss for that window) — this is a storage-engine integrity issue, not a transient blip."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PrometheusTsdbCapacity.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: PrometheusTsdbCompactionsFailing
+        expr: prometheus:tsdb_compactions_failed:rate30m > 0
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Prometheus TSDB block compaction is failing"
+          description: "Uncompacted blocks accumulate disk usage and slow queries over time. Check disk space and Prometheus logs for the underlying compaction error."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PrometheusTsdbCapacity.md"
+          dashboard: "Observability Platform Self-Monitoring"

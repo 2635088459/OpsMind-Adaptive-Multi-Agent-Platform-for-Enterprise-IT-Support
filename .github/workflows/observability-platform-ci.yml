@@ -51,6 +51,15 @@ jobs:
       - name: Validate unified signal contracts (SPEC-OP-004+)
         run: python scripts/validate-signal-contracts.py
 
+      - name: Validate collector processor order contract (SPEC-OP-009)
+        run: python scripts/validate-collector-pipeline.py
+
+      - name: Validate dashboard JSON (SPEC-OP-016+)
+        run: python scripts/validate-dashboards.py
+
+      - name: Validate rule catalog (SPEC-OP-020/024)
+        run: python scripts/validate-rule-catalog.py
+
       - name: Run validator self-tests
         run: python -m unittest discover -s scripts/tests -v
 
@@ -83,11 +92,15 @@ jobs:
           OTEL_DEPLOYMENT_ENVIRONMENT: ci
           OTEL_TEMPO_ENDPOINT: tempo:4317
           OTEL_LOKI_ENDPOINT: http://loki:3100/otlp
+          # SPEC-OP-008 / ADR-0007 — validate-only placeholder; the real CI/local
+          # token lives in collector/overlays/local/values.env, never here.
+          OTEL_GATEWAY_AUTH_TOKEN: ci-validate-placeholder
 
       - name: promtool check config + rules
         run: |
           docker run --rm \
             -v "$PWD/infrastructure/observability/prometheus/base/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+            -v "$PWD/infrastructure/observability/prometheus/base/file_sd:/etc/prometheus/file_sd:ro" \
             -v "$PWD/infrastructure/observability/rules:/etc/prometheus/rules:ro" \
             --entrypoint promtool \
             "${PROMETHEUS_IMAGE}:${PROMETHEUS_TAG}@${PROMETHEUS_DIGEST}" \
@@ -96,7 +109,7 @@ jobs:
             -v "$PWD/infrastructure/observability/rules:/rules:ro" \
             --entrypoint promtool \
             "${PROMETHEUS_IMAGE}:${PROMETHEUS_TAG}@${PROMETHEUS_DIGEST}" \
-            check rules /rules/recording/platform-self.yml /rules/alerting/platform-self.yml /rules/alerting/signal-conformance.yml /rules/recording/cardinality.yml /rules/alerting/cardinality.yml
+            check rules /rules/recording/platform-self.yml /rules/alerting/platform-self.yml /rules/alerting/signal-conformance.yml /rules/recording/cardinality.yml /rules/alerting/cardinality.yml /rules/recording/collector-resilience.yml /rules/alerting/collector-resilience.yml /rules/recording/prometheus-tsdb.yml /rules/alerting/prometheus-tsdb.yml /rules/recording/tempo-health.yml /rules/alerting/tempo-health.yml /rules/recording/telemetry-retention.yml /rules/alerting/telemetry-retention.yml /rules/recording/http-server.yml /rules/alerting/http-server.yml /rules/recording/slo-http-availability.yml /rules/alerting/slo-http-availability.yml /rules/recording/slo-burn-rate-multiwindow.yml /rules/alerting/slo-burn-rate-multiwindow.yml
 
       - name: amtool check-config
         run: |

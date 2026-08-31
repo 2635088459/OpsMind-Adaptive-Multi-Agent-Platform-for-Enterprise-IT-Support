@@ -1,0 +1,13 @@
+{
+  "_fixture": { "spec": "SPEC-OP-007", "kind": "conformant", "expect": "pass",
+    "note": "ERROR log linked by correlation_id only (trace_id absent is fine; linkage is any_of)." },
+  "log": {
+    "severity_number": 17,
+    "severity_text": "ERROR",
+    "body": "agent tool call failed: upstream timeout after 3 retries",
+    "attributes": {
+      "correlation_id": "INC-4821",
+      "event.code": "agent.tool_call.failed"
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-OP-018",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/DatabaseBrokerInfrastructure.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-018-traceability.md"
+  },
+  "uid": "opsmind-database-broker-infrastructure",
+  "title": "Database, Broker & Infrastructure",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-OP-018"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Database (application-level, via db.* namespace — SPEC-OP-006)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "timeseries", "title": "DB operation rate by system/operation", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (db_system, db_operation) (rate(db_client_operation_duration_seconds_count[5m]))",
+        "legendFormat": "{{db_system}} / {{db_operation}}" }] },
+
+    { "id": 3, "type": "timeseries", "title": "DB operation p95 latency", "unit": "s",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, db_system, db_operation) (rate(db_client_operation_duration_seconds_bucket[5m])))",
+        "legendFormat": "{{db_system}} / {{db_operation}}" }] },
+
+    { "id": 4, "type": "row", "title": "RabbitMQ (application-level, via amqp.* namespace — SPEC-OP-006)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 } },
+
+    { "id": 5, "type": "timeseries", "title": "AMQP publish/consume rate by destination", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "publish {{messaging_destination_name}}",
+          "expr": "sum by (messaging_destination_name) (rate(amqp_publish_duration_seconds_count[5m]))" },
+        { "refId": "B", "legendFormat": "consume {{messaging_destination_name}}",
+          "expr": "sum by (messaging_destination_name) (rate(amqp_consume_duration_seconds_count[5m]))" }
+      ] },
+
+    { "id": 6, "type": "timeseries", "title": "AMQP publish/consume p95 latency", "unit": "s",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.95, sum by (le, messaging_operation) (rate(amqp_publish_duration_seconds_bucket[5m])))",
+        "legendFormat": "{{messaging_operation}}" }] },
+
+    { "id": 7, "type": "row", "title": "Node / container / broker infrastructure (host-level) — DEFERRED to SPEC-OP-029",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 } },
+
+    { "id": 8, "type": "text", "title": "Scope note",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 19 },
+      "options": { "mode": "markdown",
+        "content": "**Host/infra-level panels (queue depth, replication lag, disk, CPU/memory of the Postgres and RabbitMQ processes themselves) are not shown here.** No `postgres_exporter`, `rabbitmq_exporter`, or `node_exporter` is deployed in this stack yet — `infrastructure/postgres/` and `infrastructure/rabbitmq/` are still placeholder directories. That integration is explicitly `SPEC-OP-029` (Postgres/RabbitMQ Connector Contract)'s scope, which also adds the matching `file_sd/*.json` target files (`SPEC-OP-012`'s discovery mechanism, already in place and ready for them). The panels above cover everything this domain CAN honestly show today: application-level DB/AMQP client metrics via the OTLP contract." } }
+  ]
+}

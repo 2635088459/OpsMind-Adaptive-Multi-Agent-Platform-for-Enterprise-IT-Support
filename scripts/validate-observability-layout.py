@@ -24,7 +24,8 @@ import re
 import sys
 from pathlib import Path
 
-OBS = Path(__file__).resolve().parents[1] / "infrastructure" / "observability"
+REPO = Path(__file__).resolve().parents[1]
+OBS = REPO / "infrastructure" / "observability"
 
 COMPONENTS = ["collector", "prometheus", "loki", "tempo", "grafana", "alertmanager"]
 OVERLAYS = ["local", "ci", "production"]
@@ -245,11 +246,36 @@ def check_no_business_writes() -> None:
             err(f"{rel}: possible business-write target {m.group(0)!r}")
 
 
+def check_no_committed_private_keys() -> None:
+    """repository-layout.md §5: a private key must never be COMMITTED anywhere in
+    this tree (SPEC-OP-008 / ADR-0007 added the first generated-secret case worth
+    guarding). A dot-prefixed directory is this repo's established convention for
+    "locally generated, gitignored, never committed" (.venv/, .pytest_cache/, and
+    now collector/overlays/local/.tls/ — see .gitignore) — skip those rather than
+    shelling out to git, which would misbehave against a test clone with no .git."""
+    marker = "-----BEGIN " + "PRIVATE KEY-----"  # split so this file isn't itself a hit
+    for path in OBS.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        rel_parts = path.relative_to(OBS).parts
+        if any(part.startswith(".") for part in rel_parts[:-1]):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if marker in text:
+            err(f"{path.relative_to(OBS)}: appears to contain a private key outside "
+                f"a dot-prefixed (gitignored) directory (repository-layout.md §5) — "
+                f"generate it at runtime into a gitignored path instead")
+
+
 def main() -> int:
     check_tree()
     check_versions()
     check_governed_artifacts()
     check_no_business_writes()
+    check_no_committed_private_keys()
 
     for w in warnings:
         print(f"WARN  {w}")

@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["otel-collector:8888", "otel-collector:8889"],
+    "labels": { "job": "otel-collector" }
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "_fixture": { "spec": "SPEC-OP-007", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "neither trace_id nor correlation_id attribute present — a correlation dead end",
+    "collector_behavior": "transform/log-schema-contract stamps attributes[\"opsmind.log.violation\"]=\"missing:trace_linkage\"" },
+  "log": {
+    "severity_number": 13,
+    "severity_text": "WARN",
+    "body": "disk usage high on data volume",
+    "attributes": { "event.code": "platform.disk.warning" }
+  }
+}

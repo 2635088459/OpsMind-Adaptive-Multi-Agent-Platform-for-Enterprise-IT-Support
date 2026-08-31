@@ -2,8 +2,79 @@ SPEC-OP-016:
   domain: 08-observability-platform
   name: Golden Path And Service Overview Dashboard
   cn_name: Golden Path 与服务总览 Dashboard
-  status: planned
+  status: implemented
   phase: phase-04-dashboards-correlation-analysis
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-002, SPEC-OP-006, SPEC-OP-012, SPEC-OP-014]
+  tech_stack: "Grafana 11.4.0 dashboard JSON (RED/saturation timeseries, TraceQL traces panel, resource-label table) + a new scripts/validate-dashboards.py / real live panel-query verification"
+  implementation_notes: >
+    Opens phase-04. Cross-signal correlation (exemplars, derivedFields,
+    tracesToLogs/Metrics, serviceMap) was already wired at the DATASOURCE level
+    since SPEC-OP-002 — this spec's real work is the actual dashboard content plus
+    a validator that never existed (dashboards/README.md had stated "CI validates
+    JSON parse + presence of __opsmind_meta" as a plan since SPEC-OP-002; nothing
+    implemented it until now).
+    New scripts/validate-dashboards.py: JSON parse, __opsmind_meta completeness,
+    tags mirror owner/version (artifact-metadata-convention §3), uid uniqueness
+    across ALL dashboard files, and — the check with real teeth — every panel's
+    datasource.uid must resolve to an actually-provisioned datasource (parses
+    grafana/base/provisioning/datasources/datasources.yml). Found+fixed a bug in
+    the validator itself while writing its own unit tests: check_dashboard()
+    crashed on `path.relative_to(REPO)` when called with a path outside the repo
+    (a unit-test tempdir fixture) — made it fall back gracefully rather than only
+    ever being exercised against real repo paths. 10 new tests, wired into the CI
+    layout job.
+    dashboards/golden-path-service-overview.json: RED (rate/error-ratio/p95
+    duration, templated by $service_namespace) against the http.* namespace
+    (SPEC-OP-006); saturation (CPU/memory, runtime.* namespace); Golden Path
+    stages (agent run duration, tool-call rate, evaluation case duration — spans
+    domains 02/03/05/07); a native Tempo "traces" panel (TraceQL) for drilldown;
+    a deployed-versions table using resource_to_telemetry_conversion (every OTLP
+    resource attribute becomes a metric label, SPEC-OP-002) to show
+    service_name/service_version/deployment_environment together.
+    PROVEN, not just authored: pushed contract-compliant
+    http_server_request_duration_seconds (200 AND 500 status datapoints),
+    agent_run_duration_seconds, agent_tool_calls_total, runtime_cpu_utilization_ratio
+    with real resource attributes (service.version, service.namespace) via
+    scripts/observability-stack.sh; confirmed via GET /api/search that Grafana
+    actually provisions and lists this dashboard (uid, tags, title all correct);
+    confirmed the deployed-versions table query returns the exact 2 real services
+    pushed, with correct labels. RED panels' PromQL is correct and ready for real
+    domain 01-07 traffic; a full real-producer proof is necessarily deferred until
+    those services emit these metric names for real (this session's own smoke
+    traffic is contract-compliant synthetic data, not a real producer).
+  lld_mapping:
+    - 04-use-cases
+    - 05-api-contracts
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - dashboard_write_back_of_computed_values
+    - console_edit_as_source_of_truth
+  artifacts:
+    contract:
+      - infrastructure/observability/dashboards/golden-path-service-overview.json
+      - infrastructure/observability/runbooks/GoldenPathServiceOverview.md
+    tooling:
+      - scripts/validate-dashboards.py
+      - scripts/tests/test_validate_dashboards.py
+      - .github/workflows/observability-platform-ci.yml
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-dashboards.py 0/0 (new — the CI check dashboards/README.md had promised since SPEC-OP-002); other 4 validators unaffected"
+    unit: "scripts/tests — 67 passed (10 new for validate-dashboards.py, incl. the relative_to bugfix)"
+    integration: >
+      GET /api/search (Grafana) confirmed this dashboard (and all 4 others in this
+      phase, plus the pre-existing self-monitoring one) is provisioned with the
+      correct uid/title/tags. Pushed real contract-compliant metrics and confirmed
+      the deployed-versions table panel's query returns exactly the 2 services
+      pushed with correct service_name/service_version/deployment_environment.
+      scripts/observability-stack.sh smoke — SMOKE: PASS, every SPEC-OP-002~015
+      assertion in the same run stayed green. Stack torn down clean. Verified
+      2026-08-31.
+    result: >
+      A real, provisioned, Grafana-verified Golden Path dashboard with correct
+      RED/saturation/stage panels and a working trace-drilldown + deployed-version
+      view; a dashboard-JSON validator that closes a gap left open since
+      SPEC-OP-002. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-016-traceability.md

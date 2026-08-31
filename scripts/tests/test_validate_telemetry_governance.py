@@ -99,6 +99,54 @@ class EndToEndTests(unittest.TestCase):
             self.assertEqual(r.returncode, 1)
             self.assertIn("baseline concept", r.stdout)
 
+    def test_log_body_redaction_gutted_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            g = self._gov(clone)
+            text = g.read_text(encoding="utf-8")
+            text = text.replace(
+                '    - name: "email"\n'
+                '      pattern: "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\\\.[A-Za-z]{2,}"\n'
+                '      replacement: "[REDACTED_EMAIL]"\n'
+                '      reason: "PII email address"\n', "")
+            g.write_text(text, encoding="utf-8")
+            r = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("baseline concept", r.stdout)
+            self.assertIn("email", r.stdout)
+
+    def test_log_body_redaction_collector_unwired_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            cfg = clone / "infrastructure" / "observability" / "collector" / "base" / "config.yaml"
+            cfg.write_text(cfg.read_text(encoding="utf-8").replace(
+                "transform/log-body-redaction, ", ""), encoding="utf-8")
+            r = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("log-body-redaction", r.stdout)
+
+    def test_trace_sampling_bad_threshold_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            g = self._gov(clone)
+            g.write_text(g.read_text(encoding="utf-8").replace(
+                "slow_trace_threshold_ms: 1000", "slow_trace_threshold_ms: -5"),
+                encoding="utf-8")
+            r = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("slow_trace_threshold_ms", r.stdout)
+
+    def test_trace_sampling_collector_unwired_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            cfg = clone / "infrastructure" / "observability" / "collector" / "base" / "config.yaml"
+            cfg.write_text(cfg.read_text(encoding="utf-8").replace(
+                "transform/governance, tail_sampling, batch]",
+                "transform/governance, batch]"), encoding="utf-8")
+            r = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("tail_sampling", r.stdout)
+
     def test_denyfield_waiver_without_domain6_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             clone = self._clone(tmp)

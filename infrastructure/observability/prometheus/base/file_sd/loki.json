@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["loki:3100"],
+    "labels": { "job": "loki" }
+  }
+]

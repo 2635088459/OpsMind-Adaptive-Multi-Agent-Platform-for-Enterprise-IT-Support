@@ -1,0 +1,19 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-012
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/PrometheusTsdbCapacity.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-012-traceability.md
+#
+# Prometheus's own TSDB/WAL capacity health (SPEC-OP-012). Metric names verified
+# against a real running Prometheus v3.1.0 (not assumed) — see the traceability doc.
+groups:
+  - name: prometheus-tsdb-recording
+    interval: 1m
+    rules:
+      - record: prometheus:tsdb_wal_corruptions:rate30m
+        expr: rate(prometheus_tsdb_wal_corruptions_total[30m])
+      - record: prometheus:tsdb_compactions_failed:rate30m
+        expr: rate(prometheus_tsdb_compactions_failed_total[30m])

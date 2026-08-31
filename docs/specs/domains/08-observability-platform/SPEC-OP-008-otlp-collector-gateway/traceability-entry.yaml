@@ -1,9 +1,79 @@
 SPEC-OP-008:
   domain: 08-observability-platform
   name: OTLP Collector Gateway
-  cn_name: OTLP Collector Gateway
-  status: planned
+  cn_name: OTLP Collector 网关
+  status: implemented
   phase: phase-02-collector-intake-processing
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-004, SPEC-OP-005, SPEC-OP-006, SPEC-OP-007]
+  tech_stack: "OTel Collector bearertokenauth + configtls extensions / health_check check_collector_pipeline / openssl (ephemeral dev cert) / Docker Compose / GitHub Actions"
+  implementation_notes: >
+    ADR-0007 (new): both otlp receiver protocols (grpc 4317, http 4318) now require
+    TLS (cert_file/key_file, fixed conventional mount path) and a bearertokenauth
+    extension (token from ${env:OTEL_GATEWAY_AUTH_TOKEN}) in EVERY environment
+    including local — a deliberate departure from "local runs a weaker version of
+    prod" so a TLS/auth regression is caught before production, not after.
+    health_check gains check_collector_pipeline (interval 5s, exporter_failure_threshold
+    5) so :13133 reflects real readiness (pipeline exporting), not just liveness.
+    Certificate/key are NEVER committed (repository-layout.md §5): scripts/
+    observability-stack.sh's new ensure_dev_tls() generates an ephemeral self-signed
+    cert (SAN: otel-collector/localhost/127.0.0.1) into collector/overlays/local/.tls/
+    (gitignored) before `up`/`smoke`, idempotently. New collector/overlays/local/
+    values.env carries OTEL_GATEWAY_AUTH_TOKEN as a non-secret local-dev placeholder
+    (mirrors this repo's existing DB_PASSWORD=change-me convention). docker-compose
+    wires the token env var + a read-only bind mount of the generated cert dir.
+    scripts/observability-stack.sh's own smoke-test curl calls updated to
+    https://+-k+Authorization:Bearer for all 7 existing pushes, plus two NEW real
+    assertions: an unauthenticated push must get 401, and GET /(13133) must report
+    ready. Found+fixed a real gap while wiring: the CI workflow's `otelcol validate`
+    step didn't set OTEL_GATEWAY_AUTH_TOKEN — validate failed outright ("no bearer
+    token provided") until fixed; the token there is a separate validate-only
+    placeholder, never the real local/CI value. Also added a genuine, previously-
+    unenforced hardening check: validate-observability-layout.py now scans for a
+    committed PEM private key anywhere under infrastructure/observability/, skipping
+    dot-prefixed (gitignored-by-convention) directories like .tls/ — repository-
+    layout.md §5 already stated this rule in prose but nothing checked it before.
+    No new signals/ contract or governance.yaml change — this spec is transport
+    security on the ingestion boundary itself, not a producer-facing signal shape.
+    Single-gateway topology continues (ADR-0001's optional agent tier deferred, not
+    required by this phase).
+  lld_mapping:
+    - 05-api-contracts
+    - 11-security
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - unauthenticated_or_plaintext_ingestion_in_any_environment
+    - committed_private_key
+  artifacts:
+    contract:
+      - infrastructure/observability/docs/adr/0007-otlp-gateway-requires-tls-and-bearer-auth.md
+      - infrastructure/observability/docs/adr/README.md
+      - infrastructure/observability/collector/README.md
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/collector/overlays/local/values.env
+      - infrastructure/docker-compose/observability-stack.yml
+      - .gitignore
+    tooling:
+      - scripts/observability-stack.sh
+      - scripts/validate-observability-layout.py
+      - scripts/tests/test_validate_observability_layout.py
+      - .github/workflows/observability-platform-ci.yml
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0/0 (incl. new committed-private-key scan, 2 new tests); otelcol validate exit 0 (both with and without OTEL_GATEWAY_AUTH_TOKEN correctly distinguished — fails without it, as intended)"
+    unit: "scripts/tests — 48 passed (10 layout incl. 2 new + 9 governance + 29 signal-contracts)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS with TLS+auth enabled.
+      ensure_dev_tls generated a real self-signed cert; all 7 existing OTLP pushes
+      succeeded over https:// with a bearer token; a NEW unauthenticated push to
+      /v1/traces got exactly 401; GET http://localhost:13133/ reported ready. Every
+      SPEC-OP-002~007 assertion in the same run stayed green (Tempo/Loki/Prometheus
+      content unaffected by the transport-layer change). Stack torn down clean.
+      Verified 2026-08-31.
+    security: "OTLP ingestion is no longer plaintext or unauthenticated in ANY environment; a real 401 rejection is proven, not assumed; private-key-never-committed is now a CI-enforced invariant, not just documented prose"
+    result: >
+      OTLP gateway requires TLS + bearer auth everywhere; readiness reflects real
+      pipeline health; local dev experience stays one command (`smoke`/`up` generate
+      the dev cert automatically). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-008-traceability.md

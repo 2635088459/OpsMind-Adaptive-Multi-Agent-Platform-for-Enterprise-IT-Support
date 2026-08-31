@@ -1,0 +1,23 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-014
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/TempoIngestHealth.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-014-traceability.md
+#
+# Tempo's own ingest/block/metrics-generator health (SPEC-OP-014). Metric names
+# verified against a real running Tempo v2.7.1 (not assumed) — see the
+# traceability doc. Tempo exposes these to Prometheus via the file_sd-discovered
+# tempo job (SPEC-OP-012).
+groups:
+  - name: tempo-health-recording
+    interval: 1m
+    rules:
+      - record: tempo:discarded_spans:rate5m
+        expr: sum by (reason) (rate(tempo_discarded_spans_total[5m]))
+      - record: tempo:ingester_failed_flushes:rate5m
+        expr: rate(tempo_ingester_failed_flushes_total[5m])
+      - record: tempo:metrics_generator_spans_discarded:rate5m
+        expr: sum by (reason) (rate(tempo_metrics_generator_spans_discarded_total[5m]))

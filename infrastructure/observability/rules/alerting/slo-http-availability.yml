@@ -1,0 +1,28 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-022
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/SloErrorBudget.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-022-traceability.md
+#
+# SPEC-OP-022 — a single-window, ticket-level budget-consumption alert (distinct
+# from SPEC-OP-023's fast-paging multi-window burn-rate alerts, which react to a
+# SUDDEN burn; this one reacts to the SLOW, cumulative consumption of the budget
+# itself).
+groups:
+  - name: slo-http-availability-alerting
+    rules:
+      - alert: SloErrorBudgetLow
+        expr: slo_error_budget_ratio{slo="http-availability"} < 0.5
+        for: 30m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "http-availability SLO error budget is below 50% ({{ $value | humanizePercentage }} remaining)"
+          description: "The 1h-window error budget for the 99% HTTP availability objective is more than half consumed. Not yet a page — this is a trend to investigate before it becomes SPEC-OP-023's fast-burn page."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/SloErrorBudget.md"
+          dashboard: "Golden Path & Service Overview"

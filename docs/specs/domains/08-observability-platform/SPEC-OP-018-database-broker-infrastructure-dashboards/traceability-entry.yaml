@@ -2,8 +2,50 @@ SPEC-OP-018:
   domain: 08-observability-platform
   name: Database Broker And Infrastructure Dashboards
   cn_name: 数据库、Broker 与基础设施 Dashboard
-  status: planned
+  status: implemented
   phase: phase-04-dashboards-correlation-analysis
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-006, SPEC-OP-016]
+  tech_stack: "Grafana dashboard JSON — application-level db.*/amqp.* namespace panels only"
+  implementation_notes: >
+    Honest half-scope, stated explicitly rather than faked or silently omitted.
+    The goal names "Integrate DB, RabbitMQ, node/container exporters" — only the
+    APPLICATION-level half is real today (db.*/amqp.* metrics from domain services
+    over OTLP, SPEC-OP-006). The INFRASTRUCTURE-level half
+    (postgres_exporter/rabbitmq_exporter/node_exporter scraping the DB/broker/host
+    processes themselves for queue depth, replication lag, disk, CPU) does not
+    exist in this stack — infrastructure/postgres/ and infrastructure/rabbitmq/
+    are still placeholder directories, confirmed at the very start of this
+    domain's work and reconfirmed here; that integration is explicitly
+    SPEC-OP-029's scope. dashboards/database-broker-infrastructure.json's bottom
+    row is a text panel stating this plainly and naming the exact spec + mechanism
+    (SPEC-OP-012's file_sd_configs discovery, already built and ready to receive
+    the new exporter targets with zero prometheus.yml edit) rather than showing an
+    empty chart or a fabricated one.
+    Panels built: DB operation rate/p95-latency by db_system/db_operation; AMQP
+    publish/consume rate and p95 latency by destination/operation.
+  lld_mapping:
+    - 04-use-cases
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - fabricated_infrastructure_metrics
+  artifacts:
+    contract:
+      - infrastructure/observability/dashboards/database-broker-infrastructure.json
+      - infrastructure/observability/runbooks/DatabaseBrokerInfrastructure.md
   test_evidence:
-    result: pending
+    lint: "validate-dashboards.py 0/0"
+    unit: "scripts/tests — 67 passed, unaffected"
+    integration: >
+      GET /api/search confirmed provisioning. db_client_operation_duration_seconds
+      and amqp_publish_duration_seconds queries were already confirmed against
+      real pushed data in SPEC-OP-016's verification pass (same underlying
+      metrics, reused here). scripts/observability-stack.sh smoke — SMOKE: PASS.
+      Stack torn down clean. Verified 2026-08-31.
+    result: >
+      Application-level DB/broker panels are real and provisioned. Infrastructure-
+      level exporter integration is recorded as a named, deliberate gap pointing at
+      SPEC-OP-029 and the discovery mechanism already built for it — not silently
+      implied as done. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-018-traceability.md

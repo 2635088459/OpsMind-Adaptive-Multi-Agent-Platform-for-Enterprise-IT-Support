@@ -103,6 +103,74 @@ class MetricNamingUnitTests(unittest.TestCase):
         self.assertFalse(ok)
 
 
+SL = {
+    "unspecified_severity_number": 0,
+    "severity_map": [
+        {"level": "info", "severity_text_prefix": "INFO", "severity_number_min": 9, "severity_number_max": 12},
+        {"level": "error", "severity_text_prefix": "ERROR", "severity_number_min": 17, "severity_number_max": 20},
+    ],
+    "event_code": {"pattern": r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,4}$", "attribute": "event.code", "required": False},
+    "linkage": {"any_of": ["trace_id", "correlation_id"]},
+    "multiline": {"one_event_per_record": True, "max_body_chars": 100, "truncation_attribute": "opsmind.log.truncated"},
+}
+SL_GOV = {
+    "log_body_redaction": {
+        "patterns": [
+            {"name": "email", "pattern": r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"},
+        ]
+    }
+}
+
+
+class StructuredLogUnitTests(unittest.TestCase):
+    def test_conformant_record(self) -> None:
+        ok, _ = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 9, "severity_text": "INFO", "body": "hello",
+            "attributes": {"trace_id": "abc", "event.code": "ticket.created"}})
+        self.assertTrue(ok)
+
+    def test_unspecified_severity_rejected(self) -> None:
+        ok, reasons = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 0, "severity_text": "", "body": "x",
+            "attributes": {"trace_id": "abc"}})
+        self.assertFalse(ok)
+        self.assertTrue(any("unspecified" in r for r in reasons))
+
+    def test_missing_linkage_rejected(self) -> None:
+        ok, reasons = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 9, "severity_text": "INFO", "body": "x", "attributes": {}})
+        self.assertFalse(ok)
+        self.assertTrue(any("missing linkage" in r for r in reasons))
+
+    def test_bad_event_code_rejected(self) -> None:
+        ok, reasons = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 17, "severity_text": "ERROR", "body": "x",
+            "attributes": {"trace_id": "abc", "event.code": "PaymentFailed"}})
+        self.assertFalse(ok)
+        self.assertTrue(any("event.code" in r for r in reasons))
+
+    def test_raw_email_in_body_rejected(self) -> None:
+        ok, reasons = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 9, "severity_text": "INFO", "body": "hi jane@example.com",
+            "attributes": {"trace_id": "abc"}})
+        self.assertFalse(ok)
+        self.assertTrue(any("log_body_redaction" in r for r in reasons))
+
+    def test_oversized_body_without_truncation_marker_rejected(self) -> None:
+        ok, reasons = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 9, "severity_text": "INFO", "body": "x" * 5,
+            "_body_repeat_count": 30, "attributes": {"trace_id": "abc"}})
+        self.assertFalse(ok)
+        self.assertTrue(any("max_body_chars" in r for r in reasons))
+
+    def test_oversized_body_with_truncation_marker_accepted(self) -> None:
+        ok, _ = vsc._structured_log_conformant(SL, SL_GOV, {
+            "severity_number": 9, "severity_text": "INFO", "body": "x" * 5,
+            "_body_repeat_count": 30,
+            "attributes": {"trace_id": "abc", "opsmind.log.truncated": "true"}})
+        self.assertTrue(ok)
+
+
 class UnitTests(unittest.TestCase):
     def test_conformant_helper(self) -> None:
         attrs = [
@@ -210,6 +278,48 @@ class EndToEndTests(unittest.TestCase):
             r = self._run(clone)
             self.assertEqual(r.returncode, 1)
             self.assertIn("metric-cardinality", r.stdout)
+
+    def test_structured_log_fixture_broken_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            fx = (clone / "infrastructure" / "observability" / "signals" / "fixtures"
+                  / "structured-log" / "conformant-info-trace-linkage.json")
+            fx.write_text(fx.read_text(encoding="utf-8").replace(
+                '"severity_number": 9,', '"severity_number": 0,'), encoding="utf-8")
+            r = self._run(clone)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("expected conformant but failed", r.stdout)
+
+    def test_log_schema_contract_unwired_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            cfg = (clone / "infrastructure" / "observability" / "collector" / "base" / "config.yaml")
+            cfg.write_text(cfg.read_text(encoding="utf-8").replace(
+                "transform/log-schema-contract, ", ""), encoding="utf-8")
+            r = self._run(clone)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("log-schema-contract", r.stdout)
+
+    def test_log_body_redaction_unwired_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            cfg = (clone / "infrastructure" / "observability" / "collector" / "base" / "config.yaml")
+            cfg.write_text(cfg.read_text(encoding="utf-8").replace(
+                "transform/log-body-redaction, ", ""), encoding="utf-8")
+            r = self._run(clone)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("log-body-redaction", r.stdout)
+
+    def test_structured_log_governance_event_code_desync_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            gov = (clone / "infrastructure" / "observability" / "governance"
+                   / "telemetry-governance.yaml")
+            gov.write_text(gov.read_text(encoding="utf-8").replace(
+                '"log.level", "event.code"]', '"log.level"]', 1), encoding="utf-8")
+            r = self._run(clone)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("event.code", r.stdout)
 
     def test_governance_namespace_desync_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

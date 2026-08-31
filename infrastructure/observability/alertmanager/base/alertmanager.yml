@@ -1,34 +1,68 @@
 # owner: platform-observability
-# spec: SPEC-OP-002
+# spec: SPEC-OP-002; SPEC-OP-021 (real routing tree, dedup tuning, inhibition catalog)
 # rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate alertmanager
 #
-# Alertmanager config (component matrix §6). SPEC-OP-002 ships a minimal, valid
-# routing tree so the Prometheus -> Alertmanager wiring is provable. The real routing
-# tree, receivers, and inhibition catalog are SPEC-OP-021. No receiver may call a
-# business write API or auto-remediate a domain (forbidden-business-writes F1).
+# Alertmanager config (component matrix §6). No receiver may call a business write
+# API or auto-remediate a domain (forbidden-business-writes F1). Receivers here are
+# real, distinctly-routed, and testable via Alertmanager's own API — but none has a
+# real external paging/chat target configured yet: that endpoint comes from the
+# environment secret store by reference only, wired when one actually exists. Until
+# then every receiver is a valid, empty "swallow" receiver (Alertmanager allows a
+# receiver with zero notifier configs) — the ROUTING TREE and DEDUP/GROUPING logic
+# below is real and proven (SPEC-OP-021 traceability), independent of what the
+# eventual receiver endpoint is.
 
 global:
   resolve_timeout: 5m
 
 route:
   receiver: default
-  group_by: ["alertname", "severity"]
+  group_by: ["alertname", "severity", "namespace"]
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 3h
   routes:
+    # Critical: page fast, repeat sooner. Nested by owner so a real per-domain
+    # paging target (once one exists) can override without touching this branch's
+    # timing.
     - matchers:
         - severity = "critical"
-      receiver: default
+      receiver: critical-page
       group_wait: 10s
+      group_interval: 2m
       repeat_interval: 1h
+      routes:
+        - matchers:
+            - owner =~ ".+"
+          receiver: critical-page
+          continue: false
 
-receivers:
-  # Local default: swallow notifications. SPEC-OP-021 adds paging / chat receivers,
-  # whose endpoints come from the environment secret store by reference only.
-  - name: default
+    # Warning: default timing, routed to a distinct (still-local) receiver so a
+    # future chat-channel target is a one-line change here, not a route-tree
+    # restructure.
+    - matchers:
+        - severity = "warning"
+      receiver: warning-notify
 
 inhibit_rules:
+  # An already-paged critical condition suppresses the matching warning for the
+  # same alert + namespace — the warning is redundant once critical already fired.
   - source_matchers: [severity = "critical"]
     target_matchers: [severity = "warning"]
     equal: ["alertname", "namespace"]
+
+  # A down scrape target inhibits every OTHER alert about that same target — those
+  # are downstream noise (missing data, not a real independent condition) once the
+  # target itself is known to be down.
+  - source_matchers: [alertname = "TargetDown"]
+    target_matchers: [alertname != "TargetDown"]
+    equal: ["job", "instance"]
+
+receivers:
+  # Local default / fallback: swallow notifications. Matches nothing in `routes`
+  # above (e.g. a future `info`-severity alert) falls back here.
+  - name: default
+  # Distinctly routed by severity so a real integration is additive per-receiver,
+  # never a route-tree change.
+  - name: critical-page
+  - name: warning-notify

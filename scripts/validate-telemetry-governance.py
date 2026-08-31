@@ -37,6 +37,11 @@ GOV = OBS / "governance" / "telemetry-governance.yaml"
 SCHEMA = OBS / "schemas" / "telemetry-governance.schema.json"
 COLLECTOR = OBS / "collector" / "base" / "config.yaml"
 
+# Concepts the log-body redaction patterns must keep covering (SPEC-OP-007) — a guard
+# against someone quietly gutting value-level redaction, mirroring BASELINE_CONCEPTS
+# for the key-level deny_fields below.
+LOG_REDACTION_CONCEPTS = ["bearer", "jwt", "email", "card", "ssn", "password"]
+
 DURATION = re.compile(r"^\d+[hdwy]$")
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 TGX_ID = re.compile(r"^TGX-\d{3,}$")
@@ -91,7 +96,8 @@ def check_schema_file() -> None:
 
 def check_structure(doc: dict) -> None:
     required = ["version", "deny_fields", "allow_fields", "retention_classes",
-               "signal_owners", "cardinality_budgets", "schema_review", "exceptions"]
+               "signal_owners", "cardinality_budgets", "log_body_redaction",
+               "trace_sampling", "retention_mapping", "schema_review", "exceptions"]
     for k in required:
         if k not in doc:
             err(f"telemetry-governance.yaml: missing top-level key '{k}'")
@@ -206,6 +212,132 @@ def check_retention_usage(doc: dict) -> None:
                  f"{token!r} is not in retention_classes {sorted(classes)}")
 
 
+def check_log_body_redaction(doc: dict) -> None:
+    """SPEC-OP-007 — value-level free-text log body redaction patterns."""
+    lbr = doc.get("log_body_redaction")
+    if not isinstance(lbr, dict):
+        err("log_body_redaction: missing or not a mapping")
+        return
+    for k in ("collector_processor", "redacted_attribute", "patterns"):
+        if k not in lbr:
+            err(f"log_body_redaction: missing '{k}'")
+    patterns = lbr.get("patterns") or []
+    if not patterns:
+        err("log_body_redaction.patterns is empty")
+        return
+    seen_names = set()
+    joined = ""
+    for p in patterns:
+        for f in ("name", "pattern", "replacement", "reason"):
+            if f not in p:
+                err(f"log_body_redaction pattern entry missing '{f}': {p!r}")
+                continue
+        name = p.get("name", "<no name>")
+        if name in seen_names:
+            err(f"log_body_redaction: duplicate pattern name {name!r}")
+        seen_names.add(name)
+        pat = p.get("pattern", "")
+        try:
+            re.compile(pat)
+        except re.error as e:
+            err(f"log_body_redaction pattern {name!r} does not compile ({e})")
+        joined += f" {name} {pat}".lower()
+    for concept in LOG_REDACTION_CONCEPTS:
+        if concept not in joined:
+            err(f"log_body_redaction no longer covers baseline concept {concept!r}")
+
+
+def check_log_body_redaction_collector_sync(doc: dict) -> None:
+    lbr = doc.get("log_body_redaction") or {}
+    proc = lbr.get("collector_processor", "transform/log-body-redaction")
+    if not COLLECTOR.is_file():
+        return
+    text = COLLECTOR.read_text(encoding="utf-8")
+    if proc not in text:
+        err(f"collector/base/config.yaml: missing processor '{proc}'")
+        return
+    logs_line = next((l for l in text.splitlines()
+                      if "processors: [" in l and proc in l), None)
+    if logs_line is None:
+        err(f"collector: {proc} not wired into the logs pipeline")
+    for p in lbr.get("patterns") or []:
+        pat = p.get("pattern", "")
+        # config.yaml YAML-escapes a literal backslash-dot as \\. — normalize before
+        # substring search so the comparison matches how it appears in the file.
+        pat_yaml = pat.replace("\\", "\\\\")
+        if pat and pat not in text and pat_yaml not in text:
+            err(f"collector {proc} does not contain governance pattern "
+                f"{p.get('name', '?')!r}: {pat!r}")
+
+
+def check_trace_sampling(doc: dict) -> None:
+    """SPEC-OP-010 — trace sampling policy shape."""
+    ts = doc.get("trace_sampling")
+    if not isinstance(ts, dict):
+        err("trace_sampling: missing or not a mapping")
+        return
+    for k in ("probabilistic_sampling_percentage", "slow_trace_threshold_ms",
+              "risky_attribute_key", "risky_attribute_values",
+              "smoke_test_attribute_key", "collector_processor"):
+        if k not in ts:
+            err(f"trace_sampling: missing '{k}'")
+    pct = ts.get("probabilistic_sampling_percentage")
+    if not isinstance(pct, (int, float)) or not (0 <= pct <= 100):
+        err(f"trace_sampling.probabilistic_sampling_percentage {pct!r} must be 0-100")
+    thr = ts.get("slow_trace_threshold_ms")
+    if not isinstance(thr, int) or thr <= 0:
+        err(f"trace_sampling.slow_trace_threshold_ms {thr!r} must be a positive integer")
+    if not ts.get("risky_attribute_values"):
+        err("trace_sampling.risky_attribute_values is empty")
+
+
+def check_trace_sampling_collector_sync(doc: dict) -> None:
+    ts = doc.get("trace_sampling") or {}
+    proc = ts.get("collector_processor", "tail_sampling")
+    if not COLLECTOR.is_file():
+        return
+    text = COLLECTOR.read_text(encoding="utf-8")
+    if proc not in text:
+        err(f"collector/base/config.yaml: missing processor '{proc}'")
+        return
+    traces_line = next((l for l in text.splitlines()
+                        if "processors: [" in l and proc in l), None)
+    if traces_line is None:
+        err(f"collector: {proc} not wired into the traces pipeline")
+    key = ts.get("risky_attribute_key", "")
+    if key and key not in text:
+        err(f"collector {proc} does not reference governance risky_attribute_key {key!r}")
+    smoke_key = ts.get("smoke_test_attribute_key", "")
+    if smoke_key and smoke_key not in text:
+        err(f"collector {proc} does not reference governance smoke_test_attribute_key {smoke_key!r}")
+    thr = ts.get("slow_trace_threshold_ms")
+    if isinstance(thr, int) and str(thr) not in text:
+        err(f"collector {proc} does not reference governance slow_trace_threshold_ms {thr}")
+    pct = ts.get("probabilistic_sampling_percentage")
+    if pct is not None and str(pct) not in text:
+        err(f"collector {proc} does not reference governance probabilistic_sampling_percentage {pct}")
+
+
+def check_retention_mapping(doc: dict) -> None:
+    """SPEC-OP-015 — honest per-backend retention-enforcement mapping."""
+    rm = doc.get("retention_mapping")
+    if not isinstance(rm, dict):
+        err("retention_mapping: missing or not a mapping")
+        return
+    classes = set((doc.get("retention_classes") or {}).keys())
+    for backend in ("prometheus", "loki", "tempo"):
+        entry = rm.get(backend)
+        if not isinstance(entry, dict):
+            err(f"retention_mapping.{backend}: missing")
+            continue
+        for k in ("enforced_class", "mechanism", "per_class_gap"):
+            if k not in entry:
+                err(f"retention_mapping.{backend}: missing '{k}'")
+        cls = entry.get("enforced_class")
+        if cls and cls not in classes:
+            err(f"retention_mapping.{backend}.enforced_class {cls!r} not in retention_classes {sorted(classes)}")
+
+
 def check_exceptions(doc: dict) -> None:
     today = dt.date.today()
     for ex in doc.get("exceptions") or []:
@@ -249,6 +381,11 @@ def main() -> int:
         check_deny(doc)
         check_collector_sync(doc)
         check_retention_usage(doc)
+        check_log_body_redaction(doc)
+        check_log_body_redaction_collector_sync(doc)
+        check_trace_sampling(doc)
+        check_trace_sampling_collector_sync(doc)
+        check_retention_mapping(doc)
         check_exceptions(doc)
 
     for w in warnings:

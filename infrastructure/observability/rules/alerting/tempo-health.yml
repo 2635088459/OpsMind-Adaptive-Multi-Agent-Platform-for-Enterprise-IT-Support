@@ -1,0 +1,51 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-014
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/TempoIngestHealth.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-014-traceability.md
+#
+# SPEC-OP-014 — Tempo's own ingest, block-flush, and metrics-generator health.
+groups:
+  - name: tempo-health-alerting
+    rules:
+      - alert: TempoDiscardingSpans
+        expr: tempo:discarded_spans:rate5m > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Tempo is discarding spans (reason={{ $labels.reason }})"
+          description: "Spans are being dropped before they ever reach a trace. Check tempo_discarded_spans_total by reason (usually a batch-size or overrides limit) and Tempo's own logs for detail."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TempoIngestHealth.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: TempoBlockFlushFailing
+        expr: tempo:ingester_failed_flushes:rate5m > 0
+        for: 10m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Tempo ingester is failing to flush blocks to storage"
+          description: "A sustained flush failure risks trace data loss (blocks stuck in the ingester rather than durable on disk). Check disk space and Tempo's own logs for the underlying storage error."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TempoIngestHealth.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: TempoMetricsGeneratorDroppingSpans
+        expr: tempo:metrics_generator_spans_discarded:rate5m > 0
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Tempo metrics-generator is discarding spans (reason={{ $labels.reason }})"
+          description: "span-metrics / service-graph derived metrics are incomplete while this fires — a view/derived-data gap, not a trace-storage gap (the traces themselves are unaffected)."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TempoIngestHealth.md"
+          dashboard: "Observability Platform Self-Monitoring"

@@ -1,0 +1,14 @@
+{
+  "_fixture": { "spec": "SPEC-OP-007", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "event.code 'PaymentFailed' is CamelCase; must match ^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*){1,4}$ (e.g. payment.failed)",
+    "collector_behavior": "transform/log-schema-contract stamps attributes[\"opsmind.log.violation\"]=\"bad:event_code\"" },
+  "log": {
+    "severity_number": 17,
+    "severity_text": "ERROR",
+    "body": "payment provider declined the charge",
+    "attributes": {
+      "trace_id": "0af7651916cd43dd8448eb211c80319c",
+      "event.code": "PaymentFailed"
+    }
+  }
+}
