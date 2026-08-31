@@ -5,8 +5,11 @@ implementation of CreateImprovementCandidateUseCase and CandidateQueryUseCase.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
+
+from opentelemetry import trace
 
 from evaluationimprovement.application.commands import (
     ApproveCandidateCommand,
@@ -16,12 +19,13 @@ from evaluationimprovement.application.commands import (
     RejectCandidateCommand,
     RequestCandidateApprovalCommand,
 )
-from evaluationimprovement.application.exceptions import CandidateNotFoundException
+from evaluationimprovement.application.exceptions import CandidateNotFoundException, RunNotFoundException
 from evaluationimprovement.application.outbox_codec import build_outbox_record, to_correlation_id
 from evaluationimprovement.application.ports_out import (
     AuditRecordRepository,
     ClockPort,
     CommandIdempotencyRepository,
+    EvaluationRunRepository,
     ImprovementCandidateRepository,
     OutboxRepository,
     PolicyApprovalPort,
@@ -30,21 +34,26 @@ from evaluationimprovement.application.services.audit import AuditRecorder
 from evaluationimprovement.application.services.idempotency import CommandIdempotencyGuard
 from evaluationimprovement.application.telemetry import EvaluationTelemetry
 from evaluationimprovement.application.views import ImprovementCandidateView
-from evaluationimprovement.domain.enums import CandidateStatus, CandidateType, CanaryStatus, RiskLevel
+from evaluationimprovement.domain.enums import CandidateStatus, CandidateType, CanaryStatus, RiskLevel, RunStatus
 from evaluationimprovement.domain.events import ImprovementCandidateApproved, ImprovementCandidateCreated
 from evaluationimprovement.domain.ids import CandidateId, RunId
 from evaluationimprovement.domain.improvement_candidate import ImprovementCandidate
 
 _COMMAND_TYPE = "create_improvement_candidate"
+_TERMINAL_GATE_STATUSES = frozenset({RunStatus.PASSED, RunStatus.FAILED})
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class CreateImprovementCandidateService:
     def __init__(
-        self, candidate_repository: ImprovementCandidateRepository, command_idempotency_repository: CommandIdempotencyRepository,
-        policy_approval_port: PolicyApprovalPort, outbox_repository: OutboxRepository,
-        audit_record_repository: AuditRecordRepository, clock: ClockPort, telemetry: EvaluationTelemetry,
+        self, candidate_repository: ImprovementCandidateRepository, run_repository: EvaluationRunRepository,
+        command_idempotency_repository: CommandIdempotencyRepository, policy_approval_port: PolicyApprovalPort,
+        outbox_repository: OutboxRepository, audit_record_repository: AuditRecordRepository, clock: ClockPort,
+        telemetry: EvaluationTelemetry,
     ) -> None:
         self._candidate_repository = candidate_repository
+        self._run_repository = run_repository
         self._policy_approval_port = policy_approval_port
         self._outbox_repository = outbox_repository
         self._clock = clock
@@ -60,6 +69,10 @@ class CreateImprovementCandidateService:
         )
 
     def _do_create(self, command: CreateImprovementCandidateCommand) -> ImprovementCandidateView:
+        with tracer.start_as_current_span("ImprovementCandidateService.create"):
+            return self._do_create_traced(command)
+
+    def _do_create_traced(self, command: CreateImprovementCandidateCommand) -> ImprovementCandidateView:
         # 09-concurrency-and-idempotency §"幂等键": `sourceRunId:failureClusterId:
         # targetComponent` — a natural-key match converges on the existing candidate
         # the same way ExtractMemoryCandidateService's own source-hash dedup does,
@@ -88,26 +101,52 @@ class CreateImprovementCandidateService:
             actor=command.actor, outcome="SUCCESS", correlation_id=command.correlation_id,
         )
         self._telemetry.record_candidate(saved.candidate_type.value, saved.status.value, saved.risk_level.value)
+        # 12-observability §"Logs": the one place `candidateId` (the field the
+        # ScoreRunService.score_case()'s own structured log line has no use for)
+        # naturally belongs — see that method's own docstring for why runId/
+        # testCaseId/datasetVersion/targetVersion/graderVersion/failureCode instead
+        # attach to the case-scoring log line, not this one.
+        span_context = trace.get_current_span().get_span_context()
+        trace_id = trace.format_trace_id(span_context.trace_id) if span_context.is_valid else "0" * 32
+        logger.info(
+            "action=create_candidate candidate_id=%s source_run_id=%s trace_id=%s correlation_id=%s",
+            saved.candidate_id, saved.source_run_id, trace_id, command.correlation_id,
+        )
         return candidate_to_view(saved)
 
     def record_benchmark(self, command: RecordCandidateBenchmarkCommand) -> ImprovementCandidateView:
         """04-use-cases UC-EI-004 step 4: "候选必须进入 benchmark，不允许直接发布." A failed
         benchmark immediately rejects the candidate.
+
+        SPEC-EI-025 (candidate-benchmark-binding-gate-enforcement): `passed` is never
+        taken as a bare caller claim — it is derived here from the real EvaluationRun's
+        own terminal PASSED/FAILED release-gate decision, the same run this candidate
+        is bound to via `benchmark_run_id`.
         """
         candidate = self._require_candidate(command.candidate_id)
+        run = self._run_repository.find_by_id(command.benchmark_run_id)
+        if run is None:
+            raise RunNotFoundException(command.benchmark_run_id)
+        if run.status not in _TERMINAL_GATE_STATUSES:
+            raise ValueError(
+                f"benchmark run {command.benchmark_run_id} is {run.status.value}, expected a terminal "
+                "PASSED or FAILED release-gate decision"
+            )
+        passed = run.status == RunStatus.PASSED
+
         now = self._clock.now()
         if candidate.status == CandidateStatus.DRAFT:
             candidate = candidate.start_benchmarking(now)
             self._candidate_repository.save(candidate, expected_status=CandidateStatus.DRAFT)
 
         original_status = candidate.status
-        candidate = candidate.record_benchmark_result(command.passed, now)
-        if not command.passed:
+        candidate = candidate.record_benchmark_result(command.benchmark_run_id, passed, now)
+        if not passed:
             candidate = candidate.reject(now)
         saved = self._candidate_repository.save(candidate, expected_status=original_status)
         self._audit_recorder.record(
             action="record_candidate_benchmark", resource_type="IMPROVEMENT_CANDIDATE", resource_id=str(saved.candidate_id),
-            actor=command.actor, outcome="PASSED" if command.passed else "REJECTED", correlation_id=command.correlation_id,
+            actor=command.actor, outcome="PASSED" if passed else "REJECTED", correlation_id=command.correlation_id,
         )
         return candidate_to_view(saved)
 
@@ -206,9 +245,10 @@ def candidate_to_view(candidate: ImprovementCandidate) -> ImprovementCandidateVi
     return ImprovementCandidateView(
         candidate_id=candidate.candidate_id, candidate_type=candidate.candidate_type, source_run_id=candidate.source_run_id,
         target_component=candidate.target_component, risk_level=candidate.risk_level, status=candidate.status,
-        created_by=candidate.created_by, approved_by=candidate.approved_by, approval_request_id=candidate.approval_request_id,
-        canary_status=candidate.canary_status, promoted_version=candidate.promoted_version, created_at=candidate.created_at,
-        updated_at=candidate.updated_at,
+        created_by=candidate.created_by, benchmark_run_id=candidate.benchmark_run_id,
+        benchmark_passed=candidate.benchmark_passed, approved_by=candidate.approved_by,
+        approval_request_id=candidate.approval_request_id, canary_status=candidate.canary_status,
+        promoted_version=candidate.promoted_version, created_at=candidate.created_at, updated_at=candidate.updated_at,
     )
 
 
@@ -217,6 +257,8 @@ def candidate_view_to_dict(view: ImprovementCandidateView) -> dict:
         "candidate_id": str(view.candidate_id.value), "candidate_type": view.candidate_type.value,
         "source_run_id": str(view.source_run_id.value), "target_component": view.target_component,
         "risk_level": view.risk_level.value, "status": view.status.value, "created_by": view.created_by,
+        "benchmark_run_id": str(view.benchmark_run_id.value) if view.benchmark_run_id else None,
+        "benchmark_passed": view.benchmark_passed,
         "approved_by": view.approved_by, "approval_request_id": view.approval_request_id,
         "canary_status": view.canary_status.value if view.canary_status else None,
         "promoted_version": view.promoted_version, "created_at": view.created_at.isoformat(),
@@ -229,6 +271,8 @@ def candidate_view_from_dict(data: dict) -> ImprovementCandidateView:
         candidate_id=CandidateId(uuid.UUID(data["candidate_id"])), candidate_type=CandidateType[data["candidate_type"]],
         source_run_id=RunId(uuid.UUID(data["source_run_id"])), target_component=data["target_component"],
         risk_level=RiskLevel[data["risk_level"]], status=CandidateStatus[data["status"]], created_by=data["created_by"],
+        benchmark_run_id=RunId(uuid.UUID(data["benchmark_run_id"])) if data.get("benchmark_run_id") else None,
+        benchmark_passed=data.get("benchmark_passed", False),
         approved_by=data["approved_by"], approval_request_id=data["approval_request_id"],
         canary_status=CanaryStatus[data["canary_status"]] if data["canary_status"] else None,
         promoted_version=data["promoted_version"], created_at=datetime.fromisoformat(data["created_at"]),

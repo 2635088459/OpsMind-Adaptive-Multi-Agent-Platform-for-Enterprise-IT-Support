@@ -6,24 +6,47 @@ JSONB round-trip fidelity.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from evaluationimprovement.application.exceptions import DatasetVersionConflictException, OptimisticConcurrencyConflictException
-from evaluationimprovement.application.records import CaseExecutionResult, GatePolicyConfig
+from evaluationimprovement.application.records import (
+    CaseExecutionResult,
+    GatePolicyConfig,
+    JudgeBundleStatus,
+    LangSmithLinkRecord,
+    OnlineEvaluationSample,
+    PoisonEventRecord,
+)
 from evaluationimprovement.domain.dataset import EvaluationDataset
-from evaluationimprovement.domain.enums import CaseExecutionStatus, Criticality, DatasetStatus, EvaluationDimension, GraderType, RunStatus
+from evaluationimprovement.domain.enums import (
+    CaseExecutionStatus,
+    CaseQueueStatus,
+    Criticality,
+    DatasetStatus,
+    EvaluationDimension,
+    GraderType,
+    OnlineSampleStatus,
+    RunStatus,
+    ScoreFailureCode,
+)
 from evaluationimprovement.domain.evaluation_run import EvaluationRun
 from evaluationimprovement.domain.ids import DatasetId, RunId, ScoreId, TestCaseId
 from evaluationimprovement.domain.score import EvaluationScore
 from evaluationimprovement.domain.test_case import EvaluationTestCase
 from evaluationimprovement.domain.values import EvidenceRef, VersionBinding
 from evaluationimprovement.infrastructure.persistence.postgres.repositories import (
+    PostgresCaseExecutionQueueRepository,
     PostgresCaseExecutionResultRepository,
     PostgresDatasetRepository,
     PostgresEvaluationRunRepository,
     PostgresGatePolicyRepository,
+    PostgresJudgeBundleStatusRepository,
+    PostgresLangSmithLinkRepository,
+    PostgresOnlineSampleRepository,
+    PostgresPoisonEventRepository,
     PostgresScoreRepository,
     PostgresTestCaseRepository,
 )
@@ -150,6 +173,58 @@ def test_score_supersede_keeps_exactly_one_active_row(session_factory) -> None:
     assert active_score is not None
     assert active_score.score_id == second.score_id
     assert active_score.evidence_ref is None  # the superseded first row carried evidence; the active one does not
+
+
+@pytest.mark.integration
+def test_score_save_many_commits_a_whole_case_batch_and_replays_idempotently(session_factory) -> None:
+    """SPEC-EI-017 / 08-transaction-and-outbox §"事务原则": "score 可以按 case 分批提交；每批
+    必须可幂等重放."
+    """
+    dataset_repo = PostgresDatasetRepository(session_factory)
+    case_repo = PostgresTestCaseRepository(session_factory)
+    run_repo = PostgresEvaluationRunRepository(session_factory)
+    dataset = EvaluationDataset.create(DatasetId.new_id(), "score-batch-dataset", "1", "IDENTITY_ACCESS", (), "author-1", _NOW)
+    dataset_repo.save(dataset, expected_status=None)
+    case = EvaluationTestCase.create(
+        TestCaseId.new_id(), dataset.dataset_id, "k1", "s", "", {}, {"classification": "X"}, (), (), False, {}, Criticality.STANDARD,
+    )
+    case_repo.save_many((case,))
+    binding = VersionBinding("1", "target:rc1", "grader:v1", "policy:v1", "corr-1")
+    run = EvaluationRun.create(RunId.new_id(), "score-batch-run-001", dataset.dataset_id, binding, "ci", _NOW)
+    run_repo.save(run, expected_status=None)
+
+    repo = PostgresScoreRepository(session_factory)
+    run_id, test_case_id = run.run_id, case.test_case_id
+    batch = (
+        EvaluationScore.create(
+            ScoreId.new_id(), run_id, test_case_id, EvaluationDimension.CLASSIFICATION_ACCURACY, 1.0, 1.0,
+            GraderType.DETERMINISTIC, "v1",
+        ),
+        EvaluationScore.create(
+            ScoreId.new_id(), run_id, test_case_id, EvaluationDimension.POLICY_COMPLIANCE, 1.0, 1.0,
+            GraderType.DETERMINISTIC, "v1",
+        ),
+    )
+    repo.save_many(batch)
+    active = repo.find_active_by_run(run_id)
+    assert {s.dimension for s in active} == {EvaluationDimension.CLASSIFICATION_ACCURACY, EvaluationDimension.POLICY_COMPLIANCE}
+
+    # A resubmitted batch (the same case re-scored) supersedes both prior rows rather
+    # than appending duplicates — exactly like N individual save() calls would.
+    replay = (
+        EvaluationScore.create(
+            ScoreId.new_id(), run_id, test_case_id, EvaluationDimension.CLASSIFICATION_ACCURACY, 0.0, 1.0,
+            GraderType.DETERMINISTIC, "v1",
+        ),
+        EvaluationScore.create(
+            ScoreId.new_id(), run_id, test_case_id, EvaluationDimension.POLICY_COMPLIANCE, 1.0, 1.0,
+            GraderType.DETERMINISTIC, "v1",
+        ),
+    )
+    repo.save_many(replay)
+    active_after_replay = repo.find_active_by_run(run_id)
+    assert len(active_after_replay) == 2
+    assert {s.score_id for s in active_after_replay} == {s.score_id for s in replay}
 
 
 @pytest.mark.integration
@@ -332,3 +407,179 @@ def test_run_find_by_dataset_scopes_by_dataset_and_status(session_factory) -> No
 
     cancelled_only = run_repo.find_by_dataset(dataset.dataset_id, RunStatus.CANCELLED, 50)
     assert [r.run_id for r in cancelled_only] == [cancelled_run.run_id]
+
+
+def _seed_run_with_one_case(session_factory):
+    dataset_repo = PostgresDatasetRepository(session_factory)
+    case_repo = PostgresTestCaseRepository(session_factory)
+    dataset = EvaluationDataset.create(DatasetId.new_id(), "queue-dataset", "1", "IDENTITY_ACCESS", (), "author-1", _NOW)
+    dataset_repo.save(dataset, expected_status=None)
+    case = EvaluationTestCase.create(
+        TestCaseId.new_id(), dataset.dataset_id, "k1", "s", "", {}, {"classification": "X"}, (), (), False, {}, Criticality.STANDARD,
+    )
+    case_repo.save_many((case,))
+    run_repo = PostgresEvaluationRunRepository(session_factory)
+    binding = VersionBinding("1", "target:rc1", "grader:v1", "policy:v1", "corr-1")
+    run = EvaluationRun.create(RunId.new_id(), "queue-run-001", dataset.dataset_id, binding, "ci", _NOW)
+    run_repo.save(run, expected_status=None)
+    return run, case
+
+
+@pytest.mark.integration
+def test_case_execution_queue_enqueue_is_idempotent_and_claim_is_compare_and_swap(session_factory) -> None:
+    """SPEC-EI-011 / 09-concurrency-and-idempotency: a real `ON CONFLICT DO NOTHING`
+    enqueue and a real `UPDATE ... WHERE status = 'PENDING'` claim — two concurrent
+    claims against the same row, only one may win.
+    """
+    run, case = _seed_run_with_one_case(session_factory)
+    queue_repo = PostgresCaseExecutionQueueRepository(session_factory)
+
+    queue_repo.enqueue_many(run.run_id, (case.test_case_id,), 1, _NOW)
+    queue_repo.enqueue_many(run.run_id, (case.test_case_id,), 1, _NOW)  # resubmission: still one row
+    entries = queue_repo.find_by_run(run.run_id)
+    assert len(entries) == 1
+    assert entries[0].status is CaseQueueStatus.PENDING
+
+    claimable = queue_repo.find_claimable(_NOW + timedelta(seconds=1), 10)
+    assert len(claimable) == 1
+
+    first_claim = queue_repo.claim(run.run_id, case.test_case_id, "worker-1", _NOW, _NOW + timedelta(seconds=60))
+    assert first_claim is True
+    second_claim = queue_repo.claim(run.run_id, case.test_case_id, "worker-2", _NOW, _NOW + timedelta(seconds=60))
+    assert second_claim is False
+
+    assert queue_repo.find_claimable(_NOW + timedelta(seconds=1), 10) == []
+
+
+@pytest.mark.integration
+def test_case_execution_queue_retry_and_expired_lease_reclaim_round_trip(session_factory) -> None:
+    run, case = _seed_run_with_one_case(session_factory)
+    queue_repo = PostgresCaseExecutionQueueRepository(session_factory)
+    queue_repo.enqueue_many(run.run_id, (case.test_case_id,), 1, _NOW)
+
+    queue_repo.claim(run.run_id, case.test_case_id, "worker-1", _NOW, _NOW + timedelta(seconds=60))
+    retry_at = _NOW + timedelta(seconds=90)
+    queue_repo.mark_retry(run.run_id, case.test_case_id, retry_at, 1)
+    entry = queue_repo.find_by_run(run.run_id)[0]
+    assert entry.status is CaseQueueStatus.PENDING
+    assert entry.attempt_count == 1
+    assert entry.leased_by is None
+
+    queue_repo.claim(run.run_id, case.test_case_id, "worker-1", retry_at, retry_at + timedelta(seconds=60))
+    assert queue_repo.find_expired_leases(retry_at + timedelta(seconds=61), 10) != []
+    reclaimed = queue_repo.release_expired_lease(run.run_id, case.test_case_id, retry_at + timedelta(seconds=200), 2)
+    assert reclaimed is True
+    reclaimed_again = queue_repo.release_expired_lease(run.run_id, case.test_case_id, retry_at + timedelta(seconds=300), 3)
+    assert reclaimed_again is False  # already back to PENDING — nothing left to reclaim
+
+    entry = queue_repo.find_by_run(run.run_id)[0]
+    assert entry.status is CaseQueueStatus.PENDING
+    assert entry.attempt_count == 2
+
+    queue_repo.claim(run.run_id, case.test_case_id, "worker-1", retry_at, retry_at + timedelta(seconds=60))
+    queue_repo.mark_exhausted(run.run_id, case.test_case_id, 5)
+    exhausted_entry = queue_repo.find_by_run(run.run_id)[0]
+    assert exhausted_entry.status is CaseQueueStatus.EXHAUSTED
+    assert exhausted_entry.attempt_count == 5
+
+
+@pytest.mark.integration
+def test_langsmith_link_upsert_and_find(session_factory) -> None:
+    run, _case = _seed_run_with_one_case(session_factory)
+    repo = PostgresLangSmithLinkRepository(session_factory)
+
+    assert repo.find(run.run_id) is None
+
+    repo.save(LangSmithLinkRecord(run_id=str(run.run_id), enabled=True, experiment_ref=None))
+    link = repo.find(run.run_id)
+    assert link is not None
+    assert link.enabled is True
+    assert link.experiment_ref is None
+
+    # A later save() for the same run overwrites, never appends.
+    repo.save(LangSmithLinkRecord(run_id=str(run.run_id), enabled=True, experiment_ref="experiment-abc"))
+    refreshed = repo.find(run.run_id)
+    assert refreshed is not None
+    assert refreshed.experiment_ref == "experiment-abc"
+
+
+@pytest.mark.integration
+def test_judge_bundle_status_upsert_and_find(session_factory) -> None:
+    repo = PostgresJudgeBundleStatusRepository(session_factory)
+    assert repo.find_status("judge-v1") is None
+
+    repo.save_status(JudgeBundleStatus(
+        grader_version="judge-v1", enabled=True, last_checked_at=_NOW, last_mean_absolute_error=0.05,
+    ))
+    status = repo.find_status("judge-v1")
+    assert status is not None
+    assert status.enabled is True
+    assert status.last_mean_absolute_error == pytest.approx(0.05)
+    assert status.disabled_reason is None
+
+    # A later save() for the same grader_version overwrites, never appends — the
+    # latest calibration check is the only one that matters for gating.
+    repo.save_status(JudgeBundleStatus(
+        grader_version="judge-v1", enabled=False, last_checked_at=_NOW, last_mean_absolute_error=0.42,
+        disabled_reason="calibration drift 0.420 exceeds threshold 0.150",
+    ))
+    disabled = repo.find_status("judge-v1")
+    assert disabled is not None
+    assert disabled.enabled is False
+    assert disabled.disabled_reason == "calibration drift 0.420 exceeds threshold 0.150"
+
+
+@pytest.mark.integration
+def test_online_sample_round_trip_and_find_queued(session_factory) -> None:
+    repo = PostgresOnlineSampleRepository(session_factory)
+    sample_id = uuid.uuid4()
+    sample = OnlineEvaluationSample(
+        sample_id=sample_id, candidate_id=None, target_version="agent-runtime:rc1", source_event_type="WORKFLOW_COMPLETED",
+        source_trace_ref="trace-redacted-1", redacted_context={"summary": "resolved"}, status=OnlineSampleStatus.QUEUED,
+        collected_at=_NOW,
+    )
+    repo.save(sample)
+
+    found = repo.find_by_id(sample_id)
+    assert found is not None
+    assert found.status == OnlineSampleStatus.QUEUED
+    assert found.redacted_context == {"summary": "resolved"}
+
+    queued = repo.find_queued(limit=10)
+    assert any(s.sample_id == sample_id for s in queued)
+
+    # score_pending()'s own save() overwrites the same row in place — never appends.
+    scored = OnlineEvaluationSample(
+        sample_id=sample_id, candidate_id=None, target_version="agent-runtime:rc1", source_event_type="WORKFLOW_COMPLETED",
+        source_trace_ref="trace-redacted-1", redacted_context={"summary": "resolved"}, status=OnlineSampleStatus.SCORED,
+        collected_at=_NOW, scored_at=_NOW, composite_score=0.42, failure_code=ScoreFailureCode.UNSCORED,
+    )
+    repo.save(scored)
+    refreshed = repo.find_by_id(sample_id)
+    assert refreshed is not None
+    assert refreshed.status == OnlineSampleStatus.SCORED
+    assert refreshed.composite_score == pytest.approx(0.42)
+    assert refreshed.failure_code == ScoreFailureCode.UNSCORED
+    assert all(s.sample_id != sample_id for s in repo.find_queued(limit=10))
+
+
+@pytest.mark.integration
+def test_poison_event_round_trip_newest_first(session_factory) -> None:
+    repo = PostgresPoisonEventRepository(session_factory)
+    first = PoisonEventRecord(
+        id=uuid.uuid4(), event_id="evt-1", consumer_name="consume_approval_decision_event", event_type="approval.granted.v1",
+        payload='{"approvalRequestId": "approval-1"}', error_message="self-approval not allowed", occurred_at=_NOW,
+        recorded_at=_NOW,
+    )
+    second = PoisonEventRecord(
+        id=uuid.uuid4(), event_id="evt-2", consumer_name="consume_approval_decision_event", event_type="approval.denied.v1",
+        payload='{"approvalRequestId": "approval-2"}', error_message="invalid state transition", occurred_at=_NOW,
+        recorded_at=_NOW + timedelta(seconds=1),
+    )
+    repo.record(first)
+    repo.record(second)
+
+    found = repo.find_all(limit=10)
+    assert [r.event_id for r in found] == ["evt-2", "evt-1"]
+    assert found[0].payload == '{"approvalRequestId": "approval-2"}'
+    assert found[0].error_message == "invalid state transition"

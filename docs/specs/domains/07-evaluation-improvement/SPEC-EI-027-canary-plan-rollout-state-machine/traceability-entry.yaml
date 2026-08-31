@@ -2,14 +2,28 @@ SPEC-EI-027:
   domain: 07-evaluation-improvement
   name: Canary Plan Rollout State Machine
   cn_name: Canary Plan 与 Rollout State Machine
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-06-canary-and-controlled-release
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 CanaryPlan、rollout 状态机、流量比例、时间窗、sample size 和 optimistic locking。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Audited during the phase-06 pass and found almost entirely already implemented
+    from SPEC-EI-001/SPEC-EI-024's own foundational build: `domain.values.CanaryPlan`/
+    `CanaryStage`, the Canary sub-state machine on `ImprovementCandidate`
+    (PLANNED -> ACTIVE -> EXPANDING -> SUCCEEDED, with PAUSED/FAILED/
+    ROLLBACK_REQUESTED/ROLLED_BACK — see SPEC-EI-024's own traceability entry),
+    `ManageCanaryService.start_canary()/advance()/pause()/request_rollback()/
+    complete_rollback()`, optimistic-locking CAS on `ImprovementCandidateRepository.
+    save()`, and the full REST surface were all already real. The one genuine gap:
+    this phase's own mandatory constraint "Canary 必须有流量比例、时间窗、sample size 和
+    rollback thresholds" — `CanaryStage` carried only three of those four fields.
+    Added `sample_size: int` (validated positive in `__post_init__`), threaded through
+    `CanaryStageInput`, `ManageCanaryService._do_start_canary()`, the Postgres JSONB
+    stage serialization (`_canary_plan_to_json`/`_json_to_canary_plan` — no migration
+    needed, `sample_size` defaults to 1 for any pre-existing JSONB row missing the
+    key), and `CanaryStageRequest`. This is also the field SPEC-EI-029's own
+    EvaluateCanaryPromotionService reads as the minimum online-sample count a stage
+    requires before its own promotion criteria can be evaluated.
   lld_mapping:
     - 03-state-machine
     - 09-concurrency-and-idempotency
@@ -22,8 +36,12 @@ SPEC-EI-027:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/domain/test_improvement_candidate.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      177 passed (152 non-integration + 25 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-027 through SPEC-EI-029, verified
+      2026-08-28.

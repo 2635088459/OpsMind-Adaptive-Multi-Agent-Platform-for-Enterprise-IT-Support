@@ -1,0 +1,9 @@
+SPEC-OP-024:
+  domain: 08-observability-platform
+  name: Operational Runbook Catalog
+  cn_name: 运维 Runbook Catalog
+  status: planned
+  phase: phase-05-alerts-slos-runbooks
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

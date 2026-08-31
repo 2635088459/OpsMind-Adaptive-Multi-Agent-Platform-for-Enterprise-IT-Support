@@ -1,0 +1,9 @@
+SPEC-OP-018:
+  domain: 08-observability-platform
+  name: Database Broker And Infrastructure Dashboards
+  cn_name: 数据库、Broker 与基础设施 Dashboard
+  status: planned
+  phase: phase-04-dashboards-correlation-analysis
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

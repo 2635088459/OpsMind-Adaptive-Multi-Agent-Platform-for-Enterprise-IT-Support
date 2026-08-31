@@ -1,0 +1,87 @@
+SPEC-OP-003:
+  domain: 08-observability-platform
+  name: Telemetry Governance Baseline
+  cn_name: 遥测治理基线
+  status: implemented
+  phase: phase-00-platform-engineering-foundation
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002]
+  tech_stack: "YAML rulebook + JSON Schema / OTel Collector transform (OTTL delete_matching_keys) / Python 3.12 + PyYAML validator / GitHub Actions"
+  implementation_notes: >
+    The telemetry governance rulebook every OpsMind signal must satisfy before export,
+    plus its enforcement and CI gate. governance/telemetry-governance.yaml (schema
+    schemas/telemetry-governance.schema.json) defines: deny_fields (auth material,
+    credentials, tokens, MFA/OTP, raw LLM prompt/completion, raw user text, PII core —
+    each with a reason); allow_fields per resource/span/log/metric_datapoint
+    (required + recommended, resource.required = service.name/service.version/
+    deployment.environment); retention_classes debug/standard/slo/audit with
+    local/ci/prod durations; signal_owners (family glob -> semantic + transport owner);
+    cardinality_budgets (global.max_series_total + per-namespace max_label_keys/
+    max_series/forbidden_labels for http/amqp/agent/evaluation/otelcol); schema_review
+    (additive-or-versioned); exceptions [] with a documented time-boxed (<=90d) waiver
+    workflow requiring domain-06 sign-off for any deny_field waiver. Enforcement:
+    collector/base/config.yaml gains processors.transform/governance running OTTL
+    delete_matching_keys(attributes, <canonical deny regex>) over resource+span,
+    resource+datapoint, resource+log in all three pipelines (inserted before batch).
+    docs/telemetry-governance.md is the human policy + exception workflow. The
+    SPEC-OP-002 seed artifacts were migrated to retention class names
+    (platform-self recording -> standard, alerting + TargetDown runbook -> audit,
+    v0.1.1); artifact-metadata-convention.md now defines retention as a class name.
+    New validator scripts/validate-telemetry-governance.py (PyYAML): structural shape,
+    deny_fields compile + baseline-concept coverage, Collector-sync (canonical regex
+    from deny_fields must appear verbatim in the collector config x6), retention-class
+    usage in artifact metadata, cardinality/owners/schema_review shape, and exception
+    rules (id format, all fields, ISO dates, not expired, <= opened+90d, deny_field
+    waiver needs policy-approval-governance). 7 self-tests in
+    scripts/tests/test_validate_telemetry_governance.py. CI layout job installs pyyaml
+    and runs the governance validator + discover; smoke job now pushes a span carrying
+    authorization/password/api_key and asserts Tempo receives only correlation_id.
+  lld_mapping:
+    - 02-business-invariants
+    - 11-security
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - secret_or_pii_or_raw_prompt_in_telemetry
+    - unbounded_metric_label_cardinality
+    - silent_breaking_schema_change
+    - unbounded_or_unapproved_governance_exception
+  artifacts:
+    governance:
+      - infrastructure/observability/governance/telemetry-governance.yaml
+      - infrastructure/observability/schemas/telemetry-governance.schema.json
+      - infrastructure/observability/docs/telemetry-governance.md
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+    tooling:
+      - scripts/validate-telemetry-governance.py
+      - scripts/tests/test_validate_telemetry_governance.py
+      - .github/workflows/observability-platform-ci.yml
+    updated_for_retention_classes:
+      - infrastructure/observability/rules/recording/platform-self.yml
+      - infrastructure/observability/rules/alerting/platform-self.yml
+      - infrastructure/observability/runbooks/TargetDown.md
+      - infrastructure/observability/docs/artifact-metadata-convention.md
+      - infrastructure/observability/docs/repository-layout.md
+      - infrastructure/observability/signals/README.md
+      - infrastructure/observability/README.md
+  test_evidence:
+    lint: "validate-observability-layout.py 0/0; validate-telemetry-governance.py 0/0 (structure, deny baseline, collector-sync x6, retention classes, 0 exceptions); otelcol validate exit 0 (transform/governance OTTL parses)"
+    unit: "scripts/tests — 15 passed (8 layout + 7 governance: canonical regex, real-file<->collector sync, expired-exception fail, desynced-regex fail, gutted-baseline fail, deny-field-waiver-without-domain6 fail)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed an OTLP span with
+      deny-listed keys authorization/password/api_key plus legit correlation_id;
+      queried Tempo /api/traces back: span attribute keys = ['correlation_id'] only,
+      deny-listed keys NONE (stripped by transform/governance). Metrics/logs/rules/
+      alertmanager paths unaffected. Stack torn down clean. Verified 2026-08-30.
+    contract: "governance schema authored; producer-side required-attribute conformance is SPEC-OP-004; value-level log redaction is SPEC-OP-007"
+    security: "deny-list enforced at the Collector boundary and proven at runtime; exception workflow time-boxes and (for deny fields) domain-06-gates any waiver; forbidden_labels declared per metric namespace"
+    result: >
+      Governance baseline defined, schema-checked, wired into the Collector, and
+      proven at runtime (deny-listed attribute keys stripped before storage; legit
+      attributes preserved). CI-gated via the layout + smoke jobs. Phase-00 complete
+      (SPEC-OP-001/002/003). Residual: key-based (not value-based) deny — free-text
+      body PII is SPEC-OP-007; cardinality budgets declared but not yet machine-
+      enforced against a live TSDB (SPEC-OP-006); prod retention numbers are
+      placeholders (SPEC-OP-015). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-003-traceability.md

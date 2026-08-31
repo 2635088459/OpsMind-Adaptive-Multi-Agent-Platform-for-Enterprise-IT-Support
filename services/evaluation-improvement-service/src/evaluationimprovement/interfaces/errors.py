@@ -25,6 +25,8 @@ from evaluationimprovement.application.exceptions import (
     IdempotencyKeyReusedException,
     IncompleteRunException,
     OptimisticConcurrencyConflictException,
+    PoisonApprovalDecisionEventException,
+    PolicyApprovalUnavailableException,
     ReportNotFoundException,
     RunKeyConflictException,
     RunNotFoundException,
@@ -110,6 +112,16 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_grader_not_found(request: Request, exc: GraderNotFoundException) -> JSONResponse:
         logger.error("grader not found: %s", exc)
         return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=_body("DEPENDENCY_UNAVAILABLE", "No grader is registered for this dimension.", request).model_dump())
+
+    @app.exception_handler(PolicyApprovalUnavailableException)
+    async def handle_policy_approval_unavailable(request: Request, exc: PolicyApprovalUnavailableException) -> JSONResponse:
+        logger.error("policy approval request failed: %s", exc)
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=_body("DEPENDENCY_UNAVAILABLE", "The policy approval service is unavailable.", request).model_dump())
+
+    @app.exception_handler(PoisonApprovalDecisionEventException)
+    async def handle_poison_approval_decision_event(request: Request, exc: PoisonApprovalDecisionEventException) -> JSONResponse:
+        logger.error("poison approval decision event: %s", exc)
+        return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, content=_body("POISON_EVENT", "The event could not be processed and has been recorded for review.", request).model_dump())
 
     @app.exception_handler(Exception)
     async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

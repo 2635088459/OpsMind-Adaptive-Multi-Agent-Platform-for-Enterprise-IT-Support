@@ -8,6 +8,8 @@ domain.enums.CaseExecutionStatus's own docstring.
 
 from __future__ import annotations
 
+from opentelemetry import trace
+
 from evaluationimprovement.application.commands import ExecuteCaseCommand, SkipCaseCommand
 from evaluationimprovement.application.exceptions import RunNotFoundException, TestCaseNotFoundException
 from evaluationimprovement.application.ports_out import (
@@ -18,6 +20,8 @@ from evaluationimprovement.application.ports_out import (
 )
 from evaluationimprovement.application.records import CaseExecutionResult
 from evaluationimprovement.domain.enums import CaseExecutionStatus, RunStatus
+
+tracer = trace.get_tracer(__name__)
 
 
 class ExecuteCaseService:
@@ -43,6 +47,10 @@ class ExecuteCaseService:
         in SCORING forever, since score_case() could never be called for a case that
         was never actually saved).
         """
+        with tracer.start_as_current_span("CaseRunner.executeCase"):
+            self._execute_case_traced(command)
+
+    def _execute_case_traced(self, command: ExecuteCaseCommand) -> None:
         run = self._run_repository.find_by_id(command.run_id)
         if run is None:
             raise RunNotFoundException(command.run_id)

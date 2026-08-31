@@ -1,0 +1,9 @@
+SPEC-OP-032:
+  domain: 08-observability-platform
+  name: Configuration Change Approval And Audit
+  cn_name: 配置变更审批与审计
+  status: planned
+  phase: phase-07-security-privacy-config-governance
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

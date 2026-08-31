@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from evaluationimprovement.application.commands import (
@@ -15,9 +17,11 @@ from evaluationimprovement.application.commands import (
 )
 from evaluationimprovement.application.exceptions import DatasetNotFoundException, RunKeyConflictException
 from evaluationimprovement.container import Container
-from evaluationimprovement.domain.enums import Criticality
-from evaluationimprovement.domain.ids import DatasetId
+from evaluationimprovement.domain.enums import Criticality, RunStatus
+from evaluationimprovement.domain.evaluation_run import EvaluationRun
+from evaluationimprovement.domain.ids import DatasetId, RunId
 from evaluationimprovement.domain.state_machine import InvalidStateTransitionException
+from evaluationimprovement.domain.values import VersionBinding
 
 
 def _published_dataset(container: Container):
@@ -125,3 +129,37 @@ def test_list_runs_returns_every_run_for_a_dataset_newest_first(container: Conta
 def test_list_runs_requires_an_existing_dataset(container: Container) -> None:
     with pytest.raises(DatasetNotFoundException):
         container.create_run_service.list_runs(DatasetId.new_id(), None, 50)
+
+
+@pytest.mark.unit
+def test_find_stuck_runs_returns_only_runs_past_the_sla_oldest_first(container: Container) -> None:
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 12-observability
+    §"Alerts": "run stuck in RUNNING 或 SCORING beyond SLA."
+    """
+    dataset = _published_dataset(container)
+    version_binding = VersionBinding(
+        dataset_version="2026.08.1", target_version="agent-runtime:rc1", grader_bundle_version="v1", policy_version="v1",
+        correlation_id="corr-1",
+    )
+    long_stuck = EvaluationRun.create(
+        RunId.new_id(), "stuck-old", dataset.dataset_id, version_binding, "ci", datetime.now(UTC) - timedelta(hours=2),
+    ).start()
+    container.run_repository.save(long_stuck, expected_status=None)
+
+    recently_stuck = EvaluationRun.create(
+        RunId.new_id(), "stuck-recent", dataset.dataset_id, version_binding, "ci", datetime.now(UTC) - timedelta(minutes=90),
+    ).start()
+    container.run_repository.save(recently_stuck, expected_status=None)
+
+    not_stuck = EvaluationRun.create(
+        RunId.new_id(), "stuck-fresh", dataset.dataset_id, version_binding, "ci", datetime.now(UTC) - timedelta(minutes=5),
+    ).start()
+    container.run_repository.save(not_stuck, expected_status=None)
+
+    passed_long_ago = container.create_run_service.create_run(_run_command(dataset.dataset_id, "stuck-passed-control"))
+    container.create_run_service.cancel_run(CancelRunCommand(run_id=passed_long_ago.run_id, reason="n/a", actor="ci", correlation_id="corr-1"))
+
+    stuck = container.create_run_service.find_stuck_runs(sla_seconds=3600)
+    assert [r.run_id for r in stuck] == [long_stuck.run_id, recently_stuck.run_id]
+    assert all(r.status == RunStatus.RUNNING for r in stuck)
+    assert {r.run_key for r in stuck} == {"stuck-old", "stuck-recent"}

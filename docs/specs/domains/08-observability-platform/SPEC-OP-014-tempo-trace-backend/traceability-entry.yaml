@@ -1,0 +1,9 @@
+SPEC-OP-014:
+  domain: 08-observability-platform
+  name: Tempo Trace Backend
+  cn_name: Tempo Trace 后端
+  status: planned
+  phase: phase-03-telemetry-backends-retention
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

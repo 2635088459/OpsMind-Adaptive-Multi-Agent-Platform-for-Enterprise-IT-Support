@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/observability/metric-naming.schema.json",
+  "title": "OpsMind Metric Naming and Cardinality Contract",
+  "description": "Structure of infrastructure/observability/signals/metric-naming.yaml. Spec: SPEC-OP-006. Checked by scripts/validate-signal-contracts.py.",
+  "type": "object",
+  "required": ["version", "naming", "units", "bucket_sets", "namespaces",
+               "service_series_budgets", "exemplars", "collector_processor"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "naming": {
+      "type": "object",
+      "required": ["name_pattern", "namespaces", "allowed_suffixes"],
+      "additionalProperties": false,
+      "properties": {
+        "name_pattern": { "type": "string" },
+        "namespaces": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "allowed_suffixes": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "units": {
+      "type": "object",
+      "required": ["allowed", "forbidden_substrings"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "array", "items": { "type": "string" } },
+        "forbidden_substrings": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "bucket_sets": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "number" },
+        "minItems": 2
+      }
+    },
+    "namespaces": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["namespace", "allowed_labels", "forbidden_labels",
+                     "max_label_keys", "max_series", "example_metrics"],
+        "additionalProperties": false,
+        "properties": {
+          "namespace": { "type": "string" },
+          "allowed_labels": { "type": "array", "items": { "type": "string" } },
+          "forbidden_labels": { "type": "array", "items": { "type": "string" } },
+          "max_label_keys": { "type": "integer", "minimum": 0 },
+          "max_series": { "type": "integer", "minimum": 1 },
+          "example_metrics": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "service_series_budgets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["service_namespace", "local", "ci", "prod"],
+        "additionalProperties": false,
+        "properties": {
+          "service_namespace": { "type": "string" },
+          "local": { "type": "integer", "minimum": 1 },
+          "ci": { "type": "integer", "minimum": 1 },
+          "prod": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "exemplars": {
+      "type": "object",
+      "required": ["histograms_attach_trace_id", "exemplar_label_allowlist"],
+      "additionalProperties": false,
+      "properties": {
+        "histograms_attach_trace_id": { "type": "boolean" },
+        "exemplar_label_allowlist": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "collector_processor": { "type": "string" }
+  }
+}

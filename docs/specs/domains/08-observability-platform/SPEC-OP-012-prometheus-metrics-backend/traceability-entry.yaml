@@ -1,0 +1,9 @@
+SPEC-OP-012:
+  domain: 08-observability-platform
+  name: Prometheus Metrics Backend
+  cn_name: Prometheus Metrics 后端
+  status: planned
+  phase: phase-03-telemetry-backends-retention
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

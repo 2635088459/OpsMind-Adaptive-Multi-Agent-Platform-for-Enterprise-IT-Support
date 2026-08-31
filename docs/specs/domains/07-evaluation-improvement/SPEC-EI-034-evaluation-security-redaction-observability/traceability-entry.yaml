@@ -2,14 +2,29 @@ SPEC-EI-034:
   domain: 07-evaluation-improvement
   name: Evaluation Security Redaction Observability
   cn_name: Evaluation Security、Redaction 与 Observability
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-08-security-observability-recovery
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 evaluation RBAC/ABAC、sensitive evidence access、redaction、metrics/logs/traces 和 alerts。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    RBAC (StaticAuthorizationPolicyAdapter), redaction conventions
+    (user_request_redacted/redacted_context — see SPEC-EI-028/030/031's own
+    docstrings), and metrics/logs/traces were already real from earlier phases
+    (SPEC-EI-001 and SPEC-EI-033). The genuine gap this phase closed: 11-security
+    §"数据保护" ("Report 默认展示聚合分数；case-level evidence 需要更高权限") was documented on
+    `AuthorizationPort.can_view_sensitive_evidence()` since SPEC-EI-001 but never
+    called anywhere — `ScoreView` never even carried `evidence_ref`/`details`, so
+    there was no sensitive evidence to gate in the first place. Both are now real:
+    `ScoreView` carries them (the view itself is the full truth); `CreateRunService.
+    find_scores(run_id, actor, actor_role)` strips `evidence_ref`/`details` to
+    `None`/`{}` for any caller without `can_view_sensitive_evidence()`, and writes a
+    `view_sensitive_evidence` audit record only when evidence is actually granted
+    (never on the plain aggregate-score read path, which stays unaudited by design —
+    auditing every ordinary read would drown the real signal). New `optional_actor()`
+    dependency (`interfaces/security.py`) lets `GET /evaluation/runs/{runId}/scores`
+    keep working for a caller who asserts no identity at all (defaults to
+    EVALUATION_VIEWER, 05-api-contracts's own read floor) while still resolving a
+    real role when one is asserted.
   lld_mapping:
     - 11-security
     - 12-observability
@@ -22,8 +37,11 @@ SPEC-EI-034:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_evaluation_security_redaction.py
+    integration: services/evaluation-improvement-service/tests/test_app.py
     contract: pending
-    security: pending
-    result: pending
+    security: services/evaluation-improvement-service/tests/application/test_evaluation_security_redaction.py
+    result: >
+      230 passed (203 non-integration + 27 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-034/035, verified 2026-08-29.

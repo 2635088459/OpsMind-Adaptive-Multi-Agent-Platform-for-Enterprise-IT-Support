@@ -1,0 +1,98 @@
+SPEC-OP-006:
+  domain: 08-observability-platform
+  name: Metric Naming And Cardinality Contract
+  cn_name: 指标命名与基数契约
+  status: implemented
+  phase: phase-01-unified-signal-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-004, SPEC-OP-005]
+  tech_stack: "OTel semconv + UCUM units / OTel Collector transform (OTTL) / Prometheus recording+alert rules / Python 3.12 + PyYAML validator / GitHub Actions"
+  implementation_notes: >
+    The metric contract. signals/metric-naming.md (human) + .yaml (machine, schema
+    schemas/metric-naming.schema.json) fix: snake_case name_pattern
+    ^[a-z][a-z0-9_]*[a-z0-9]$ with a namespace first token (http/amqp/db/runtime/agent/
+    evaluation/slo/otelcol); SI base units only as name suffixes (_seconds/_bytes/
+    _ratio/_total/_usd/_tokens/_info), forbidden substrings _ms/_us/_ns/_millis/_kb/
+    _mb/_gb/_percent; type->suffix (counter _total, histogram base != _total); named
+    histogram bucket_sets (latency_seconds, payload_bytes, llm_tokens, cost_usd),
+    native histograms allowed with the classic set as fallback; per-namespace
+    allowed_labels + forbidden_labels + max_label_keys + max_series (== governance
+    cardinality_budgets); per-service series budgets (service.namespace -> local/ci/
+    prod) summing under governance global.max_series_total 250000; exemplars carry
+    trace_id only. governance/telemetry-governance.yaml bumped to v1.2.0 adding db/
+    runtime/slo cardinality namespaces; validate-signal-contracts.py fails on any
+    max_label_keys/max_series/forbidden_labels divergence. Enforcement:
+    collector/base/config.yaml gains transform/metric-cardinality on the METRICS
+    pipeline only — delete_matching_keys over metric resource + datapoint attributes
+    with an anchored (?i)^(...)$ regex = the union of every namespace's
+    forbidden_labels (user/ticket/workflow/request/trace/session id, email,
+    url_path_raw, message/correlation id, db_statement, row_id, pid, thread_name,
+    run/case/candidate id, prompt_hash). Fixtures signals/fixtures/metric-naming/:
+    conformant-http-histogram.json, conformant-agent-counter.json (pass);
+    nonconformant-bad-unit.json (_ms), nonconformant-forbidden-label.json (ticket_id
+    on agent), nonconformant-not-snake-case.json (CamelCase) (reject). validate-signal-
+    contracts.py extended: metric-naming shape, bucket_sets ascending, allowed/
+    forbidden label overlap, governance-namespace sync, per-fixture name+unit+type+
+    label conformance, collector wiring (transform/metric-cardinality in metrics
+    pipeline + regex covers every governance forbidden label). 7 new self-tests.
+    Runtime: rules/recording/cardinality.yml (job:series:count, series:count:total),
+    rules/alerting/cardinality.yml (MetricSeriesBudgetExceeded > 250000,
+    HighCardinalityJob > 20000/job, ForbiddenMetricLabel = a per-request id label
+    reached Prometheus -> critical), runbook runbooks/MetricCardinalityBudget.md.
+    Smoke test pushes op_002_smoke_total with datapoint attrs ticket_id + run_id and
+    asserts Prometheus series has neither.
+  lld_mapping:
+    - 07-data-model
+    - 11-security
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - unbounded_metric_label_cardinality
+    - per_request_id_as_metric_label
+    - non_si_unit_in_metric_name
+    - silent_metric_rename_or_unit_change
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/metric-naming.md
+      - infrastructure/observability/signals/metric-naming.yaml
+      - infrastructure/observability/schemas/metric-naming.schema.json
+    fixtures:
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-http-histogram.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-agent-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/nonconformant-bad-unit.json
+      - infrastructure/observability/signals/fixtures/metric-naming/nonconformant-forbidden-label.json
+      - infrastructure/observability/signals/fixtures/metric-naming/nonconformant-not-snake-case.json
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/governance/telemetry-governance.yaml
+    rules_runbook:
+      - infrastructure/observability/rules/recording/cardinality.yml
+      - infrastructure/observability/rules/alerting/cardinality.yml
+      - infrastructure/observability/runbooks/MetricCardinalityBudget.md
+    tooling:
+      - scripts/validate-signal-contracts.py
+      - scripts/tests/test_validate_signal_contracts.py
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
+  test_evidence:
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0/0; validate-signal-contracts.py 0/0 (metric-naming shape, governance-sync, 2 pass + 3 reject fixtures, transform/metric-cardinality wired + regex coverage); otelcol validate exit 0; promtool check rules cardinality.yml SUCCESS (2 recording + 3 alerting)"
+    unit: "scripts/tests — 33 passed (8 layout + 7 governance + 18 signal-contracts incl. 7 metric-naming: conformant counter, bad-unit reject, forbidden-label reject, CamelCase reject, broken-fixture fail, metric-cardinality-unwired fail, governance-namespace-desync fail)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed op_002_smoke_total
+      with datapoint attributes case=smoke + ticket_id=INC-9999 + run_id=r-abc123.
+      Prometheus series carried case + bounded resource labels only; ticket_id and
+      run_id absent (transform/metric-cardinality). job:series:count recording rule
+      evaluated; ForbiddenMetricLabel / MetricSeriesBudgetExceeded / HighCardinalityJob
+      all inactive. SPEC-OP-003/004/005 assertions still green. Stack torn down clean.
+      Verified 2026-08-30.
+    contract: "metric descriptor golden fixtures + 3 negative fixtures under version control; live-scrape conformance is SPEC-OP-025+"
+    security: "forbidden per-request id/hash/path label keys stripped on the metrics pipeline before Prometheus; ForbiddenMetricLabel alert catches any that slip through; correlation_id (fine on spans/logs) is stripped from metrics"
+    result: >
+      Metric names, units, types, histogram buckets, per-namespace label allow-lists,
+      and per-service series budgets defined and enforced. Collector strips forbidden
+      label keys on the metrics pipeline; 3 cardinality alerts + 2 recording rules
+      live; smoke proves a metric carrying ticket_id/run_id lands in Prometheus with
+      those labels removed. CI-gated. Residual: fixed deny regex (not allow-only) —
+      HighCardinalityJob/ForbiddenMetricLabel back it up; budgets are estimates
+      (SPEC-OP-012); fixture-based not live-scrape (SPEC-OP-025+). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-006-traceability.md

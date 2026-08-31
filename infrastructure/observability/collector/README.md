@@ -1,0 +1,32 @@
+# `collector/` — OpenTelemetry Collector configuration
+
+> Owner: `platform-observability`
+> Filled by: `SPEC-OP-002` (local topology), `SPEC-OP-008`–`SPEC-OP-011` (gateway, processors/routing, sampling, batch/retry/backpressure)
+> Boundary: sole OTLP ingestion point for application telemetry — [ADR-0001](../docs/adr/0001-otel-collector-sole-ingestion-boundary.md)
+
+## Layout
+
+```text
+collector/
+├── base/                      # environment-independent pipeline config
+│   └── config.yaml            # (added by SPEC-OP-002)
+└── overlays/
+    ├── local/                 # docker compose dev
+    ├── ci/                    # ephemeral CI topology
+    └── production/            # documented production topology
+```
+
+## Rules for files added here
+
+- `base/` defines the full pipeline: receivers (`otlp` gRPC 4317 / HTTP 4318),
+  processors (resource-attribute enforcement, redaction, `memory_limiter`, batch,
+  sampling), exporters (Prometheus, Loki, Tempo), and the `sending_queue` +
+  `retry_on_failure` backpressure config.
+- Overlays set only: endpoints, queue sizes, sampling **rates** (never below the
+  `base/` floor), resource limits, replica count. See
+  [`../docs/environment-overlays.md`](../docs/environment-overlays.md).
+- No exporter may target a business system ([forbidden-business-writes](../docs/forbidden-business-writes.md), F4).
+- Every file carries the light header: `# owner:`, `# spec:`, `# rollback:`.
+- Merged config for each overlay must pass `otelcol validate` in CI.
+
+Image + tag pinned in [`../versions.env`](../versions.env) (`OTEL_COLLECTOR_*`).

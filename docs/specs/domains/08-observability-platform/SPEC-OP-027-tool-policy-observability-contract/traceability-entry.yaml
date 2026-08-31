@@ -1,0 +1,9 @@
+SPEC-OP-027:
+  domain: 08-observability-platform
+  name: Tool And Policy Observability Contract
+  cn_name: Tool 与 Policy 观测契约
+  status: planned
+  phase: phase-06-cross-domain-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

@@ -1,0 +1,206 @@
+# owner: platform-observability
+# spec: SPEC-OP-003
+# rollback: git revert <sha>; redeploy otel-collector (transform/governance processor is derived from deny_fields)
+#
+# Telemetry Governance Baseline — the machine-readable rulebook every OpsMind signal
+# must satisfy before export. Phase-01 (SPEC-OP-004..007) implements producer-side
+# contracts AGAINST this file; the Collector enforces the deny-list at the boundary
+# (collector/base/config.yaml : processors.transform/governance, kept in sync by
+# scripts/validate-telemetry-governance.py).
+#
+# Schema: ../schemas/telemetry-governance.schema.json
+# Human policy + exception workflow: ../docs/telemetry-governance.md
+
+version: "1.2.0"   # 1.1.0 SPEC-OP-004 resource.required; 1.2.0 SPEC-OP-006 db/runtime/slo namespaces
+
+# --------------------------------------------------------------------------------
+# DENY — attribute / label / field keys that must never reach a backend.
+# Matched case-insensitively against the FULL key and the last dotted segment.
+# The Collector's transform/governance processor deletes matching keys from
+# resource, span, log, and metric-datapoint attributes in every pipeline.
+# --------------------------------------------------------------------------------
+deny_fields:
+  - pattern: "authorization"
+    reason: "bearer / basic auth material"
+  - pattern: "proxy-authorization"
+    reason: "auth material"
+  - pattern: "cookie"
+    reason: "session / auth material (covers set-cookie)"
+  - pattern: "set-cookie"
+    reason: "session material"
+  - pattern: "x-api-key"
+    reason: "API credential"
+  - pattern: "api[_-]?key"
+    reason: "API credential"
+  - pattern: "access[_-]?key"
+    reason: "cloud / service credential"
+  - pattern: "secret[_-]?key"
+    reason: "credential"
+  - pattern: "client[_-]?secret"
+    reason: "OAuth client secret"
+  - pattern: "private[_-]?key"
+    reason: "asymmetric private key"
+  - pattern: "password"
+    reason: "credential (covers passwd, pwd via segment match below is not enough — explicit)"
+  - pattern: "passwd"
+    reason: "credential"
+  - pattern: "pwd"
+    reason: "credential"
+  - pattern: "token"
+    reason: "access / refresh / id token"
+  - pattern: "session[_-]?id"
+    reason: "session identifier"
+  - pattern: "mfa[_-]?(secret|seed|code)"
+    reason: "MFA material"
+  - pattern: "otp"
+    reason: "one-time passcode"
+  - pattern: "totp"
+    reason: "one-time passcode seed"
+  - pattern: "prompt"
+    reason: "raw LLM prompt — never in telemetry (use hashes / token counts)"
+  - pattern: "completion"
+    reason: "raw LLM completion"
+  - pattern: "(message|user)[_-]?(content|text|body)"
+    reason: "raw user text"
+  - pattern: "gen_ai\\.(prompt|completion).*"
+    reason: "OTel GenAI raw content conventions — content capture is off"
+  - pattern: "ssn"
+    reason: "PII — national id"
+  - pattern: "credit[_-]?card"
+    reason: "PII — PAN"
+  - pattern: "card[_-]?number"
+    reason: "PII — PAN"
+  - pattern: "(email|e-mail)[_-]?address"
+    reason: "PII — email"
+
+# --------------------------------------------------------------------------------
+# ALLOW — the attribute keys each signal type is EXPECTED to carry. Not exhaustive
+# (producers add domain attributes), but keys here are contract-guaranteed and are
+# what dashboards / rules / correlation rely on. SPEC-OP-004 formalizes resource
+# attributes; SPEC-OP-005 the trace context; SPEC-OP-006 metric naming.
+# --------------------------------------------------------------------------------
+allow_fields:
+  resource:
+    # Refined by SPEC-OP-004 (signals/resource-attributes.yaml is authoritative for the
+    # value patterns; this list must stay in sync — validate-signal-contracts.py checks).
+    required: ["service.name", "service.version", "service.namespace", "deployment.environment", "service.instance.id", "telemetry.sdk.language"]
+    recommended: ["telemetry.sdk.name", "telemetry.sdk.version", "host.name", "process.runtime.name", "process.runtime.version", "os.type"]
+  span:
+    required: []
+    recommended: ["correlation_id", "http.request.method", "http.response.status_code", "messaging.system", "messaging.destination.name", "db.system"]
+  log:
+    required: []
+    recommended: ["correlation_id", "trace_id", "span_id", "log.level"]
+  metric_datapoint:
+    required: []
+    recommended: ["http.request.method", "http.response.status_code", "messaging.system", "outcome"]
+
+# --------------------------------------------------------------------------------
+# RETENTION CLASSES — logical names artifacts reference in their `retention:` field.
+# Real production durations are set by SPEC-OP-015; local/ci mirror the overlay
+# values.env. `prod` here is the intended target, not yet deployed.
+# --------------------------------------------------------------------------------
+retention_classes:
+  debug:
+    description: "high-volume, low-value diagnostic detail; first to drop under pressure"
+    local: "24h"
+    ci: "1h"
+    prod: "3d"
+  standard:
+    description: "default for metrics, logs, and traces used by dashboards and alerts"
+    local: "72h"
+    ci: "1h"
+    prod: "15d"
+  slo:
+    description: "series backing SLO / error-budget math; longer window for trend"
+    local: "72h"
+    ci: "1h"
+    prod: "90d"
+  audit:
+    description: "alert-notification history and config-change records"
+    local: "120h"
+    ci: "1h"
+    prod: "400d"
+
+# --------------------------------------------------------------------------------
+# SIGNAL OWNERS — who owns the SEMANTICS of each signal family. platform-observability
+# always co-owns transport + storage. Used to route schema-review requests.
+# --------------------------------------------------------------------------------
+signal_owners:
+  - family: "traces.*"
+    semantic_owner: "originating-domain-team"
+    transport_owner: "platform-observability"
+  - family: "metrics.http.*"
+    semantic_owner: "platform-observability"
+    transport_owner: "platform-observability"
+  - family: "metrics.agent.*"
+    semantic_owner: "agent-runtime"
+    transport_owner: "platform-observability"
+  - family: "metrics.evaluation.*"
+    semantic_owner: "evaluation-improvement"
+    transport_owner: "platform-observability"
+  - family: "logs.*"
+    semantic_owner: "originating-domain-team"
+    transport_owner: "platform-observability"
+
+# --------------------------------------------------------------------------------
+# CARDINALITY BUDGETS — per metric namespace. Enforced by review + SPEC-OP-006
+# tooling; declared here so budgets are one reviewed place. `max_label_keys` counts
+# non-resource labels on a single metric; `max_series` is a soft ceiling per
+# namespace in one environment.
+# --------------------------------------------------------------------------------
+cardinality_budgets:
+  global:
+    max_series_total: 250000        # laptop-safe ceiling; prod raised in SPEC-OP-012
+  namespaces:
+    - namespace: "http"
+      max_label_keys: 6
+      max_series: 40000
+      forbidden_labels: ["user_id", "ticket_id", "workflow_id", "request_id", "trace_id", "session_id", "email", "url_path_raw"]
+    - namespace: "amqp"
+      max_label_keys: 6
+      max_series: 20000
+      forbidden_labels: ["message_id", "correlation_id", "ticket_id", "workflow_id"]
+    - namespace: "db"
+      max_label_keys: 6
+      max_series: 15000
+      forbidden_labels: ["db_statement", "row_id", "ticket_id"]
+    - namespace: "runtime"
+      max_label_keys: 4
+      max_series: 8000
+      forbidden_labels: ["pid", "thread_name"]
+    - namespace: "agent"
+      max_label_keys: 8
+      max_series: 30000
+      forbidden_labels: ["ticket_id", "workflow_id", "run_id", "user_id", "prompt_hash"]
+    - namespace: "evaluation"
+      max_label_keys: 8
+      max_series: 20000
+      forbidden_labels: ["case_id", "run_id", "candidate_id", "ticket_id"]
+    - namespace: "slo"
+      max_label_keys: 4
+      max_series: 5000
+      forbidden_labels: ["ticket_id", "user_id", "request_id"]
+    - namespace: "otelcol"
+      max_label_keys: 10
+      max_series: 10000
+      forbidden_labels: []
+
+# --------------------------------------------------------------------------------
+# SCHEMA REVIEW — how a signal shape changes.
+# --------------------------------------------------------------------------------
+schema_review:
+  rule: "additive-or-versioned"
+  additive_change: "new optional attribute / new metric / new log field — PR + platform-observability review + the semantic owner from signal_owners"
+  breaking_change: "rename / remove / retype / semantic change — requires a NEW version suffix (e.g. metric _v2), a deprecation window, and a migration note in the PR"
+  forbidden: "silent breaking change; reusing a name with new meaning"
+  gate: ".github/workflows/observability-platform-ci.yml : governance job"
+
+# --------------------------------------------------------------------------------
+# EXCEPTIONS — time-boxed, owned waivers to an allow/deny/budget rule.
+# Each MUST have: id, rule, scope, reason, owner, approved_by, opened, expires (ISO
+# date), ticket. expires MUST be in the future and <= opened + 90 days. High-risk
+# waivers (any deny_field) also need domain-06 approval recorded in approved_by.
+# The validator fails CI on an expired or malformed exception.
+# --------------------------------------------------------------------------------
+exceptions: []

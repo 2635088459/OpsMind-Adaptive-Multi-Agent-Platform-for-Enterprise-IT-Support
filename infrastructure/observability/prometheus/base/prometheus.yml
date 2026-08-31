@@ -1,0 +1,57 @@
+# owner: platform-observability
+# spec: SPEC-OP-002
+# rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate prometheus
+#
+# Prometheus server config (ADR-0002). Scrape targets here are the observability
+# platform's own components — self-monitoring seed for SPEC-OP-033. Business /
+# infrastructure scrape targets (postgres_exporter, rabbitmq, node) are added by
+# SPEC-OP-018 / SPEC-OP-029. Rule authoring lives in ../rules/, never in an overlay.
+#
+# Container paths (mounted by observability-stack.yml):
+#   /etc/prometheus/prometheus.yml         this file
+#   /etc/prometheus/rules/recording/*.yml  <- infrastructure/observability/rules/recording
+#   /etc/prometheus/rules/alerting/*.yml   <- infrastructure/observability/rules/alerting
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: opsmind
+    # Expanded from the overlay's PROMETHEUS_ENV_LABEL via
+    # --enable-feature=expand-external-labels (set in observability-stack.yml).
+    deployment_environment: ${PROMETHEUS_ENV_LABEL}
+
+rule_files:
+  - /etc/prometheus/rules/recording/*.yml
+  - /etc/prometheus/rules/alerting/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: otel-collector
+    static_configs:
+      # 8888 = collector's own telemetry; 8889 = app metrics it re-exposes.
+      - targets: ["otel-collector:8888", "otel-collector:8889"]
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]

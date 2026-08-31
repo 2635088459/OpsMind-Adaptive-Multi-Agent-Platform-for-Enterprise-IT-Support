@@ -2,14 +2,33 @@ SPEC-EI-022:
   domain: 07-evaluation-improvement
   name: Ci Evaluation Gate Harness
   cn_name: CI Evaluation Gate Harness
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-04-regression-and-release-gate
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 CI 可调用的 offline evaluation gate harness，阻断不合格 candidate/branch。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    A genuine gap: no CI-callable entry point existed at all before this — every
+    pipeline step (execute/skip/score/finalize/compare/evaluate-gate) was only
+    reachable one admin-triggered REST call at a time, or via a standing
+    CaseRunnerWorker process, neither of which gives CI a single command with an
+    exit code. New `CiEvaluationGateService` (application/services/
+    ci_evaluation_gate.py) composes the existing pipeline entirely through its own
+    ports_in Protocols: create_run() (idempotent by run_key), then drives
+    CaseRunnerPort.run_once()/reclaim_expired_leases() inline for up to
+    `max_iterations` passes (a CI job's own bounded version of the standing worker
+    loop), scores every case that actually completed (CaseRunnerService only drives
+    execution, never scoring — a deliberately separate step given LLM Judge calls'
+    own cost/pacing profile), finalizes/compares/evaluates, and returns one
+    `CiGateOutcome.passed: bool`. A resubmitted run_key against an already-PASSED/
+    FAILED run replays the existing RegressionReport instead of re-driving
+    score_case()/compare()/evaluate() a second time (each refuses a run already past
+    the status they require) — SCORING/COMPARING/PARTIAL/CANCELLED report as not
+    passed with a clear reason rather than guessing how to resume. New CLI
+    `evaluation-ci-gate` (src/evaluationimprovement/ci_gate.py, `[project.scripts]`
+    entry) parses argv, calls the service via the same process-wide `get_container()`
+    singleton every other entry point uses, prints a human or `--json` summary, and
+    exits 0 only when `passed` is true — any exception is caught and reported as a
+    failed gate rather than a raw traceback, appropriate for a CI-facing tool.
   lld_mapping:
     - 14-testing-strategy
     - 12-observability
@@ -22,8 +41,13 @@ SPEC-EI-022:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_ci_evaluation_gate_service.py
+    integration: services/evaluation-improvement-service/tests/test_ci_gate_cli.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      177 passed (155 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings, `uv run evaluation-ci-gate --help` confirmed the console
+      script itself resolves — full suite after SPEC-EI-019 through SPEC-EI-022,
+      verified 2026-08-29.

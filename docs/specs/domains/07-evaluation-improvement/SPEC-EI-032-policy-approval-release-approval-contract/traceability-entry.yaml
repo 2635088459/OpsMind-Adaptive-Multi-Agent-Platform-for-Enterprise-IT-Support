@@ -2,14 +2,34 @@ SPEC-EI-032:
   domain: 07-evaluation-improvement
   name: Policy Approval Release Approval Contract
   cn_name: Policy Approval 与 Release Approval Contract
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-07-cross-domain-contracts
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 锁定 06 policy decision、approval lifecycle 和 release approval 对 07 gate/candidate 的契约。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closes the request/consume loop SPEC-EI-026's own traceability entry explicitly
+    deferred here ("Real integration...is SPEC-EI-026/032 scope" —
+    FakePolicyApprovalAdapter's own pre-existing docstring): consumes 06-policy-
+    approval-governance's own real `approval.granted.v1`/`approval.denied.v1`
+    payload (ApprovalGrantedEvent.from()/ApprovalDeniedEvent.from(), transcribed
+    field-for-field — approvalRequestId/requestKey/sourceDomain/sourceRequestId/
+    requestHash/decidedBy/reason/conditions). New application service
+    `ConsumeApprovalDecisionEventService`: resolves `sourceDomain`/`sourceRequestId`
+    against the exact two fields `HttpPolicyApprovalAdapter` (SPEC-EI-026) already
+    sends as `sourceDomain: "evaluation-improvement"`/`sourceRequestId:
+    str(candidateId)` — a decision for another domain's own request is a no-op here,
+    the same "not for us" behavior a real topic-filtered subscription gives for
+    free. New port method `ImprovementCandidateRepository.
+    find_by_approval_request_id()` (pragmatic extension, in-memory + Postgres) is
+    the lookup this resolution depends on. A matched, correctly-scoped decision
+    drives `CreateImprovementCandidateUseCase.approve()`/`reject()` automatically —
+    `decided_by` becomes `approved_by`; a denial's `reason` is folded into the
+    reject() audit trail. Dedups via ProcessedEventRepository the same way
+    SPEC-EI-030/031's own consumer does; a genuinely late/conflicting decision (the
+    candidate already moved past PENDING_APPROVAL through some other path) still
+    reaches approve()/reject(), which correctly raises via the domain's own state
+    machine rather than being silently swallowed. New REST endpoints `POST
+    /internal/evaluation/v1/events/{approval-granted,approval-denied}`.
   lld_mapping:
     - 05-api-contracts
     - 06-event-contracts
@@ -22,8 +42,13 @@ SPEC-EI-032:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_consume_approval_decision_event_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      220 passed (194 non-integration + 26 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-030 through SPEC-EI-033, verified
+      2026-08-29. `find_by_approval_request_id()` is exercised against the real,
+      migrated Postgres schema, not only the in-memory adapter.

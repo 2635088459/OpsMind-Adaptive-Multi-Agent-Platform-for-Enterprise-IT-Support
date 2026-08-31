@@ -1,0 +1,59 @@
+# owner: platform-observability
+# spec: SPEC-OP-005
+# rollback: git revert <sha>; redeploy otel-collector
+#
+# Machine-readable HTTP/AMQP trace-propagation contract. Human doc: trace-propagation.md.
+# Schema: ../schemas/trace-propagation.schema.json. Fixtures: fixtures/trace-propagation/.
+
+version: "1.0.0"
+
+# Value every OpsMind SDK sets for OTEL_PROPAGATORS.
+propagators: [tracecontext, baggage]
+
+# Wire formats a service must neither emit nor require.
+forbidden_propagators: [b3, b3multi, jaeger, xray, ottrace, datadog]
+
+http:
+  inbound_headers: [traceparent, tracestate]
+  outbound_headers: [traceparent, tracestate, baggage]
+  proxy_passthrough: [traceparent, tracestate]
+  malformed_traceparent: "ignore (start a new trace); never reject the request"
+  no_traceparent: "start a new trace (root span)"
+
+amqp:
+  carrier: message-header-table
+  header_keys: [traceparent, tracestate, baggage]
+  publish_span_kind: PRODUCER
+  consume_span_kind: CONSUMER
+  linkage: "child span for 1:1 hand-off; span link for fan-out / batch"
+  missing_headers: "start a new trace (root consumer span); never drop the message"
+  redelivery: "keep the original traceparent; the retry is a new consumer span in the same trace"
+
+baggage:
+  max_total_bytes: 1024
+  max_entries: 8
+  allowed_keys:
+    - key: correlation_id
+      value_pattern: "^([A-Z]{2,5}-\\d{1,10}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+      cardinality: high
+      notes: "OpsMind business key; also a span attribute; NEVER a metric label"
+    - key: deployment.environment
+      value_pattern: "^(local|ci|staging|production)$"
+      cardinality: bounded
+    - key: tenant.id
+      value_pattern: "^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$"
+      cardinality: bounded
+      notes: "slug only; single-tenant today (SPEC-OP-031)"
+    - key: session.kind
+      value_pattern: "^(interactive|batch|system|scheduled)$"
+      cardinality: bounded
+      notes: "the KIND of session, never a session id"
+    - key: request.priority
+      value_pattern: "^(low|normal|high|critical)$"
+      cardinality: bounded
+
+# The Collector strips every baggage.* attribute; allowed values appear under their
+# real keys. This is the processor name validate-signal-contracts.py looks for.
+collector_processor: transform/baggage-contract
+span_attribute_prefix_removed: "baggage."
+correlation_id_span_attribute: correlation_id

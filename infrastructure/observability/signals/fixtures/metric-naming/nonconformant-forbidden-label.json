@@ -1,0 +1,10 @@
+{
+  "_fixture": { "spec": "SPEC-OP-006", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "ticket_id is a forbidden label for the agent namespace (per-request, unbounded)",
+    "collector_behavior": "transform/metric-cardinality deletes ticket_id from the datapoint attributes before export" },
+  "metric": {
+    "name": "agent_run_duration_seconds",
+    "type": "histogram", "unit": "seconds", "namespace": "agent",
+    "labels": ["agent_role", "ticket_id"]
+  }
+}

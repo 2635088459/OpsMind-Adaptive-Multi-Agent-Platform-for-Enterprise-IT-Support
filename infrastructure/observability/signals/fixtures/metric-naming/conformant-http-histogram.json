@@ -1,0 +1,10 @@
+{
+  "_fixture": { "spec": "SPEC-OP-006", "kind": "conformant", "expect": "pass",
+    "note": "OTel semconv http.server.request.duration exported to Prometheus." },
+  "metric": {
+    "name": "http_server_request_duration_seconds",
+    "type": "histogram", "unit": "seconds", "namespace": "http",
+    "bucket_set": "latency_seconds",
+    "labels": ["http_request_method", "http_response_status_code", "http_route", "outcome"]
+  }
+}

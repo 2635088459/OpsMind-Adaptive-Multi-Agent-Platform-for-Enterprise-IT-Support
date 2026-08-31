@@ -1,0 +1,96 @@
+SPEC-OP-001:
+  domain: 08-observability-platform
+  name: Platform Boundaries And Repository Layout
+  cn_name: 平台边界与仓库布局
+  status: implemented
+  phase: phase-00-platform-engineering-foundation
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  tech_stack: "GitOps / Markdown ADRs / JSON Schema / Python 3.12 stdlib validator / GitHub Actions"
+  implementation_notes: >
+    SPEC-OP-001 ships no running component config (that is SPEC-OP-002 / SPEC-OP-008+).
+    It establishes the governance contract and repository skeleton that every later
+    Observability Platform spec must satisfy, all under infrastructure/observability/.
+    Delivered: (1) data-plane/control-plane ownership and the "what 08 owns / does not
+    own" boundary (docs/platform-boundaries.md); (2) the forbidden-business-writes
+    policy with an F1-F8 enumeration and its enforcement model
+    (docs/forbidden-business-writes.md); (3) the component responsibility matrix for
+    Collector/Prometheus/Loki/Tempo/Grafana/Alertmanager covering role, ports,
+    volumes, egress, failure behavior and "must not"
+    (docs/component-responsibility-matrix.md); (4) six ADRs — sole OTLP ingestion
+    boundary, Prometheus/Loki/Tempo backends, GitOps versioned config with
+    base+overlays, observability never mutates business state & availability priority,
+    thin control-plane API only where GitOps cannot express a change, repository
+    layout & ownership model (docs/adr/0001-0006); (5) the repository layout contract
+    + naming + "must never appear" list (docs/repository-layout.md); (6) version
+    pinning — versions.env pins every image by IMAGE+TAG+DIGEST (digests
+    PENDING-SPEC-OP-002), rationale + upgrade policy in VERSIONS.md; (7) the
+    base/ + overlays/{local,ci,production} skeleton for all six components, each with
+    a README naming its owning spec and the rules for files added there; (8) the
+    artifact metadata convention (owner/version/spec/access_policy/retention/runbook/
+    rollback/audit_ref) with a JSON Schema (schemas/artifact-metadata.schema.json);
+    (9) CODEOWNERS scoping the tree to platform-observability. Enforcement:
+    scripts/validate-observability-layout.py (stdlib only) checks the tree, the
+    base/overlays shape, versions.env (rejects floating tags), the ADR set, governed-
+    artifact metadata headers (SemVer version), and scans Collector/Alertmanager/
+    Grafana config for ':latest' and business-write targets; wired into CI as
+    .github/workflows/observability-platform-ci.yml alongside 8 stdlib unittest
+    self-tests (scripts/tests/test_validate_observability_layout.py).
+  lld_mapping:
+    - 02-business-invariants
+    - 12-observability
+    - 13-package-and-class-design
+  forbidden:
+    - business_state_mutation
+    - alert_triggered_domain_write
+    - dashboard_value_written_back_as_domain_fact
+    - telemetry_store_as_system_of_record
+    - secret_or_pii_or_raw_prompt_in_telemetry
+    - unbounded_metric_label_cardinality
+    - unpinned_component_image
+    - custom_telemetry_backend
+  artifacts:
+    governance:
+      - infrastructure/observability/README.md
+      - infrastructure/observability/docs/platform-boundaries.md
+      - infrastructure/observability/docs/forbidden-business-writes.md
+      - infrastructure/observability/docs/component-responsibility-matrix.md
+      - infrastructure/observability/docs/repository-layout.md
+      - infrastructure/observability/docs/environment-overlays.md
+      - infrastructure/observability/docs/artifact-metadata-convention.md
+    adr:
+      - infrastructure/observability/docs/adr/0001-otel-collector-sole-ingestion-boundary.md
+      - infrastructure/observability/docs/adr/0002-prometheus-loki-tempo-backends.md
+      - infrastructure/observability/docs/adr/0003-gitops-versioned-config-with-overlays.md
+      - infrastructure/observability/docs/adr/0004-observability-never-mutates-business-state.md
+      - infrastructure/observability/docs/adr/0005-thin-control-plane-api-only-when-gitops-insufficient.md
+      - infrastructure/observability/docs/adr/0006-repository-layout-and-ownership-model.md
+    versioning:
+      - infrastructure/observability/versions.env
+      - infrastructure/observability/VERSIONS.md
+      - infrastructure/observability/CODEOWNERS
+    schema:
+      - infrastructure/observability/schemas/artifact-metadata.schema.json
+    skeleton:
+      - infrastructure/observability/{collector,prometheus,loki,tempo,grafana,alertmanager}/README.md
+      - infrastructure/observability/{collector,prometheus,loki,tempo,grafana,alertmanager}/base/
+      - infrastructure/observability/{collector,prometheus,loki,tempo,grafana,alertmanager}/overlays/{local,ci,production}/
+      - infrastructure/observability/{rules/{recording,alerting},dashboards,runbooks,signals}/README.md
+      - infrastructure/observability/runbooks/TEMPLATE.md
+    tooling:
+      - scripts/validate-observability-layout.py
+      - scripts/tests/test_validate_observability_layout.py
+      - .github/workflows/observability-platform-ci.yml
+  test_evidence:
+    lint: "validate-observability-layout.py — 0 errors, 6 warnings (digests PENDING-SPEC-OP-002), verified 2026-08-30"
+    unit: "scripts/tests/test_validate_observability_layout.py — 8 passed (python -m unittest), verified 2026-08-30"
+    integration: "n/a for SPEC-OP-001 — live topology ingestion/query/correlation is SPEC-OP-002"
+    contract: "artifact-metadata.schema.json authored; conformance exercised by SPEC-OP-004+ artifacts"
+    security: "static scan for ':latest' and business-write exporters/receivers wired into the validator; no secrets/PII committed"
+    result: >
+      Governance + repository-layout foundation complete and CI-enforced.
+      validate-observability-layout.py passes (0 errors) and its 8 self-tests pass
+      under the uv-managed CPython 3.14 on this machine and target Python 3.12 in CI.
+      Residual: component image digests are placeholders until SPEC-OP-002 first pulls
+      them; native config validators (otelcol/promtool/amtool/loki/tempo) are wired in
+      the CI file as comments and activate when SPEC-OP-002+ add real config. Full
+      evidence: docs/traceability/domains/08-observability-platform/SPEC-OP-001-traceability.md

@@ -1,0 +1,30 @@
+# owner: platform-observability
+# spec: SPEC-OP-002
+# rollback: git revert <sha>; recreate otel-collector
+#
+# LOCAL overlay for the OpenTelemetry Collector. Merged AFTER collector/base/config.yaml
+# via the Collector's multi --config support (later file overrides scalars; lists are
+# replaced key-path by key-path). Local sets only laptop-friendly limits and shorter
+# retry windows. It MUST NOT change pipeline structure or drop a processor.
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+  batch:
+    send_batch_size: 2048
+    send_batch_max_size: 4096
+    timeout: 2s
+
+exporters:
+  otlp/tempo:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s

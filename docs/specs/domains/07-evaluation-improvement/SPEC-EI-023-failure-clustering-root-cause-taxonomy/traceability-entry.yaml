@@ -2,14 +2,34 @@ SPEC-EI-023:
   domain: 07-evaluation-improvement
   name: Failure Clustering Root Cause Taxonomy
   cn_name: Failure Clustering 与 Root Cause Taxonomy
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-05-improvement-candidate-lifecycle
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 failed case、reopen trace、online feedback 的 failure cluster 和 root cause taxonomy。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Implements the `(dimension, failure_code)` root-cause taxonomy UC-EI-003 step 4
+    ("Gate failed 时生成 failure clusters") and UC-EI-004 step 1 ("07 从失败 case...中归类
+    failure cluster") require, scoped strictly to what a run's own already-persisted
+    EvaluationScore rows carry — this spec's own persistence_CN.md names no new table,
+    so this is a query-time derivation, not a persisted aggregate. New application
+    service `ClusterRunFailuresService` (application.services.cluster_run_failures),
+    the sole implementation of new port `FailureClusterQueryUseCase`
+    (application.ports_in): `list_clusters(run_id)` reads
+    `ScoreRepository.find_active_by_run()`, groups every not-passed score by
+    `(dimension, failure_code)` — a `None` failure_code (the ordinary "graded fine,
+    did not clear the bar" case every deterministic grader currently leaves unset) is
+    normalized to the ScoreFailureCode.THRESHOLD_NOT_MET member reserved for exactly
+    this — and returns one `FailureClusterView` per group with a stable
+    `cluster_id = "{dimension}:{failure_code}"` string, sorted for deterministic
+    output. That id is reusable directly as
+    CreateImprovementCandidateCommand.source_failure_cluster_id, closing the loop
+    UC-EI-004 draws from failure cluster to candidate. New read endpoint
+    `GET /evaluation/runs/{runId}/failure-clusters`
+    (interfaces.rest.router.list_failure_clusters), wired through container.py the
+    same way GraderCatalogUseCase's own read-only port was. Explicitly out of scope,
+    per this spec's own README_CN.md boundary ("不得扩大到相邻 phase 的实现范围"): online
+    feedback and reopen-trace ingestion, which belong to other domains this service
+    must not directly mutate or query.
   lld_mapping:
     - 04-use-cases
     - 12-observability
@@ -22,8 +42,11 @@ SPEC-EI-023:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_cluster_run_failures_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      157 passed (133 non-integration + 24 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-023, verified 2026-08-28.

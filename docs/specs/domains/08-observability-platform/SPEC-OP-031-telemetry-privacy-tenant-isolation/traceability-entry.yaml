@@ -1,0 +1,9 @@
+SPEC-OP-031:
+  domain: 08-observability-platform
+  name: Telemetry Privacy And Tenant Isolation
+  cn_name: 遥测隐私与 Tenant 隔离
+  status: planned
+  phase: phase-07-security-privacy-config-governance
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

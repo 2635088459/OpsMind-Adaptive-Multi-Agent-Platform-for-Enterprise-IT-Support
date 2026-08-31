@@ -1,0 +1,60 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-006
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/MetricCardinalityBudget.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-006-traceability.md
+#
+# SPEC-OP-006 cardinality budgets + a runtime check that the Collector's
+# transform/metric-cardinality guard is actually removing forbidden label keys.
+groups:
+  - name: cardinality-alerting
+    rules:
+      - alert: MetricSeriesBudgetExceeded
+        expr: prometheus_tsdb_head_series > 250000
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Prometheus active series ({{ $value }}) over the global budget (250000)"
+          description: "Head series exceed governance.cardinality_budgets.global.max_series_total. Find the offending job/metric before the TSDB is at risk."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/MetricCardinalityBudget.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: HighCardinalityJob
+        expr: job:series:count > 20000
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Job {{ $labels.job }} has {{ $value }} series"
+          description: "A single scrape job is over the per-job soft ceiling. Usually a new high-cardinality label. Check metric-naming.md label allow-lists."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/MetricCardinalityBudget.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: ForbiddenMetricLabel
+        # If the Collector's transform/metric-cardinality guard fails, a per-request id
+        # label reaches Prometheus and this fires. Clean state = no data (never fires).
+        expr: |
+          count({__name__=~".+", ticket_id!=""}) > 0
+            or count({__name__=~".+", workflow_id!=""}) > 0
+            or count({__name__=~".+", user_id!=""}) > 0
+            or count({__name__=~".+", run_id!=""}) > 0
+            or count({__name__=~".+", correlation_id!=""}) > 0
+            or count({__name__=~".+", session_id!=""}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "A forbidden per-request label is present on {{ $value }} metric series"
+          description: "transform/metric-cardinality did not strip an id label (ticket_id/workflow_id/user_id/run_id/correlation_id/session_id). Cardinality is at risk. Check the Collector config and the producing service."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/MetricCardinalityBudget.md"
+          dashboard: "Observability Platform Self-Monitoring"

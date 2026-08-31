@@ -6,6 +6,10 @@ grader 与必要的 LLM Judge."
 from __future__ import annotations
 
 import hashlib
+import logging
+import time
+
+from opentelemetry import trace
 
 from evaluationimprovement.application.commands import FinalizeRunScoringCommand, ScoreCaseCommand
 from evaluationimprovement.application.exceptions import (
@@ -34,6 +38,9 @@ from evaluationimprovement.domain.ids import ScoreId
 from evaluationimprovement.domain.score import EvaluationScore
 from evaluationimprovement.domain.values import EvidenceRef
 
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
+
 
 class ScoreRunService:
     def __init__(
@@ -53,6 +60,16 @@ class ScoreRunService:
         self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
     def score_case(self, command: ScoreCaseCommand) -> tuple[ScoreView, ...]:
+        """12-observability §"Traces": not itself one of the seven named "关键 span"
+        (GraderRegistry.grade, wrapped inside the per-dimension loop below, is), but
+        every span still shares the same trace — this one's own span_id is simply an
+        ancestor of each grade() call's, which is what lets the structured log line
+        below read a real (non-zero) traceId back out via the current span context.
+        """
+        with tracer.start_as_current_span("ScoreRunService.scoreCase"):
+            return self._score_case_traced(command)
+
+    def _score_case_traced(self, command: ScoreCaseCommand) -> tuple[ScoreView, ...]:
         run = self._run_repository.find_by_id(command.run_id)
         if run is None:
             raise RunNotFoundException(command.run_id)
@@ -90,6 +107,10 @@ class ScoreRunService:
             evidence_ref.artifact_provider, evidence_ref.artifact_uri, evidence_ref.artifact_hash, evidence_ref.retention_until,
         )
 
+        # SPEC-EI-017 / 08-transaction-and-outbox §"事务原则": "写 score 时，score 可以按
+        # case 分批提交" — every dimension this case grades lands in one save_many()
+        # transaction, not N separate ones.
+        stage_started_at = time.perf_counter()
         scores: list[EvaluationScore] = []
         for dimension, grader_type in self._grader_registry.dimensions_for_case(test_case):
             grader_result = self._grader_registry.grade(dimension, grader_type, test_case, result)
@@ -99,14 +120,46 @@ class ScoreRunService:
                 grader_version=grader_result.grader_version, evidence_ref=evidence_ref, failure_code=grader_result.failure_code,
                 details=grader_result.details,
             )
-            saved = self._score_repository.save(score)
-            scores.append(saved)
-            if saved.failure_code is not None and saved.failure_code.value == "GRADER_ERROR":
+            scores.append(score)
+            if score.failure_code is not None and score.failure_code.value == "GRADER_ERROR":
                 self._telemetry.record_grader_error(grader_type.value, grader_result.grader_version)
 
-        overall_passed = all(s.passed for s in scores) if scores else True
+        saved = self._score_repository.save_many(tuple(scores))
+        self._telemetry.record_stage_latency("SCORE", time.perf_counter() - stage_started_at)
+        # SPEC-EI-033 (observability-evaluation-signal-contract) / 12-observability
+        # §"Metrics": evaluation_score/evaluation_cost_tokens_total, both real per-case
+        # data (EvaluationScore.score / CaseExecutionResult.cost_tokens) nothing wired
+        # into a metric before this spec. "model" has no dedicated identifier anywhere
+        # in this domain's own data (only `target_version`, the agent build under
+        # test) — used for both labels rather than inventing a model name that isn't
+        # actually tracked.
+        for s in saved:
+            self._telemetry.record_score(s.dimension.value, run.version_binding.dataset_version, run.version_binding.target_version, s.score)
+        self._telemetry.record_cost_tokens(run.version_binding.target_version, run.version_binding.target_version, result.cost_tokens)
+        self._telemetry.record_stage_latency("EXECUTE", result.latency_ms / 1000.0)
+
+        overall_passed = all(s.passed for s in saved) if saved else True
         self._telemetry.record_case_result("PASSED" if overall_passed else "FAILED", test_case.criticality.value)
-        return tuple(score_to_view(s) for s in scores)
+
+        # 12-observability §"Logs": "结构化日志必须包含 runId/testCaseId/candidateId/
+        # datasetVersion/targetVersion/graderVersion/traceId/correlationId/
+        # failureCode." candidateId is not applicable to case scoring (an
+        # ImprovementCandidate's own creation carries that field instead — see
+        # CreateImprovementCandidateService's own docstring); graderVersion/
+        # failureCode reflect the *last* dimension graded when a case has more than
+        # one, the same "one representative log line per case" simplification most
+        # structured-logging call sites in this codebase already make.
+        span_context = trace.get_current_span().get_span_context()
+        trace_id = trace.format_trace_id(span_context.trace_id) if span_context.is_valid else "0" * 32
+        last_score = saved[-1] if saved else None
+        logger.info(
+            "action=score_case run_id=%s test_case_id=%s dataset_version=%s target_version=%s grader_version=%s "
+            "trace_id=%s correlation_id=%s failure_code=%s",
+            command.run_id, command.test_case_id, run.version_binding.dataset_version, run.version_binding.target_version,
+            last_score.grader_version if last_score else None, trace_id, command.correlation_id,
+            last_score.failure_code.value if last_score and last_score.failure_code else None,
+        )
+        return tuple(score_to_view(s) for s in saved)
 
     def finalize_scoring(self, command: FinalizeRunScoringCommand) -> RunView:
         """08-transaction-and-outbox §"Run 完成事务": every expected case must have a

@@ -18,11 +18,16 @@ from typing import Protocol
 from evaluationimprovement.application.records import (
     ApprovalRequestRef,
     AuditRecordEntry,
+    CaseExecutionLease,
     CaseExecutionResult,
     CommandIdempotencyRecord,
     GatePolicyConfig,
     GraderResult,
+    JudgeBundleStatus,
+    LangSmithLinkRecord,
+    OnlineEvaluationSample,
     OutboxRecord,
+    PoisonEventRecord,
     ProcessedEventRecord,
 )
 from evaluationimprovement.domain.dataset import EvaluationDataset
@@ -103,6 +108,17 @@ class EvaluationRunRepository(Protocol):
         """
         ...
 
+    def find_stuck(self, statuses: frozenset[RunStatus], older_than: datetime) -> list[EvaluationRun]:
+        """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 12-observability
+        §"Alerts": "run stuck in RUNNING 或 SCORING beyond SLA." `started_at` is the
+        one timestamp EvaluationRun carries that predates every non-terminal status —
+        no per-status-transition timestamp exists on this aggregate (only
+        `started_at`/`completed_at`), so "stuck since `older_than`" is measured from
+        run start, not from whichever status the run most recently entered. Oldest
+        first — the longest-stuck run is the one an operator most needs to see.
+        """
+        ...
+
 
 class ScoreRepository(Protocol):
     def save(self, score: EvaluationScore) -> EvaluationScore:
@@ -110,6 +126,15 @@ class ScoreRepository(Protocol):
         exists for (run_id, test_case_id, dimension, grader_version), the repository
         marks it superseded (EvaluationScore.superseded()) before inserting the new
         one — never an in-place UPDATE of the historical row.
+        """
+        ...
+
+    def save_many(self, scores: tuple[EvaluationScore, ...]) -> tuple[EvaluationScore, ...]:
+        """SPEC-EI-017 / 08-transaction-and-outbox §"事务原则": "写 score 时，score 可以按
+        case 分批提交；每批必须可幂等重放." Every score in the batch supersedes/inserts in
+        one transaction — a case's own multi-dimension grade either lands together or
+        not at all, and a resubmitted batch replays exactly like N individual save()
+        calls would (each dimension still only ever has one active row).
         """
         ...
 
@@ -140,6 +165,77 @@ class CaseExecutionResultRepository(Protocol):
     def find_by_run(self, run_id: RunId) -> list[CaseExecutionResult]: ...
 
 
+class CaseExecutionQueueRepository(Protocol):
+    """SPEC-EI-011: the work queue behind CaseRunnerService/CaseRunnerWorker — not
+    among the 12 named ports (13-package-and-class-design), added the same pragmatic
+    way CaseExecutionResultRepository was. Distinct from CaseExecutionResultRepository:
+    this tracks *whether an attempt is due/owned*, that tracks *what the last attempt
+    produced*.
+    """
+
+    def enqueue_many(self, run_id: RunId, test_case_ids: tuple[TestCaseId, ...], run_generation: int, now: datetime) -> None:
+        """09-concurrency-and-idempotency: idempotent per (run_id, test_case_id) — a
+        resubmitted enqueue for a pair already queued/leased/done is a no-op, never a
+        second row or a reset of in-flight progress.
+        """
+        ...
+
+    def find_claimable(self, now: datetime, limit: int) -> list[CaseExecutionLease]:
+        """PENDING entries whose `next_attempt_at` has elapsed, oldest first. A plain
+        read — claim() is the compare-and-swap that actually wins ownership, the same
+        two-step shape OutboxRepository.find_dispatchable()/mark_* already uses in this
+        module.
+        """
+        ...
+
+    def claim(self, run_id: RunId, test_case_id: TestCaseId, worker_id: str, now: datetime, lease_expires_at: datetime) -> bool:
+        """Compare-and-swap: PENDING -> LEASED. Returns True if this call won the
+        claim, False if another worker already had (mirrors every other repository's
+        own expected_status CAS convention in this module — see this module's own
+        DatasetRepository.save()/EvaluationRunRepository.save() docstrings).
+        """
+        ...
+
+    def mark_done(self, run_id: RunId, test_case_id: TestCaseId) -> None: ...
+
+    def mark_retry(self, run_id: RunId, test_case_id: TestCaseId, next_attempt_at: datetime, attempt_count: int) -> None:
+        """LEASED -> PENDING with a later `next_attempt_at` and an incremented
+        `attempt_count` — 10-failure-handling's own retry-with-backoff, mirroring
+        OutboxRepository.mark_failed()'s own shape.
+        """
+        ...
+
+    def mark_exhausted(self, run_id: RunId, test_case_id: TestCaseId, attempt_count: int) -> None:
+        """LEASED -> EXHAUSTED, also persisting the final `attempt_count`: every retry
+        attempt is spent. Terminal — never reclaimed or retried again. Takes
+        `attempt_count` (unlike mark_done()) because this is sometimes the first write
+        of a freshly-computed count for this entry (run_once()'s own exhaustion branch
+        never calls mark_retry() first) — omitting it would leave the persisted count
+        one attempt stale.
+        """
+        ...
+
+    def find_expired_leases(self, now: datetime, limit: int) -> list[CaseExecutionLease]:
+        """LEASED entries whose `lease_expires_at` has already passed — a worker that
+        claimed the entry and then crashed or was killed mid-attempt before ever
+        calling mark_done/mark_retry/mark_exhausted.
+        """
+        ...
+
+    def release_expired_lease(self, run_id: RunId, test_case_id: TestCaseId, next_attempt_at: datetime, attempt_count: int) -> bool:
+        """Compare-and-swap: LEASED -> PENDING, always — whether the reclaimed attempt
+        counts as exhausted is CaseRunnerService.reclaim_expired_leases()'s own call
+        (it calls mark_exhausted() right after, when attempt_count is already spent),
+        not this repository's. Returns True if this call actually reclaimed the lease,
+        False if it had already moved on (another worker's reclaim, or the original
+        worker's own late mark_done/mark_retry finally landing) — the same win/lose
+        CAS shape as claim().
+        """
+        ...
+
+    def find_by_run(self, run_id: RunId) -> list[CaseExecutionLease]: ...
+
+
 class RegressionReportRepository(Protocol):
     def save(self, report: RegressionReport) -> RegressionReport: ...
 
@@ -163,6 +259,14 @@ class ImprovementCandidateRepository(Protocol):
     ) -> ImprovementCandidate | None:
         """09-concurrency-and-idempotency §"幂等键": `sourceRunId:failureClusterId:
         targetComponent`.
+        """
+        ...
+
+    def find_by_approval_request_id(self, approval_request_id: str) -> ImprovementCandidate | None:
+        """SPEC-EI-032 (policy-approval-release-approval-contract): how
+        ConsumeApprovalDecisionEventService resolves an `approval.granted.v1`/
+        `approval.denied.v1` event's own `approvalRequestId` back to the candidate
+        `bind_approval_request()` (SPEC-EI-025/request_approval()) bound it to.
         """
         ...
 
@@ -195,6 +299,25 @@ class ProcessedEventRepository(Protocol):
     def mark_processed(self, record: ProcessedEventRecord) -> None: ...
 
 
+class PoisonEventRepository(Protocol):
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 10-failure-handling
+    §"Poison Event": "写入 poison event 表" — a separate table from
+    processed_events/outbox_events, since a poisoned delivery is neither "already
+    applied" nor "waiting to be published"; it is parked for manual investigation
+    and possible replay. Not among the 12 named ports, added the same pragmatic way
+    CommandIdempotencyRepository was. Mirrors memory-knowledge-service's own
+    PoisonEventRepository shape exactly.
+    """
+
+    def record(self, entry: PoisonEventRecord) -> PoisonEventRecord: ...
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        """Newest first — the admin visibility surface a human uses to see what needs
+        fixing before replaying (10-failure-handling step 4).
+        """
+        ...
+
+
 class CommandIdempotencyRepository(Protocol):
     def find_by_key(self, idempotency_key: IdempotencyKey) -> CommandIdempotencyRecord | None: ...
 
@@ -216,28 +339,57 @@ class GatePolicyRepository(Protocol):
 
 
 class LangSmithPort(Protocol):
-    """13-package-and-class-design `infrastructure/langsmith/`. Real dataset/
-    experiment mapping logic is SPEC-EI-013 (langsmith-experiment-linkage) scope;
-    SPEC-EI-001 defines the port and a no-op adapter so CreateRunService/
-    ScoreRunService have a stable seam to call.
+    """13-package-and-class-design `infrastructure/langsmith/`. SPEC-EI-001 defined
+    the port and a no-op adapter so CreateRunService/ScoreRunService had a stable seam
+    to call; SPEC-EI-013 adds the real LangSmith Dataset/Experiment SDK adapter
+    alongside it — infrastructure.langsmith.client.LangSmithClientAdapter picks
+    between them via `is_enabled()` below, never by CreateRunService/
+    EvaluateReleaseGateService branching on adapter type.
     """
 
     def link_experiment(self, run_id: RunId, dataset_name: str, dataset_version: str) -> str | None:
         """Returns an experiment reference (opaque string), or None if LangSmith is
         unavailable. 10-failure-handling §"LangSmith 故障": "对离线 release gate：fail
-        closed" is enforced by the *caller*, not this port — this port only ever
-        reports availability, it never decides gate outcomes.
+        closed" is enforced by the *caller* (EvaluateReleaseGateService, reading
+        LangSmithLinkRepository) — this port only ever reports availability, it never
+        decides gate outcomes.
+        """
+        ...
+
+    def is_enabled(self) -> bool:
+        """False for the no-op adapter (this deployment never attempted a real
+        LangSmith call at all — not a failure, so the caller must never fail-close a
+        gate over it). True for the real SDK adapter, whether or not its last
+        link_experiment() call actually succeeded — that distinction is exactly what
+        `experiment_ref is None` on an `enabled=True` LangSmithLinkRecord captures.
         """
         ...
 
 
+class LangSmithLinkRepository(Protocol):
+    """SPEC-EI-013: not among the 12 named ports, added the same pragmatic way
+    CaseExecutionResultRepository was. Persists the one LangSmithPort.link_experiment()
+    outcome CreateRunService observed for a run so EvaluateReleaseGateService can read
+    it back later without re-calling LangSmith — 07-data-model §"Artifact 引用" names
+    exactly this shape (`artifact_provider`/`artifact_uri`-equivalent reference, never
+    a live re-check at gate time).
+    """
+
+    def save(self, record: LangSmithLinkRecord) -> None: ...
+
+    def find(self, run_id: RunId) -> LangSmithLinkRecord | None: ...
+
+
 class AgentRuntimeEvaluationPort(Protocol):
     """13-package-and-class-design `infrastructure/runtime/agent_runtime_client.py`.
-    Real HTTP integration with 03-agent-runtime-orchestration's own evaluation
-    endpoint is SPEC-EI-012 (agent-runtime-evaluation-client-contract) scope.
-    Deliberately read-only/execute-in-mock-state shaped — see the domain-rules
-    "forbidden: direct_ticket_state_write / direct_workflow_state_write /
-    direct_tool_execution" list this port's own single method must never violate.
+    SPEC-EI-001 defined the port and FakeAgentRuntimeEvaluationAdapter, a deterministic
+    in-process simulator; SPEC-EI-012 adds HttpAgentRuntimeEvaluationAdapter, the real
+    httpx client against 03-agent-runtime-orchestration's own evaluation endpoint
+    contract — container.py picks between them via Settings.
+    agent_runtime_evaluation_mode, never a branch in any caller. Deliberately
+    read-only/execute-in-mock-state shaped — see the domain-rules "forbidden:
+    direct_ticket_state_write / direct_workflow_state_write / direct_tool_execution"
+    list this port's own single method must never violate.
     """
 
     def execute_case(self, run_id: RunId, target_version: str, test_case: EvaluationTestCase, run_generation: int) -> CaseExecutionResult: ...
@@ -252,6 +404,40 @@ class PolicyApprovalPort(Protocol):
     """
 
     def request_approval(self, candidate_id: CandidateId, target_component: str, risk_level: str, requested_by: str) -> ApprovalRequestRef: ...
+
+
+class OnlineSampleRepository(Protocol):
+    """SPEC-EI-028 (online-sample-evaluation): not among the 12 named ports, added the
+    same pragmatic way CaseExecutionResultRepository was — the queue behind
+    CollectOnlineSampleService, since no domain aggregate owns a transient sampled
+    trace (only EvaluationScore is a persisted evaluation fact per 01-domain-model).
+    """
+
+    def save(self, sample: OnlineEvaluationSample) -> OnlineEvaluationSample: ...
+
+    def find_by_id(self, sample_id: uuid.UUID) -> OnlineEvaluationSample | None: ...
+
+    def find_queued(self, limit: int) -> list[OnlineEvaluationSample]: ...
+
+    def find_by_candidate(self, candidate_id: CandidateId) -> list[OnlineEvaluationSample]:
+        """SPEC-EI-029 (promotion-criteria-rollback-request): the read side
+        EvaluateCanaryPromotionService aggregates over.
+        """
+        ...
+
+
+class OnlineSampleQualityJudgePort(Protocol):
+    """SPEC-EI-028: grades one already-collected OnlineEvaluationSample — distinct
+    from GraderRegistryPort/the per-dimension deterministic+LLM_JUDGE catalog, which
+    all grade a *dataset test case's* CaseExecutionResult against a known ground
+    truth. A production trace has no ground truth to grade against (04-use-cases
+    UC-EI-006 step 4 grades quality only: explanation quality, evidence grounding,
+    handoff completeness, user instruction clarity — the same four facets
+    infrastructure.graders.llm_judge.JudgeAssessment already models), so this is a
+    parallel, smaller seam rather than a fifth GraderRegistryPort call shape.
+    """
+
+    def grade(self, sample: OnlineEvaluationSample) -> GraderResult: ...
 
 
 class TelemetryArtifactPort(Protocol):
@@ -294,6 +480,26 @@ class GraderRegistryPort(Protocol):
         with no `allowedTools`/`forbiddenTools` does not need a TOOL_SELECTION grade.
         """
         ...
+
+    def list_registered(self) -> tuple[tuple[str, GraderType, EvaluationDimension, str], ...]:
+        """SPEC-EI-014: `(class name, grader_type, dimension, grader_version)` per
+        registered grader — 05-api-contracts §"管理 API" `GET /evaluation/graders`'s
+        own read surface.
+        """
+        ...
+
+
+class JudgeBundleStatusRepository(Protocol):
+    """SPEC-EI-018 (judge-calibration-drift-guard): not among the 12 named ports,
+    added the same pragmatic way CaseExecutionResultRepository was. One row per judge
+    `grader_version` — infrastructure.graders.registry.GraderRegistry reads this
+    before ever invoking an LLM_JUDGE grader; EvaluateJudgeCalibrationService is the
+    only writer.
+    """
+
+    def find_status(self, grader_version: str) -> JudgeBundleStatus | None: ...
+
+    def save_status(self, status: JudgeBundleStatus) -> JudgeBundleStatus: ...
 
 
 class EventPublisherPort(Protocol):

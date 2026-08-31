@@ -2,14 +2,32 @@ SPEC-EI-030:
   domain: 07-evaluation-improvement
   name: Ticket Runtime Evaluation Contract
   cn_name: Ticket 与 Runtime Evaluation Contract
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-07-cross-domain-contracts
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 锁定 02 Ticket 与 03 Runtime 提供给 07 的 evaluation events/API/trace 契约。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closes the real gap infrastructure.messaging.rabbitmq_consumer's own SPEC-EI-001
+    placeholder docstring named ("a real consumer...is phase-06/phase-07 scope"):
+    `ticket.resolved.v1`/`ticket.reopened.v1` (02-ticket-workflow's own real
+    TicketResolvedEventMapper/TicketReopenedEventMapper payload, transcribed field-
+    for-field, not this domain's own illustrative 06-event-contracts sketch) and
+    `workflow.completed.v1`/`workflow.failed.v1` (03-agent-runtime-orchestration's own
+    real CompleteWorkflowService/FailWorkflowService payload — the real event type has
+    no "agent." prefix, unlike this domain's own earlier placeholder guess). New
+    application service `ConsumeCrossDomainEventService` (shared with SPEC-EI-031,
+    since both fund the same downstream action): each consume_*() method dedups via
+    ProcessedEventRepository (event_id + one shared consumer_name), redacts every
+    free-text field down to an explicit structured-field allowlist (11-security: never
+    forwards a raw resolution summary/failure reason verbatim), then calls
+    CollectOnlineSampleService.collect() (SPEC-EI-028) — closing 04-use-cases
+    UC-EI-006 steps 1-2 that spec's own CollectOnlineSampleCommand docstring deferred
+    here. New REST event-ingestion endpoints `POST /internal/evaluation/v1/events/
+    {ticket-resolved,ticket-reopened,workflow-completed,workflow-failed}` — a
+    manual/ops trigger until a real RabbitMQ async consumer exists, the same
+    "listener endpoint standing in for a broker consumer" precedent memory-knowledge-
+    service's own interfaces/event/router.py already established (no Python service
+    in this repo wires a real AMQP consumer yet).
   lld_mapping:
     - 05-api-contracts
     - 06-event-contracts
@@ -23,8 +41,12 @@ SPEC-EI-030:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_consume_cross_domain_event_service.py
+    integration: services/evaluation-improvement-service/tests/test_app.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      220 passed (194 non-integration + 26 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-030 through SPEC-EI-033, verified
+      2026-08-29.

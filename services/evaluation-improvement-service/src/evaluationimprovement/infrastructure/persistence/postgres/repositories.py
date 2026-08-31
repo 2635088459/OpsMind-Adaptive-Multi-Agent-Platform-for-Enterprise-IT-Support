@@ -37,10 +37,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from evaluationimprovement.application.exceptions import DatasetVersionConflictException, OptimisticConcurrencyConflictException
 from evaluationimprovement.application.records import (
     AuditRecordEntry,
+    CaseExecutionLease,
     CaseExecutionResult,
     CommandIdempotencyRecord,
     GatePolicyConfig,
+    JudgeBundleStatus,
+    LangSmithLinkRecord,
+    OnlineEvaluationSample,
     OutboxRecord,
+    PoisonEventRecord,
     ProcessedEventRecord,
 )
 from evaluationimprovement.domain.dataset import EvaluationDataset
@@ -49,11 +54,13 @@ from evaluationimprovement.domain.enums import (
     CandidateType,
     CanaryStatus,
     CaseExecutionStatus,
+    CaseQueueStatus,
     Criticality,
     DatasetStatus,
     EvaluationDimension,
     GateDecision,
     GraderType,
+    OnlineSampleStatus,
     OutboxStatus,
     RiskLevel,
     RunStatus,
@@ -68,6 +75,7 @@ from evaluationimprovement.domain.test_case import EvaluationTestCase
 from evaluationimprovement.domain.values import CanaryPlan, CanaryStage, EvidenceRef, GateResult, MetricDiff, VersionBinding
 from evaluationimprovement.infrastructure.persistence.postgres.models import (
     AuditRecordRow,
+    CaseExecutionQueueRow,
     CaseExecutionResultRow,
     CommandIdempotencyRow,
     EvaluationDatasetRow,
@@ -76,7 +84,11 @@ from evaluationimprovement.infrastructure.persistence.postgres.models import (
     EvaluationTestCaseRow,
     GatePolicyRow,
     ImprovementCandidateRow,
+    JudgeBundleStatusRow,
+    LangSmithRunLinkRow,
+    OnlineEvaluationSampleRow,
     OutboxEventRow,
+    PoisonEventRow,
     ProcessedEventRow,
     RegressionReportRow,
 )
@@ -306,6 +318,14 @@ class PostgresEvaluationRunRepository:
             rows = session.execute(stmt).scalars().all()
             return [_row_to_run(r) for r in rows]
 
+    def find_stuck(self, statuses: frozenset[RunStatus], older_than: datetime) -> list[EvaluationRun]:
+        with self._session_factory() as session:
+            stmt = select(EvaluationRunRow).where(
+                EvaluationRunRow.status.in_([s.name for s in statuses]), EvaluationRunRow.started_at < older_than,
+            ).order_by(EvaluationRunRow.started_at)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_run(r) for r in rows]
+
 
 # --------------------------------------------------------------------------------
 # EvaluationScore
@@ -358,17 +378,32 @@ class PostgresScoreRepository:
         (uq_evaluation_scores_one_active_per_case_dimension) is the DB-level backstop.
         """
         with self._session_factory() as session:
-            session.execute(
-                update(EvaluationScoreRow.__table__)
-                .where(
-                    EvaluationScoreRow.run_id == score.run_id.value, EvaluationScoreRow.test_case_id == score.test_case_id.value,
-                    EvaluationScoreRow.dimension == score.dimension.name, EvaluationScoreRow.is_active.is_(True),
-                )
-                .values(is_active=False)
-            )
-            session.execute(EvaluationScoreRow.__table__.insert().values(**_score_to_row_values(score)))
+            self._save_one(session, score)
             session.commit()
             return score
+
+    def save_many(self, scores: tuple[EvaluationScore, ...]) -> tuple[EvaluationScore, ...]:
+        """SPEC-EI-017: one transaction for the whole batch — every score
+        supersede-then-insert pair lands together, or (on any error) none of them do.
+        """
+        if not scores:
+            return scores
+        with self._session_factory() as session:
+            for score in scores:
+                self._save_one(session, score)
+            session.commit()
+            return scores
+
+    def _save_one(self, session: Session, score: EvaluationScore) -> None:
+        session.execute(
+            update(EvaluationScoreRow.__table__)
+            .where(
+                EvaluationScoreRow.run_id == score.run_id.value, EvaluationScoreRow.test_case_id == score.test_case_id.value,
+                EvaluationScoreRow.dimension == score.dimension.name, EvaluationScoreRow.is_active.is_(True),
+            )
+            .values(is_active=False)
+        )
+        session.execute(EvaluationScoreRow.__table__.insert().values(**_score_to_row_values(score)))
 
     def find_active_by_run(self, run_id: RunId) -> list[EvaluationScore]:
         with self._session_factory() as session:
@@ -454,7 +489,10 @@ def _canary_plan_to_json(plan: CanaryPlan | None) -> dict | None:
     return dict(
         plan_version=plan.plan_version,
         stages=[
-            dict(traffic_percent=s.traffic_percent, min_duration_minutes=s.min_duration_minutes, rollback_error_rate_threshold=s.rollback_error_rate_threshold)
+            dict(
+                traffic_percent=s.traffic_percent, min_duration_minutes=s.min_duration_minutes,
+                rollback_error_rate_threshold=s.rollback_error_rate_threshold, sample_size=s.sample_size,
+            )
             for s in plan.stages
         ],
     )
@@ -472,6 +510,7 @@ def _row_to_candidate(row: ImprovementCandidateRow) -> ImprovementCandidate:
         source_failure_cluster_id=row.source_failure_cluster_id, target_component=row.target_component,
         proposed_change=row.proposed_change_json, risk_level=RiskLevel[row.risk_level], status=CandidateStatus[row.status],
         created_by=row.created_by, created_at=row.created_at_domain, updated_at=row.updated_at_domain,
+        benchmark_run_id=RunId(row.benchmark_run_id) if row.benchmark_run_id else None,
         benchmark_passed=row.benchmark_passed, approval_request_id=row.approval_request_id, approved_by=row.approved_by,
         canary_plan=_json_to_canary_plan(row.canary_plan_json), canary_status=CanaryStatus[row.canary_status] if row.canary_status else None,
         promoted_version=row.promoted_version,
@@ -483,7 +522,8 @@ def _candidate_to_row_values(candidate: ImprovementCandidate) -> dict:
         id=candidate.candidate_id.value, candidate_type=candidate.candidate_type.name, source_run_id=candidate.source_run_id.value,
         source_failure_cluster_id=candidate.source_failure_cluster_id, target_component=candidate.target_component,
         proposed_change_json=candidate.proposed_change, risk_level=candidate.risk_level.name, status=candidate.status.name,
-        created_by=candidate.created_by, benchmark_passed=candidate.benchmark_passed,
+        created_by=candidate.created_by, benchmark_run_id=candidate.benchmark_run_id.value if candidate.benchmark_run_id else None,
+        benchmark_passed=candidate.benchmark_passed,
         approval_request_id=candidate.approval_request_id, approved_by=candidate.approved_by,
         canary_plan_json=_canary_plan_to_json(candidate.canary_plan),
         canary_status=candidate.canary_status.name if candidate.canary_status else None,
@@ -532,6 +572,12 @@ class PostgresImprovementCandidateRepository:
                 if source_failure_cluster_id is None
                 else ImprovementCandidateRow.source_failure_cluster_id == source_failure_cluster_id
             )
+            row = session.execute(stmt).scalars().first()
+            return _row_to_candidate(row) if row else None
+
+    def find_by_approval_request_id(self, approval_request_id: str) -> ImprovementCandidate | None:
+        with self._session_factory() as session:
+            stmt = select(ImprovementCandidateRow).where(ImprovementCandidateRow.approval_request_id == approval_request_id)
             row = session.execute(stmt).scalars().first()
             return _row_to_candidate(row) if row else None
 
@@ -590,7 +636,9 @@ def _row_to_case_execution_result(row: CaseExecutionResultRow) -> CaseExecutionR
         policy_violation_count=row.policy_violation_count, forbidden_tool_call_count=row.forbidden_tool_call_count,
         unauthorized_memory_access_count=row.unauthorized_memory_access_count, cost_tokens=row.cost_tokens,
         latency_ms=row.latency_ms, workflow_trace_ref=row.workflow_trace_ref, status=CaseExecutionStatus[row.status],
-        failure_reason=row.failure_reason,
+        failure_reason=row.failure_reason, approval_triggered=row.approval_triggered,
+        verification_passed=row.verification_passed, tool_call_args=dict(row.tool_call_args_json),
+        explanation_text=row.explanation_text,
     )
 
 
@@ -609,7 +657,9 @@ class PostgresCaseExecutionResultRepository:
             policy_violation_count=result.policy_violation_count, forbidden_tool_call_count=result.forbidden_tool_call_count,
             unauthorized_memory_access_count=result.unauthorized_memory_access_count, cost_tokens=result.cost_tokens,
             latency_ms=result.latency_ms, workflow_trace_ref=result.workflow_trace_ref, status=result.status.value,
-            failure_reason=result.failure_reason,
+            failure_reason=result.failure_reason, approval_triggered=result.approval_triggered,
+            verification_passed=result.verification_passed, tool_call_args_json=dict(result.tool_call_args),
+            explanation_text=result.explanation_text,
         )
         with self._session_factory() as session:
             stmt = pg_insert(CaseExecutionResultRow.__table__).values(**values)
@@ -629,6 +679,245 @@ class PostgresCaseExecutionResultRepository:
             stmt = select(CaseExecutionResultRow).where(CaseExecutionResultRow.run_id == run_id.value)
             rows = session.execute(stmt).scalars().all()
             return [_row_to_case_execution_result(r) for r in rows]
+
+
+# --------------------------------------------------------------------------------
+# CaseExecutionLease (SPEC-EI-011 — pragmatic extension, see models.py's own docstring)
+# --------------------------------------------------------------------------------
+
+
+def _row_to_case_execution_lease(row: CaseExecutionQueueRow) -> CaseExecutionLease:
+    return CaseExecutionLease(
+        run_id=str(row.run_id), test_case_id=str(row.test_case_id), run_generation=row.run_generation,
+        status=CaseQueueStatus[row.status], attempt_count=row.attempt_count, next_attempt_at=row.next_attempt_at,
+        leased_by=row.leased_by, leased_at=row.leased_at, lease_expires_at=row.lease_expires_at,
+    )
+
+
+class PostgresCaseExecutionQueueRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def enqueue_many(self, run_id: RunId, test_case_ids: tuple[TestCaseId, ...], run_generation: int, now: datetime) -> None:
+        """09-concurrency-and-idempotency: `ON CONFLICT DO NOTHING` — a resubmitted
+        enqueue for a pair already queued/leased/done leaves the existing row (and its
+        in-flight attempt_count/status) completely untouched.
+        """
+        if not test_case_ids:
+            return
+        with self._session_factory() as session:
+            stmt = pg_insert(CaseExecutionQueueRow.__table__).values([
+                dict(
+                    run_id=run_id.value, test_case_id=test_case_id.value, run_generation=run_generation,
+                    status=CaseQueueStatus.PENDING.name, attempt_count=0, next_attempt_at=now,
+                )
+                for test_case_id in test_case_ids
+            ])
+            stmt = stmt.on_conflict_do_nothing(index_elements=["run_id", "test_case_id"])
+            session.execute(stmt)
+            session.commit()
+
+    def find_claimable(self, now: datetime, limit: int) -> list[CaseExecutionLease]:
+        with self._session_factory() as session:
+            stmt = select(CaseExecutionQueueRow).where(
+                CaseExecutionQueueRow.status == CaseQueueStatus.PENDING.name, CaseExecutionQueueRow.next_attempt_at <= now,
+            ).order_by(CaseExecutionQueueRow.next_attempt_at).limit(limit)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_case_execution_lease(r) for r in rows]
+
+    def claim(self, run_id: RunId, test_case_id: TestCaseId, worker_id: str, now: datetime, lease_expires_at: datetime) -> bool:
+        with self._session_factory() as session:
+            result = session.execute(
+                update(CaseExecutionQueueRow.__table__)
+                .where(
+                    CaseExecutionQueueRow.run_id == run_id.value, CaseExecutionQueueRow.test_case_id == test_case_id.value,
+                    CaseExecutionQueueRow.status == CaseQueueStatus.PENDING.name,
+                )
+                .values(status=CaseQueueStatus.LEASED.name, leased_by=worker_id, leased_at=now, lease_expires_at=lease_expires_at)
+            )
+            won = result.rowcount == 1
+            session.commit()
+            return won
+
+    def mark_done(self, run_id: RunId, test_case_id: TestCaseId) -> None:
+        self._set_status(run_id, test_case_id, CaseQueueStatus.DONE)
+
+    def mark_retry(self, run_id: RunId, test_case_id: TestCaseId, next_attempt_at: datetime, attempt_count: int) -> None:
+        with self._session_factory() as session:
+            session.execute(
+                update(CaseExecutionQueueRow.__table__)
+                .where(CaseExecutionQueueRow.run_id == run_id.value, CaseExecutionQueueRow.test_case_id == test_case_id.value)
+                .values(
+                    status=CaseQueueStatus.PENDING.name, attempt_count=attempt_count, next_attempt_at=next_attempt_at,
+                    leased_by=None, leased_at=None, lease_expires_at=None,
+                )
+            )
+            session.commit()
+
+    def mark_exhausted(self, run_id: RunId, test_case_id: TestCaseId, attempt_count: int) -> None:
+        with self._session_factory() as session:
+            session.execute(
+                update(CaseExecutionQueueRow.__table__)
+                .where(CaseExecutionQueueRow.run_id == run_id.value, CaseExecutionQueueRow.test_case_id == test_case_id.value)
+                .values(status=CaseQueueStatus.EXHAUSTED.name, attempt_count=attempt_count)
+            )
+            session.commit()
+
+    def find_expired_leases(self, now: datetime, limit: int) -> list[CaseExecutionLease]:
+        with self._session_factory() as session:
+            stmt = select(CaseExecutionQueueRow).where(
+                CaseExecutionQueueRow.status == CaseQueueStatus.LEASED.name, CaseExecutionQueueRow.lease_expires_at < now,
+            ).order_by(CaseExecutionQueueRow.lease_expires_at).limit(limit)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_case_execution_lease(r) for r in rows]
+
+    def release_expired_lease(self, run_id: RunId, test_case_id: TestCaseId, next_attempt_at: datetime, attempt_count: int) -> bool:
+        with self._session_factory() as session:
+            result = session.execute(
+                update(CaseExecutionQueueRow.__table__)
+                .where(
+                    CaseExecutionQueueRow.run_id == run_id.value, CaseExecutionQueueRow.test_case_id == test_case_id.value,
+                    CaseExecutionQueueRow.status == CaseQueueStatus.LEASED.name,
+                )
+                .values(
+                    status=CaseQueueStatus.PENDING.name, attempt_count=attempt_count, next_attempt_at=next_attempt_at,
+                    leased_by=None, leased_at=None, lease_expires_at=None,
+                )
+            )
+            won = result.rowcount == 1
+            session.commit()
+            return won
+
+    def find_by_run(self, run_id: RunId) -> list[CaseExecutionLease]:
+        with self._session_factory() as session:
+            stmt = select(CaseExecutionQueueRow).where(CaseExecutionQueueRow.run_id == run_id.value)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_case_execution_lease(r) for r in rows]
+
+    def _set_status(self, run_id: RunId, test_case_id: TestCaseId, status: CaseQueueStatus) -> None:
+        with self._session_factory() as session:
+            session.execute(
+                update(CaseExecutionQueueRow.__table__)
+                .where(CaseExecutionQueueRow.run_id == run_id.value, CaseExecutionQueueRow.test_case_id == test_case_id.value)
+                .values(status=status.name)
+            )
+            session.commit()
+
+
+# --------------------------------------------------------------------------------
+# LangSmithLinkRecord (SPEC-EI-013 — pragmatic extension, see models.py's own docstring)
+# --------------------------------------------------------------------------------
+
+
+class PostgresLangSmithLinkRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def save(self, record: LangSmithLinkRecord) -> None:
+        values = dict(run_id=uuid.UUID(record.run_id), enabled=record.enabled, experiment_ref=record.experiment_ref)
+        with self._session_factory() as session:
+            stmt = pg_insert(LangSmithRunLinkRow.__table__).values(**values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["run_id"], set_={k: v for k, v in values.items() if k != "run_id"}
+            )
+            session.execute(stmt)
+            session.commit()
+
+    def find(self, run_id: RunId) -> LangSmithLinkRecord | None:
+        with self._session_factory() as session:
+            row = session.get(LangSmithRunLinkRow, run_id.value)
+            if row is None:
+                return None
+            return LangSmithLinkRecord(run_id=str(row.run_id), enabled=row.enabled, experiment_ref=row.experiment_ref)
+
+
+# --------------------------------------------------------------------------------
+# JudgeBundleStatus (SPEC-EI-018 — pragmatic extension, see models.py's own docstring)
+# --------------------------------------------------------------------------------
+
+
+class PostgresJudgeBundleStatusRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def find_status(self, grader_version: str) -> JudgeBundleStatus | None:
+        with self._session_factory() as session:
+            row = session.get(JudgeBundleStatusRow, grader_version)
+            if row is None:
+                return None
+            return JudgeBundleStatus(
+                grader_version=row.grader_version, enabled=row.enabled, last_checked_at=row.last_checked_at,
+                last_mean_absolute_error=_float(row.last_mean_absolute_error) if row.last_mean_absolute_error is not None else None,
+                disabled_reason=row.disabled_reason,
+            )
+
+    def save_status(self, status: JudgeBundleStatus) -> JudgeBundleStatus:
+        values = dict(
+            grader_version=status.grader_version, enabled=status.enabled, last_checked_at=status.last_checked_at,
+            last_mean_absolute_error=status.last_mean_absolute_error, disabled_reason=status.disabled_reason,
+        )
+        with self._session_factory() as session:
+            stmt = pg_insert(JudgeBundleStatusRow.__table__).values(**values)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["grader_version"], set_={k: v for k, v in values.items() if k != "grader_version"}
+            )
+            session.execute(stmt)
+            session.commit()
+            return status
+
+
+def _row_to_online_sample(row: OnlineEvaluationSampleRow) -> OnlineEvaluationSample:
+    return OnlineEvaluationSample(
+        sample_id=row.id, candidate_id=row.candidate_id, target_version=row.target_version,
+        source_event_type=row.source_event_type, source_trace_ref=row.source_trace_ref,
+        redacted_context=row.redacted_context_json, status=OnlineSampleStatus[row.status],
+        collected_at=row.collected_at, scored_at=row.scored_at,
+        composite_score=_float(row.composite_score) if row.composite_score is not None else None,
+        score_details=row.score_details_json, failure_code=ScoreFailureCode[row.failure_code] if row.failure_code else None,
+    )
+
+
+def _online_sample_to_row_values(sample: OnlineEvaluationSample) -> dict:
+    return dict(
+        id=sample.sample_id, candidate_id=sample.candidate_id, target_version=sample.target_version,
+        source_event_type=sample.source_event_type, source_trace_ref=sample.source_trace_ref,
+        redacted_context_json=sample.redacted_context, status=sample.status.name, collected_at=sample.collected_at,
+        scored_at=sample.scored_at, composite_score=sample.composite_score, score_details_json=sample.score_details,
+        failure_code=sample.failure_code.name if sample.failure_code else None,
+    )
+
+
+class PostgresOnlineSampleRepository:
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def save(self, sample: OnlineEvaluationSample) -> OnlineEvaluationSample:
+        values = _online_sample_to_row_values(sample)
+        with self._session_factory() as session:
+            stmt = pg_insert(OnlineEvaluationSampleRow.__table__).values(**values)
+            stmt = stmt.on_conflict_do_update(index_elements=["id"], set_={k: v for k, v in values.items() if k != "id"})
+            session.execute(stmt)
+            session.commit()
+            return sample
+
+    def find_by_id(self, sample_id: uuid.UUID) -> OnlineEvaluationSample | None:
+        with self._session_factory() as session:
+            row = session.get(OnlineEvaluationSampleRow, sample_id)
+            return _row_to_online_sample(row) if row else None
+
+    def find_queued(self, limit: int) -> list[OnlineEvaluationSample]:
+        with self._session_factory() as session:
+            stmt = select(OnlineEvaluationSampleRow).where(
+                OnlineEvaluationSampleRow.status == OnlineSampleStatus.QUEUED.name,
+            ).order_by(OnlineEvaluationSampleRow.collected_at).limit(limit)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_online_sample(r) for r in rows]
+
+    def find_by_candidate(self, candidate_id: CandidateId) -> list[OnlineEvaluationSample]:
+        with self._session_factory() as session:
+            stmt = select(OnlineEvaluationSampleRow).where(OnlineEvaluationSampleRow.candidate_id == candidate_id.value)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_online_sample(r) for r in rows]
 
 
 # --------------------------------------------------------------------------------
@@ -801,3 +1090,33 @@ class PostgresAuditRecordRepository:
             stmt = select(AuditRecordRow).order_by(AuditRecordRow.occurred_at.desc()).limit(limit)
             rows = session.execute(stmt).scalars().all()
             return [_row_to_audit_record(r) for r in rows]
+
+
+def _row_to_poison_event(row: PoisonEventRow) -> PoisonEventRecord:
+    return PoisonEventRecord(
+        id=row.id, event_id=row.event_id, consumer_name=row.consumer_name, event_type=row.event_type, payload=row.payload,
+        error_message=row.error_message, occurred_at=row.occurred_at, recorded_at=row.recorded_at,
+    )
+
+
+class PostgresPoisonEventRepository:
+    """SPEC-EI-035. Append-only, mirrors PostgresAuditRecordRepository's own shape."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def record(self, entry: PoisonEventRecord) -> PoisonEventRecord:
+        with self._session_factory() as session:
+            session.execute(PoisonEventRow.__table__.insert().values(
+                id=entry.id, event_id=entry.event_id, consumer_name=entry.consumer_name, event_type=entry.event_type,
+                payload=entry.payload, error_message=entry.error_message, occurred_at=entry.occurred_at,
+                recorded_at=entry.recorded_at,
+            ))
+            session.commit()
+            return entry
+
+    def find_all(self, limit: int) -> list[PoisonEventRecord]:
+        with self._session_factory() as session:
+            stmt = select(PoisonEventRow).order_by(PoisonEventRow.recorded_at.desc()).limit(limit)
+            rows = session.execute(stmt).scalars().all()
+            return [_row_to_poison_event(r) for r in rows]

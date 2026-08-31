@@ -1,0 +1,9 @@
+SPEC-OP-036:
+  domain: 08-observability-platform
+  name: Final Coverage Audit And Release Readiness
+  cn_name: 最终覆盖审计与发布准备
+  status: planned
+  phase: phase-09-final-verification-release
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

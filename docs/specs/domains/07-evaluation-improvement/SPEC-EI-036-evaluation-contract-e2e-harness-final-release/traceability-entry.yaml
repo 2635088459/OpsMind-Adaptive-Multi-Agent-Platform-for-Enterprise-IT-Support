@@ -2,14 +2,49 @@ SPEC-EI-036:
   domain: 07-evaluation-improvement
   name: Evaluation Contract E2E Harness Final Release
   cn_name: Evaluation Contract/E2E Harness 与最终发布准备
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-09-final-verification-release
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 完成 07 contract/e2e harness、最终覆盖审计、release readiness 和剩余风险登记。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Final coverage audit closed two genuine gaps this phase's own review found,
+    neither of which any prior spec's test suite had caught: (1) Canary lifecycle
+    had zero REST endpoints — ManageCanaryUseCase.advance()/pause()/complete_rollback()
+    and CreateImprovementCandidateUseCase.promote() were all real, tested application-
+    layer methods since earlier phases, but interfaces/rest/router.py never exposed
+    them, so a candidate approved and canary-started over HTTP could never actually
+    reach PROMOTED through the API. Added POST /improvement-candidates/{id}/
+    advance-canary, pause-canary, complete-rollback, promote. (2) A PROMOTED candidate
+    had no application-layer rollback path at all: the Canary sub-state machine's
+    SUCCEEDED status is terminal (no outgoing transition), and
+    ManageCanaryService._do_request_rollback() only accepts canary_status
+    ACTIVE/EXPANDING/PAUSED/FAILED — yet 01-domain-model's own
+    ImprovementCandidate.rollback() has always supported PROMOTED -> ROLLED_BACK
+    directly (bypassing the Canary sub-state machine). Added
+    RollbackPromotedCandidateCommand + ManageCanaryService.rollback_promoted() +
+    POST /improvement-candidates/{id}/rollback-promoted, which — consistent with the
+    "07 only requests rollback, Runtime/Config owner executes it" domain rule — only
+    publishes ImprovementRollbackRequested and records an audit entry, no production
+    side effect. Both fixes required no container.py changes (duck typing: the same
+    already-constructed ManageCanaryService instance satisfies the extended
+    ManageCanaryUseCase protocol once it gained the new methods). Also performed a
+    full traceability audit (35/36 specs already implemented before this one),
+    reconciled the identity-mfa-golden-dataset naming used in 05-api-contracts's
+    sample JSON against the tests/ suite's actual `identity-mfa-golden` dataset name
+    (same capability, no code change needed — see release-readiness_CN.md §2.1), and
+    wrote release-readiness_CN.md / _EN.md: a release checklist plus an honest
+    residual-risk register (R1-R7) covering every known deliberately-deferred item
+    accumulated across the whole domain (no real RabbitMQ AMQP consumer/publisher yet
+    — REST endpoints stand in, matching every other Python service in this repo; no
+    real upstream producer yet for memory.retrieval.completed.v1; LLM Judge is
+    quality-only by design per INV-EI-003; 08-observability-platform has no real
+    backend to integrate with yet; 06-policy-approval-governance's cross-service
+    identity mechanism does not exist yet so HttpPolicyApprovalAdapter's bearer token
+    is carried but unused in practice; LangSmith SDK mode is an explicit opt-in).
+    Preserves the 07 boundary throughout: evaluation facts and controlled improvement
+    only, no direct production mutation of Agent, Prompt, Policy, Tool, Ticket,
+    Workflow, or Memory — the new rollback_promoted path only requests a rollback,
+    exactly like the pre-existing request_rollback path.
   lld_mapping:
     - 14-testing-strategy
   forbidden:
@@ -21,8 +56,8 @@ SPEC-EI-036:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    contract: pending
-    security: pending
-    result: pending
+    unit: "tests/application/test_manage_canary_service.py (7 new cases: pause/resume, request+complete rollback, advance-to-succeeded+promote, promote precondition rejection, rollback_promoted success + non-PROMOTED rejection)"
+    integration: "tests/integration/test_postgres_repositories.py, tests/integration/test_app_postgres_integration.py — 27 passed against real PostgreSQL via testcontainers"
+    contract: "tests/contracts/test_event_envelope_contract.py, test_observability_signal_contract.py, test_safety_gate_determinism_contract.py — all pass unchanged, confirming no contract drift from this phase's additions"
+    security: "tests/test_app.py::test_unauthorized_role_is_rejected and the security suite in test_evaluation_security_redaction.py — all pass unchanged"
+    result: "237 passed (210 non-integration + 27 real-Postgres integration tests), 3/3 import-linter contracts kept, 0 pyflakes warnings — full suite after SPEC-EI-036, verified 2026-08-30 in Docker python:3.12-alpine. All 36 SPEC-EI-001..036 traceability entries now status: implemented — domain 07 (Evaluation Improvement) implementation complete."

@@ -89,3 +89,36 @@ def test_publish_failure_backs_off_then_dead_letters(container: Container) -> No
 
     dead_letters = container.outbox_repository.find_dead_letter(10)
     assert len(dead_letters) == 1
+
+
+@pytest.mark.unit
+def test_admin_recovery_service_dispatches_and_audits(container: Container) -> None:
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 10-failure-handling:
+    "admin repair/replay API 有审计" — unlike DispatchOutboxEventsService's own plain
+    dispatch_due_events(), the admin-triggered wrapper writes an audit record.
+    """
+    dataset = container.create_dataset_service.create_dataset(CreateDatasetCommand(
+        name="admin-recovery-dataset", version="1", domain="IDENTITY_ACCESS", scenario_tags=(), created_by="author-1",
+        actor="author-1", correlation_id="corr-1",
+    ))
+    case = TestCaseInput(
+        case_key="k1", scenario="s", user_request_redacted="", mock_system_state={}, ground_truth={"classification": "X"},
+        allowed_tools=(), forbidden_tools=(), required_approval=False, verification_condition={}, criticality=Criticality.STANDARD,
+    )
+    container.create_dataset_service.add_test_cases(AddTestCasesCommand(dataset_id=dataset.dataset_id, cases=(case,), actor="author-1", correlation_id="corr-1"))
+    container.publish_dataset_service.submit_for_review(SubmitDatasetForReviewCommand(dataset_id=dataset.dataset_id, actor="author-1", correlation_id="corr-1"))
+    published = container.publish_dataset_service.publish(PublishDatasetCommand(dataset_id=dataset.dataset_id, published_by="reviewer-1", actor="reviewer-1", correlation_id="corr-1"))
+    container.create_run_service.create_run(CreateRunCommand(
+        run_key="admin-recovery-001", dataset_id=published.dataset_id, target_version="agent-runtime:rc1", baseline_version=None,
+        grader_bundle_version="v1", policy_version="v1", gate_policy="mvp-release-gate-v1", triggered_by="ci",
+        actor="ci", correlation_id="corr-1",
+    ))
+
+    before = len(container.audit_record_query_service.list_audit_events(1000))
+    report = container.admin_recovery_service.dispatch_outbox_events(batch_size=10, actor="admin-1", correlation_id="corr-recovery-1")
+    assert report.dispatched == 1
+
+    after = container.audit_record_query_service.list_audit_events(1000)
+    assert len(after) == before + 1
+    assert after[0].action == "admin_dispatch_outbox_events"
+    assert after[0].actor == "admin-1"

@@ -2,14 +2,31 @@ SPEC-EI-031:
   domain: 07-evaluation-improvement
   name: Memory Tool Evidence Contract
   cn_name: Memory 与 Tool Evidence Contract
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-07-cross-domain-contracts
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 锁定 04 Memory retrieval evidence 与 05 Tool result/argument/forbidden call 的评估证据契约。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    `tool.completed.v1` (05-tool-integration-gateway's own real
+    outbox_events.build_success_completed_event()/build_terminal_failed_completed_event()
+    payload — ONE event type covers both success and failure, distinguished by
+    `status`, not the two separate "tool.execution.completed.v1"/
+    "tool.execution.failed.v1" types this domain's own illustrative
+    06-event-contracts sketch guessed) is consumed by
+    ConsumeCrossDomainEventService.consume_tool_completed() — the same shared
+    service SPEC-EI-030 added. 05's own `redactionStatus` field (envelope.
+    redaction_status.name — REDACTED/NOT_REQUIRED/etc.) is honored as the single
+    source of truth for that event's own evidence: an online sample's own
+    `evidenceRedacted` context field only reads true when 05 itself confirms it, a
+    not-yet-redacted `summary`/`structured_output` is dropped from the sample
+    entirely rather than 07 attempting to re-redact tool evidence it has no way to
+    safely interpret (11-security). `memory.retrieval.completed.v1` — no real
+    04-memory-knowledge publisher exists anywhere in this repo yet (confirmed by
+    reading that service's own source; only a telemetry name references the concept)
+    — this consumer is still the honest "real contract, ready for a producer that
+    doesn't exist yet" half, the same precedent HttpAgentRuntimeEvaluationAdapter's
+    own docstring set for 03's evaluation endpoint. New REST endpoints `POST
+    /internal/evaluation/v1/events/{tool-completed,memory-retrieval-completed}`.
   lld_mapping:
     - 06-event-contracts
     - 11-security
@@ -22,8 +39,12 @@ SPEC-EI-031:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_consume_cross_domain_event_service.py
+    integration: services/evaluation-improvement-service/tests/test_app.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      220 passed (194 non-integration + 26 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-030 through SPEC-EI-033, verified
+      2026-08-29.

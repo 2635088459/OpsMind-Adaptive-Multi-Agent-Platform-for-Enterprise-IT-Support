@@ -78,12 +78,20 @@ class CanaryStage:
     traffic_percent: float
     min_duration_minutes: int
     rollback_error_rate_threshold: float
+    # SPEC-EI-027 (canary-plan-rollout-state-machine) / phase-06 own "强制约束":
+    # "Canary 必须有流量比例、时间窗、sample size 和 rollback thresholds" — the fourth of
+    # those four required fields; the minimum number of online samples this stage's
+    # own promotion criteria (SPEC-EI-029) requires before advancing past it, so a
+    # stage can never "pass" on too few observations to mean anything.
+    sample_size: int = 1
 
     def __post_init__(self) -> None:
         if not (0 < self.traffic_percent <= 100):
             raise ValueError("trafficPercent must be within (0, 100]")
         if self.min_duration_minutes <= 0:
             raise ValueError("minDurationMinutes must be positive")
+        if self.sample_size <= 0:
+            raise ValueError("sampleSize must be positive")
 
 
 @dataclass(frozen=True, slots=True)

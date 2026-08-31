@@ -2,14 +2,26 @@ SPEC-EI-012:
   domain: 07-evaluation-improvement
   name: Agent Runtime Evaluation Client Contract
   cn_name: Agent Runtime Evaluation Client Contract
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-02-benchmark-run-and-runner
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 锁定 07 调用 03 Runtime evaluation endpoint 的请求/响应契约和测试 harness。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closed FakeAgentRuntimeEvaluationAdapter's own module docstring gap: "Real HTTP
+    integration ... is SPEC-EI-012 scope." New
+    `HttpAgentRuntimeEvaluationAdapter` (infrastructure.runtime.agent_runtime_client)
+    is the real httpx client for `POST {base_url}/agent-runtime/evaluation/
+    execute-case` against 03-agent-runtime-orchestration's own evaluation endpoint
+    contract — 03 does not expose this endpoint yet (no paired spec on that domain's
+    own roadmap creates it), so this closes 07's own half of the contract: request/
+    response shape, timeout, and a single `AgentRuntimeEvaluationUnavailableError`
+    covering every failure mode (timeout/non-2xx/malformed body), tested against
+    httpx.MockTransport per 14-testing-strategy's own "mock/integration 测试" wording.
+    Deliberately never sends `test_case.ground_truth` in the request (contrast the
+    fake adapter, which reads it only because it plays agent and grader at once).
+    New Settings.agent_runtime_evaluation_mode ("fake" default / "http") lets
+    container.py pick between the two adapters; every existing hermetic test is
+    unaffected since the default is unchanged.
   lld_mapping:
     - 05-api-contracts
     - 14-testing-strategy
@@ -22,8 +34,12 @@ SPEC-EI-012:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/infrastructure/test_agent_runtime_http_client.py
+    integration: services/evaluation-improvement-service/tests/test_container_wiring.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      152 passed (130 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-011 through SPEC-EI-013, verified
+      2026-08-28.

@@ -1,0 +1,9 @@
+SPEC-OP-021:
+  domain: 08-observability-platform
+  name: Alertmanager Routing Dedup And Silence
+  cn_name: Alertmanager 路由、去重与静默
+  status: planned
+  phase: phase-05-alerts-slos-runbooks
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

@@ -2,14 +2,21 @@ SPEC-EI-019:
   domain: 07-evaluation-improvement
   name: Baseline Run Regression Comparator
   cn_name: Baseline Run 与 Regression Comparator
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-04-regression-and-release-gate
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 baseline run 锁定、metric diff、regression severity 和 comparator。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Found already implemented by earlier phase-02/03 work (this entry was left
+    `planned` even though the code had landed) — `CompareRegressionService.compare()`
+    locks a specific `baseline_run_id` (never "latest": `BaselineRunNotFoundException`
+    unless the referenced run is itself terminal PASSED, per 09-concurrency-and-
+    idempotency §"并发规则"), computes `MetricDiff` per DETERMINISTIC-graded dimension
+    (candidate vs. baseline average, `_LOWER_IS_BETTER` for TOKEN_COST/LATENCY),
+    derives `critical_failures` from DETERMINISTIC-only failed scores on CRITICAL
+    cases, and publishes `evaluation.regression.detected.v1` for any dimension that
+    moved the wrong direction relative to baseline. No code changes were needed for
+    this spec during the phase-04 audit; verified via the existing/expanded suite.
   lld_mapping:
     - 01-domain-model
     - 09-concurrency-and-idempotency
@@ -22,8 +29,13 @@ SPEC-EI-019:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/domain/test_regression_report.py
+    application: services/evaluation-improvement-service/tests/application/test_pipeline_walkthrough.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      177 passed (155 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-019 through SPEC-EI-022, verified
+      2026-08-29.

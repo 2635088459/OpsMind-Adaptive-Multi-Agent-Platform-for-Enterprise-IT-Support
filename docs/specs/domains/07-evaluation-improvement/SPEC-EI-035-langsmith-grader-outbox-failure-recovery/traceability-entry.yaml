@@ -2,14 +2,47 @@ SPEC-EI-035:
   domain: 07-evaluation-improvement
   name: Langsmith Grader Outbox Failure Recovery
   cn_name: LangSmith/Grader/Outbox Failure Recovery
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-08-security-observability-recovery
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 LangSmith outage、grader error、partial run、poison event、outbox replay 和 admin repair/replay。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    LangSmith outage (fail-closed, SPEC-EI-013), grader error (GRADER_ERROR,
+    SPEC-EI-014/016), and partial run (SPEC-EI-009) recovery were already real from
+    earlier phases — confirmed unchanged by this phase's own audit. Three genuine
+    gaps closed:
+
+    Poison event: no poison-event table/repository/consumer handling existed
+    anywhere in 07 before this spec, despite ProcessedEventRepository's own
+    dedup-only mechanism never catching a genuine domain-invariant violation (a
+    late/conflicting `approval.granted.v1`/`approval.denied.v1` decision — the
+    candidate already moved past PENDING_APPROVAL through some other path, or a
+    self-approval 06 itself should have refused). New `PoisonEventRecord`/
+    `PoisonEventRepository` (in-memory + Postgres, migration b8e2f4a6c9d3, mirrors
+    memory-knowledge-service's own PoisonEventRecord shape exactly).
+    `ConsumeApprovalDecisionEventService` now catches
+    `InvalidStateTransitionException`/`SelfApprovalNotAllowedException`, records the
+    poison event, and raises `PoisonApprovalDecisionEventException` (mapped to `422
+    POISON_EVENT`) — never marked processed, so the same event_id stays replayable
+    once the upstream conflict is fixed (re-POSTing to the same ingestion endpoint
+    IS the replay).
+
+    Admin repair/replay: new `GET /evaluation/poison-events` (10-failure-handling
+    step 4's own "支持 admin replay" visibility surface) and new `POST
+    /evaluation/outbox/dispatch` (an audited manual-replay wrapper around the
+    already-existing, actor-less `OutboxDispatchPort.dispatch_due_events()` —
+    `AdminRecoveryService` writes the `admin_dispatch_outbox_events` audit record
+    that operational primitive itself deliberately does not, the same "keep the
+    plain port actor-less, audit at the admin-triggered boundary" split
+    `find_scores()`'s own SPEC-EI-034 evidence-audit already established).
+
+    Recovery scanner: new `EvaluationRunRepository.find_stuck()` /
+    `RunQueryUseCase.find_stuck_runs()`, exposed as `GET /evaluation/runs/stuck` —
+    12-observability's own named alert ("run stuck in RUNNING 或 SCORING beyond
+    SLA") had no real query behind it. Measured from `started_at` (the one
+    timestamp EvaluationRun carries that predates every non-terminal status — no
+    per-status-transition timestamp exists on this aggregate), documented as an
+    honest approximation rather than a precise per-status SLA.
   lld_mapping:
     - 10-failure-handling
     - 08-transaction-and-outbox
@@ -23,8 +56,11 @@ SPEC-EI-035:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_consume_approval_decision_event_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      230 passed (203 non-integration + 27 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-034/035, verified 2026-08-29.

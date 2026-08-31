@@ -1,0 +1,26 @@
+{
+  "_fixture": {
+    "spec": "SPEC-OP-004",
+    "kind": "conformant",
+    "producer": "java",
+    "expect": "pass",
+    "note": "ticket-workflow-service on the JVM, production. All required resource attributes present and valid."
+  },
+  "resource": {
+    "attributes": [
+      { "key": "service.name", "value": { "stringValue": "ticket-workflow-service" } },
+      { "key": "service.version", "value": { "stringValue": "1.4.2" } },
+      { "key": "service.namespace", "value": { "stringValue": "ticket-workflow" } },
+      { "key": "deployment.environment", "value": { "stringValue": "production" } },
+      { "key": "service.instance.id", "value": { "stringValue": "6f3c2b1a-9d4e-4c7a-8b21-0e5f7a9c1d33" } },
+      { "key": "telemetry.sdk.language", "value": { "stringValue": "java" } },
+      { "key": "telemetry.sdk.name", "value": { "stringValue": "opentelemetry" } },
+      { "key": "telemetry.sdk.version", "value": { "stringValue": "1.45.0" } },
+      { "key": "telemetry.distro.name", "value": { "stringValue": "opentelemetry-javaagent" } },
+      { "key": "process.runtime.name", "value": { "stringValue": "OpenJDK Runtime Environment" } },
+      { "key": "process.runtime.version", "value": { "stringValue": "21.0.5+11" } },
+      { "key": "host.name", "value": { "stringValue": "ip-10-2-14-7" } },
+      { "key": "os.type", "value": { "stringValue": "linux" } }
+    ]
+  }
+}

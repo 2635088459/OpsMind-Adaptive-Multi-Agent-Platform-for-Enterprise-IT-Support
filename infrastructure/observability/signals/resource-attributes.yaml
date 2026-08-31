@@ -1,0 +1,160 @@
+# owner: platform-observability
+# spec: SPEC-OP-004
+# rollback: git revert <sha>; redeploy otel-collector
+#
+# Machine-readable Resource Attribute Convention. Human doc: resource-attributes.md.
+# Schema: ../schemas/resource-attributes.schema.json.
+# Consumed by scripts/validate-signal-contracts.py and the fixtures/ golden payloads.
+
+version: "1.0.0"
+
+# service.namespace allowed values — the 8 logical domains + shared.
+namespaces:
+  - user-access-authentication
+  - ticket-workflow
+  - agent-runtime
+  - memory-knowledge
+  - tool-integration
+  - policy-approval-governance
+  - evaluation-improvement
+  - observability-platform
+  - shared
+
+# deployment.environment allowed values.
+environments: [local, ci, staging, production]
+
+attributes:
+  - key: service.name
+    level: required
+    value_pattern: "^[a-z0-9]([a-z0-9-]{1,48}[a-z0-9])$"
+    semconv: "service.name"
+    cardinality: bounded
+    source: "OTEL_SERVICE_NAME / SDK"
+    notes: "deployable unit; matches services/<dir>"
+
+  - key: service.version
+    level: required
+    value_pattern: "^(\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?|git:[0-9a-f]{12})$"
+    semconv: "service.version"
+    cardinality: bounded
+    source: "build metadata via OTEL_RESOURCE_ATTRIBUTES"
+    notes: "SemVer or git:<12 hex>; never dev/latest"
+
+  - key: service.namespace
+    level: required
+    value_enum_ref: namespaces
+    semconv: "service.namespace"
+    cardinality: bounded
+    source: "OTEL_RESOURCE_ATTRIBUTES"
+    notes: "logical domain slug; drives dashboard folders"
+
+  - key: deployment.environment
+    level: required
+    value_enum_ref: environments
+    semconv: "deployment.environment"
+    cardinality: bounded
+    source: "OTEL_RESOURCE_ATTRIBUTES; Collector inserts from OTEL_DEPLOYMENT_ENVIRONMENT if absent"
+    notes: "low cardinality"
+
+  - key: service.instance.id
+    level: required
+    value_pattern: "^([0-9a-fA-F-]{8,}|[^/]+/[0-9]+)$"
+    semconv: "service.instance.id"
+    cardinality: replica-scoped
+    source: "SDK auto; OTEL_RESOURCE_ATTRIBUTES fallback"
+    notes: "distinguishes replicas; NEVER a Prometheus label (exemplars only)"
+
+  - key: telemetry.sdk.language
+    level: required
+    value_pattern: "^(java|python|nodejs|go|dotnet|rust|cpp|erlang|php|ruby|swift|webjs)$"
+    semconv: "telemetry.sdk.language"
+    cardinality: bounded
+    source: "SDK auto"
+    notes: "which SDK produced the signal"
+
+  - key: telemetry.sdk.name
+    level: recommended
+    semconv: "telemetry.sdk.name"
+    cardinality: bounded
+    source: "SDK auto"
+
+  - key: telemetry.sdk.version
+    level: recommended
+    semconv: "telemetry.sdk.version"
+    cardinality: bounded
+    source: "SDK auto"
+
+  - key: host.name
+    level: recommended
+    semconv: "host.name"
+    cardinality: replica-scoped
+    source: "Collector resourcedetection/system"
+
+  - key: process.runtime.name
+    level: recommended
+    semconv: "process.runtime.name"
+    cardinality: bounded
+    source: "SDK / resourcedetection/process"
+
+  - key: process.runtime.version
+    level: recommended
+    semconv: "process.runtime.version"
+    cardinality: bounded
+    source: "SDK / resourcedetection/process"
+
+  - key: os.type
+    level: recommended
+    semconv: "os.type"
+    cardinality: bounded
+    source: "Collector resourcedetection/system"
+
+  - key: k8s.namespace.name
+    level: optional
+    semconv: "k8s.namespace.name"
+    cardinality: bounded
+    source: "resourcedetection/k8s or Downward API (production overlay, SPEC-OP-008)"
+
+  - key: k8s.pod.name
+    level: optional
+    semconv: "k8s.pod.name"
+    cardinality: replica-scoped
+    source: "resourcedetection/k8s"
+    notes: "NEVER a Prometheus label"
+
+  - key: k8s.deployment.name
+    level: optional
+    semconv: "k8s.deployment.name"
+    cardinality: bounded
+    source: "resourcedetection/k8s"
+
+  - key: cloud.provider
+    level: optional
+    semconv: "cloud.provider"
+    cardinality: bounded
+    source: "resourcedetection cloud detectors"
+
+  - key: cloud.region
+    level: optional
+    semconv: "cloud.region"
+    cardinality: bounded
+    source: "resourcedetection cloud detectors"
+
+  - key: container.id
+    level: optional
+    semconv: "container.id"
+    cardinality: replica-scoped
+    source: "resourcedetection/docker"
+    notes: "NEVER a Prometheus label"
+
+  - key: opsmind.tenant.id
+    level: optional
+    value_pattern: "^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$"
+    semconv: "opsmind.tenant.id (custom)"
+    cardinality: bounded
+    source: "deploy-injected (multi-tenant only)"
+    notes: "single-tenant today; low-cardinality slug only; governed by SPEC-OP-031; NEVER a metric label"
+
+# When service.name is missing/blank the Collector substitutes this and stamps the
+# violation attribute (see transform/resource-contract).
+missing_service_name_default: "unknown_service"
+violation_attribute: "opsmind.resource.violation"

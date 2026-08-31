@@ -4,29 +4,38 @@ from __future__ import annotations
 
 from evaluationimprovement.application.commands import (
     AddTestCasesCommand,
+    AdvanceCanaryCommand,
     ApproveCandidateCommand,
     ArchiveDatasetCommand,
     CancelRunCommand,
     CanaryStageInput,
+    CollectOnlineSampleCommand,
+    CompleteCanaryRollbackCommand,
     CreateDatasetCommand,
     CreateDatasetVersionCommand,
     CreateImprovementCandidateCommand,
     CreateRunCommand,
     DeprecateDatasetCommand,
+    PauseCanaryCommand,
+    PromoteCandidateCommand,
     PublishDatasetCommand,
     RecordCandidateBenchmarkCommand,
     RejectCandidateCommand,
     RejectDatasetReviewCommand,
     RequestCandidateApprovalCommand,
     RequestCanaryRollbackCommand,
+    RollbackPromotedCandidateCommand,
     SkipCaseCommand,
     StartCanaryCommand,
     SubmitDatasetForReviewCommand,
     TestCaseInput,
 )
 from evaluationimprovement.application.views import (
+    CanaryPromotionDecisionView,
     DatasetView,
+    FailureClusterView,
     ImprovementCandidateView,
+    OnlineEvaluationSampleView,
     RegressionReportView,
     RunView,
     ScoreView,
@@ -36,16 +45,25 @@ from evaluationimprovement.domain.enums import CandidateType, Criticality, RiskL
 from evaluationimprovement.domain.ids import CandidateId, DatasetId, IdempotencyKey, RunId, TestCaseId
 from evaluationimprovement.interfaces.rest.schemas import (
     AddTestCasesRequest,
+    AdvanceCanaryRequest,
     ApproveCandidateRequest,
     ArchiveDatasetRequest,
+    CanaryPromotionDecisionResponse,
     CancelRunRequest,
+    CollectOnlineSampleRequest,
+    CompleteCanaryRollbackRequest,
     CreateDatasetRequest,
     CreateDatasetVersionRequest,
     CreateImprovementCandidateRequest,
     CreateRunRequest,
     DatasetResponse,
     DeprecateDatasetRequest,
+    EvidenceRefResponse,
+    FailureClusterResponse,
     ImprovementCandidateResponse,
+    OnlineEvaluationSampleResponse,
+    PauseCanaryRequest,
+    PromoteCandidateRequest,
     PublishDatasetRequest,
     RecordCandidateBenchmarkRequest,
     RegressionReportResponse,
@@ -53,6 +71,7 @@ from evaluationimprovement.interfaces.rest.schemas import (
     RejectDatasetReviewRequest,
     RequestCandidateApprovalRequest,
     RollbackCandidateRequest,
+    RollbackPromotedCandidateRequest,
     RunResponse,
     ScoreResponse,
     SkipCaseRequest,
@@ -151,7 +170,10 @@ def to_create_candidate_command(request: CreateImprovementCandidateRequest, acto
 
 
 def to_record_benchmark_command(candidate_id: CandidateId, request: RecordCandidateBenchmarkRequest, actor: str) -> RecordCandidateBenchmarkCommand:
-    return RecordCandidateBenchmarkCommand(candidate_id=candidate_id, passed=request.passed, actor=actor, correlation_id=request.correlation_id)
+    return RecordCandidateBenchmarkCommand(
+        candidate_id=candidate_id, benchmark_run_id=RunId(request.benchmark_run_id), actor=actor,
+        correlation_id=request.correlation_id,
+    )
 
 
 def to_request_approval_command(candidate_id: CandidateId, request: RequestCandidateApprovalRequest, actor: str) -> RequestCandidateApprovalCommand:
@@ -167,7 +189,10 @@ def to_reject_candidate_command(candidate_id: CandidateId, request: RejectCandid
 
 
 def to_start_canary_command(candidate_id: CandidateId, request: StartCanaryRequest, actor: str) -> StartCanaryCommand:
-    stages = tuple(CanaryStageInput(s.traffic_percent, s.min_duration_minutes, s.rollback_error_rate_threshold) for s in request.stages)
+    stages = tuple(
+        CanaryStageInput(s.traffic_percent, s.min_duration_minutes, s.rollback_error_rate_threshold, s.sample_size)
+        for s in request.stages
+    )
     return StartCanaryCommand(
         candidate_id=candidate_id, plan_version=request.plan_version, stages=stages, actor=actor,
         correlation_id=request.correlation_id, idempotency_key=IdempotencyKey(request.idempotency_key),
@@ -176,6 +201,37 @@ def to_start_canary_command(candidate_id: CandidateId, request: StartCanaryReque
 
 def to_request_canary_rollback_command(candidate_id: CandidateId, request: RollbackCandidateRequest, actor: str) -> RequestCanaryRollbackCommand:
     return RequestCanaryRollbackCommand(
+        candidate_id=candidate_id, reason=request.reason, actor=actor, correlation_id=request.correlation_id,
+        idempotency_key=IdempotencyKey(request.idempotency_key),
+    )
+
+
+def to_advance_canary_command(candidate_id: CandidateId, request: AdvanceCanaryRequest, actor: str) -> AdvanceCanaryCommand:
+    return AdvanceCanaryCommand(
+        candidate_id=candidate_id, actor=actor, correlation_id=request.correlation_id,
+        idempotency_key=IdempotencyKey(request.idempotency_key),
+    )
+
+
+def to_pause_canary_command(candidate_id: CandidateId, request: PauseCanaryRequest, actor: str) -> PauseCanaryCommand:
+    return PauseCanaryCommand(
+        candidate_id=candidate_id, reason=request.reason, actor=actor, correlation_id=request.correlation_id,
+        idempotency_key=IdempotencyKey(request.idempotency_key),
+    )
+
+
+def to_complete_canary_rollback_command(candidate_id: CandidateId, request: CompleteCanaryRollbackRequest, actor: str) -> CompleteCanaryRollbackCommand:
+    return CompleteCanaryRollbackCommand(candidate_id=candidate_id, actor=actor, correlation_id=request.correlation_id)
+
+
+def to_promote_candidate_command(candidate_id: CandidateId, request: PromoteCandidateRequest, actor: str) -> PromoteCandidateCommand:
+    return PromoteCandidateCommand(
+        candidate_id=candidate_id, promoted_version=request.promoted_version, actor=actor, correlation_id=request.correlation_id,
+    )
+
+
+def to_rollback_promoted_candidate_command(candidate_id: CandidateId, request: RollbackPromotedCandidateRequest, actor: str) -> RollbackPromotedCandidateCommand:
+    return RollbackPromotedCandidateCommand(
         candidate_id=candidate_id, reason=request.reason, actor=actor, correlation_id=request.correlation_id,
         idempotency_key=IdempotencyKey(request.idempotency_key),
     )
@@ -208,10 +264,53 @@ def to_run_response(view: RunView) -> RunResponse:
 
 
 def to_score_response(view: ScoreView) -> ScoreResponse:
+    evidence = (
+        EvidenceRefResponse(
+            artifact_provider=view.evidence_ref.artifact_provider, artifact_uri=view.evidence_ref.artifact_uri,
+            artifact_hash=view.evidence_ref.artifact_hash, retention_until=view.evidence_ref.retention_until,
+        )
+        if view.evidence_ref else None
+    )
     return ScoreResponse(
         score_id=view.score_id.value, run_id=view.run_id.value, test_case_id=view.test_case_id.value,
         dimension=view.dimension.value, score=view.score, passed=view.passed, grader_type=view.grader_type.value,
         grader_version=view.grader_version, failure_code=view.failure_code.value if view.failure_code else None,
+        evidence=evidence, details=view.details,
+    )
+
+
+def to_failure_cluster_response(view: FailureClusterView) -> FailureClusterResponse:
+    return FailureClusterResponse(
+        cluster_id=view.cluster_id, run_id=view.run_id.value, dimension=view.dimension,
+        failure_code=view.failure_code.value, case_count=view.case_count,
+        test_case_ids=[tc.value for tc in view.test_case_ids],
+    )
+
+
+def to_collect_online_sample_command(request: CollectOnlineSampleRequest, actor: str) -> CollectOnlineSampleCommand:
+    return CollectOnlineSampleCommand(
+        candidate_id=CandidateId(request.candidate_id) if request.candidate_id else None,
+        target_version=request.target_version, source_event_type=request.source_event_type,
+        source_trace_ref=request.source_trace_ref, redacted_context=request.redacted_context, actor=actor,
+        correlation_id=request.correlation_id,
+    )
+
+
+def to_online_sample_response(view: OnlineEvaluationSampleView) -> OnlineEvaluationSampleResponse:
+    return OnlineEvaluationSampleResponse(
+        sample_id=view.sample_id, candidate_id=view.candidate_id.value if view.candidate_id else None,
+        target_version=view.target_version, source_event_type=view.source_event_type,
+        source_trace_ref=view.source_trace_ref, status=view.status.value, collected_at=view.collected_at,
+        scored_at=view.scored_at, composite_score=view.composite_score,
+        failure_code=view.failure_code.value if view.failure_code else None,
+    )
+
+
+def to_canary_promotion_decision_response(view: CanaryPromotionDecisionView) -> CanaryPromotionDecisionResponse:
+    return CanaryPromotionDecisionResponse(
+        candidate_id=view.candidate_id.value, eligible_to_advance=view.eligible_to_advance,
+        recommend_rollback=view.recommend_rollback, sample_count=view.sample_count,
+        required_sample_size=view.required_sample_size, error_rate=view.error_rate, reason=view.reason,
     )
 
 
@@ -227,7 +326,8 @@ def to_candidate_response(view: ImprovementCandidateView) -> ImprovementCandidat
     return ImprovementCandidateResponse(
         candidate_id=view.candidate_id.value, candidate_type=view.candidate_type.value, source_run_id=view.source_run_id.value,
         target_component=view.target_component, risk_level=view.risk_level.value, status=view.status.value,
-        created_by=view.created_by, approved_by=view.approved_by, approval_request_id=view.approval_request_id,
+        created_by=view.created_by, benchmark_run_id=view.benchmark_run_id.value if view.benchmark_run_id else None,
+        benchmark_passed=view.benchmark_passed, approved_by=view.approved_by, approval_request_id=view.approval_request_id,
         canary_status=view.canary_status.value if view.canary_status else None, promoted_version=view.promoted_version,
         created_at=view.created_at, updated_at=view.updated_at,
     )

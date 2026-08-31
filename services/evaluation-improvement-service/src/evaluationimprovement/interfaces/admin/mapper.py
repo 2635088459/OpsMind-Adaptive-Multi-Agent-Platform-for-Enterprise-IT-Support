@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from evaluationimprovement.application.records import AuditRecordEntry, GatePolicyConfig
-from evaluationimprovement.application.views import GraderDescriptor
-from evaluationimprovement.interfaces.admin.schemas import AuditRecordResponse, GatePolicyResponse, GraderResponse, UpsertGatePolicyRequest
+from evaluationimprovement.application.records import AuditRecordEntry, GatePolicyConfig, PoisonEventRecord
+from evaluationimprovement.application.views import DispatchReport, GraderDescriptor
+from evaluationimprovement.interfaces.admin.schemas import (
+    AuditRecordResponse,
+    DispatchReportResponse,
+    GatePolicyResponse,
+    GraderResponse,
+    PoisonEventResponse,
+    UpsertGatePolicyRequest,
+)
 
 
 def to_audit_response(entry: AuditRecordEntry) -> AuditRecordResponse:
@@ -33,4 +40,15 @@ def to_grader_response(descriptor: GraderDescriptor) -> GraderResponse:
     return GraderResponse(
         name=descriptor.name, grader_type=descriptor.grader_type.value, dimension=descriptor.dimension.value,
         version=descriptor.version,
+    )
+
+
+def to_dispatch_report_response(report: DispatchReport) -> DispatchReportResponse:
+    return DispatchReportResponse(dispatched=report.dispatched, failed=report.failed, dead_lettered=report.dead_lettered)
+
+
+def to_poison_event_response(entry: PoisonEventRecord) -> PoisonEventResponse:
+    return PoisonEventResponse(
+        id=str(entry.id), event_id=entry.event_id, consumer_name=entry.consumer_name, event_type=entry.event_type,
+        payload=entry.payload, error_message=entry.error_message, occurred_at=entry.occurred_at, recorded_at=entry.recorded_at,
     )

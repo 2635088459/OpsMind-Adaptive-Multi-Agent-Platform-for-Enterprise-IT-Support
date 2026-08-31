@@ -1,0 +1,24 @@
+{
+  "_fixture": {
+    "spec": "SPEC-OP-004",
+    "kind": "conformant",
+    "producer": "python",
+    "expect": "pass",
+    "note": "memory-knowledge-service (FastAPI) in CI, pinned to a commit. service.instance.id in host/pid form."
+  },
+  "resource": {
+    "attributes": [
+      { "key": "service.name", "value": { "stringValue": "memory-knowledge-service" } },
+      { "key": "service.version", "value": { "stringValue": "git:9a1c4e77b0d2" } },
+      { "key": "service.namespace", "value": { "stringValue": "memory-knowledge" } },
+      { "key": "deployment.environment", "value": { "stringValue": "ci" } },
+      { "key": "service.instance.id", "value": { "stringValue": "runner-3/4711" } },
+      { "key": "telemetry.sdk.language", "value": { "stringValue": "python" } },
+      { "key": "telemetry.sdk.name", "value": { "stringValue": "opentelemetry" } },
+      { "key": "telemetry.sdk.version", "value": { "stringValue": "1.29.0" } },
+      { "key": "telemetry.distro.name", "value": { "stringValue": "opentelemetry-distro" } },
+      { "key": "process.runtime.name", "value": { "stringValue": "cpython" } },
+      { "key": "process.runtime.version", "value": { "stringValue": "3.12.7" } }
+    ]
+  }
+}

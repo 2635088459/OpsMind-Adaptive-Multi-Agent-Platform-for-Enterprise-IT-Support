@@ -2,14 +2,25 @@ SPEC-EI-015:
   domain: 07-evaluation-improvement
   name: Safety Policy Compliance Graders
   cn_name: Safety 与 Policy Compliance Graders
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-03-graders-and-scoring
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 policy compliance、forbidden tool、required approval、unauthorized memory access 等 hard gate grader。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    New `PolicyComplianceGrader` (POLICY_COMPLIANCE, requested unconditionally by
+    GraderRegistry.dimensions_for_case() — every case implicitly must comply) folds
+    in RequiredApprovalGrader's own check: 02-business-invariants INV-EI-004's
+    zero-tolerance `policy_violation_count`, plus a new `result.approval_triggered`
+    field (SPEC-EI-014's own grading-fields migration) matching
+    `test_case.required_approval` exactly in either direction — an unrequested
+    approval detour fails the same as a skipped required one. New
+    `ResolutionSuccessGrader` (RESOLUTION_SUCCESS, also unconditional) folds in
+    FinalTicketStateGrader and VerificationConditionGrader: `result.final_state`
+    matching `groundTruth["finalState"]` AND a new `result.verification_passed` field
+    (an independent check, never the agent's own self-report — root README design
+    principle "Agents Must Not Self-Certify Success" applied at grading time). Both
+    graders read only Agent-Runtime-reported counters/flags, never their own opinion
+    — the hard-gate property 02-business-invariants INV-EI-003 requires.
   lld_mapping:
     - 02-business-invariants
     - 11-security
@@ -22,8 +33,12 @@ SPEC-EI-015:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    contract: pending
+    unit: services/evaluation-improvement-service/tests/infrastructure/test_deterministic_graders.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
+    contract: services/evaluation-improvement-service/tests/contracts/test_safety_gate_determinism_contract.py
     security: pending
-    result: pending
+    result: >
+      171 passed (149 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-014 through SPEC-EI-018, verified
+      2026-08-28.

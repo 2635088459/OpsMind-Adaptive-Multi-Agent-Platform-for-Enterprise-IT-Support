@@ -1,0 +1,9 @@
+SPEC-OP-013:
+  domain: 08-observability-platform
+  name: Loki Log Backend
+  cn_name: Loki Log 后端
+  status: planned
+  phase: phase-03-telemetry-backends-retention
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

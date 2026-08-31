@@ -1,0 +1,34 @@
+# owner: platform-observability
+# spec: SPEC-OP-002
+# rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate alertmanager
+#
+# Alertmanager config (component matrix §6). SPEC-OP-002 ships a minimal, valid
+# routing tree so the Prometheus -> Alertmanager wiring is provable. The real routing
+# tree, receivers, and inhibition catalog are SPEC-OP-021. No receiver may call a
+# business write API or auto-remediate a domain (forbidden-business-writes F1).
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 3h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: default
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  # Local default: swallow notifications. SPEC-OP-021 adds paging / chat receivers,
+  # whose endpoints come from the environment secret store by reference only.
+  - name: default
+
+inhibit_rules:
+  - source_matchers: [severity = "critical"]
+    target_matchers: [severity = "warning"]
+    equal: ["alertname", "namespace"]

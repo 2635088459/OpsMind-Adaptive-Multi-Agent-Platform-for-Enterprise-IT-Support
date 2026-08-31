@@ -5,7 +5,10 @@ UC-EI-002 step 6: "生成 score 和 regression report."
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
+
+from opentelemetry import trace
 
 from evaluationimprovement.application.commands import CompareRegressionCommand
 from evaluationimprovement.application.exceptions import BaselineRunNotFoundException, ReportNotFoundException, RunNotFoundException
@@ -19,12 +22,15 @@ from evaluationimprovement.application.ports_out import (
     ScoreRepository,
     TestCaseRepository,
 )
+from evaluationimprovement.application.telemetry import EvaluationTelemetry
 from evaluationimprovement.application.views import RegressionReportView
 from evaluationimprovement.domain.enums import EvaluationDimension, GraderType, RunStatus
 from evaluationimprovement.domain.events import EvaluationRegressionDetected
 from evaluationimprovement.domain.ids import ReportId, RunId
 from evaluationimprovement.domain.regression_report import RegressionReport
 from evaluationimprovement.domain.values import GateResult, MetricDiff
+
+tracer = trace.get_tracer(__name__)
 
 # 12-observability §"Metrics": `evaluation_score{dimension,...}` — dimensions where a
 # *lower* value is the improvement (cost, latency); every other dimension is
@@ -37,7 +43,7 @@ class CompareRegressionService:
     def __init__(
         self, run_repository: EvaluationRunRepository, test_case_repository: TestCaseRepository, score_repository: ScoreRepository,
         case_execution_result_repository: CaseExecutionResultRepository, regression_report_repository: RegressionReportRepository,
-        outbox_repository: OutboxRepository, clock: ClockPort,
+        outbox_repository: OutboxRepository, clock: ClockPort, telemetry: EvaluationTelemetry,
     ) -> None:
         self._run_repository = run_repository
         self._test_case_repository = test_case_repository
@@ -46,8 +52,17 @@ class CompareRegressionService:
         self._regression_report_repository = regression_report_repository
         self._outbox_repository = outbox_repository
         self._clock = clock
+        self._telemetry = telemetry
 
     def compare(self, command: CompareRegressionCommand) -> RegressionReportView:
+        stage_started_at = time.perf_counter()
+        with tracer.start_as_current_span("RegressionComparator.compare"):
+            try:
+                return self._compare_traced(command)
+            finally:
+                self._telemetry.record_stage_latency("COMPARE", time.perf_counter() - stage_started_at)
+
+    def _compare_traced(self, command: CompareRegressionCommand) -> RegressionReportView:
         run = self._run_repository.find_by_id(command.run_id)
         if run is None:
             raise RunNotFoundException(command.run_id)

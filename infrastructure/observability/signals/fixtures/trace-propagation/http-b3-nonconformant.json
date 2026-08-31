@@ -1,0 +1,15 @@
+{
+  "_fixture": {
+    "spec": "SPEC-OP-005",
+    "kind": "nonconformant",
+    "transport": "http",
+    "expect": "reject",
+    "reject_reason": "uses B3 propagation headers (x-b3-*) instead of W3C traceparent; b3 is a forbidden propagator",
+    "remediation": "set OTEL_PROPAGATORS=tracecontext,baggage on the calling service and remove the B3 propagator"
+  },
+  "carrier": {
+    "x-b3-traceid": "0af7651916cd43dd8448eb211c80319c",
+    "x-b3-spanid": "b7ad6b7169203331",
+    "x-b3-sampled": "1"
+  }
+}

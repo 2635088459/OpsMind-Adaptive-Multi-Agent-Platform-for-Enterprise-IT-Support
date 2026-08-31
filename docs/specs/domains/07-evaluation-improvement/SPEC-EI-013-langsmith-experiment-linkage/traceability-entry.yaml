@@ -2,14 +2,30 @@ SPEC-EI-013:
   domain: 07-evaluation-improvement
   name: Langsmith Experiment Linkage
   cn_name: LangSmith Experiment Linkage
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-02-benchmark-run-and-runner
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 LangSmith dataset/experiment/run artifact linkage，以及 outage 下的最小本地事实保存。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closed two gaps: (1) LangSmithClientAdapter's own module docstring: "Real LangSmith
+    SDK wiring is SPEC-EI-013 scope" — new `SdkLangSmithDatasetAdapter`/
+    `SdkLangSmithExperimentAdapter` (infrastructure.langsmith) wrap the real
+    `langsmith` SDK (get-or-create Dataset by `{name}::{version}`, create/reuse a
+    Project bound to it as the "experiment"), both typing their own `client` param as
+    `object` rather than `langsmith.Client` so they stay unit-testable against a
+    duck-typed fake without the real package installed; new
+    Settings.langsmith_mode ("noop" default / "sdk") plus `LangSmithPort.is_enabled()`
+    let container.py pick between them, degrading to no-op (logged) if the SDK import
+    or client construction itself fails. (2) 10-failure-handling's own "对离线 release
+    gate：fail closed" was never actually enforced anywhere — new port
+    `LangSmithLinkRepository` (+ in-memory/Postgres adapters, table
+    `evaluation_run_langsmith_links`, migration
+    c2f9a6e4d8b1_case_execution_queue_and_langsmith_link.py) persists the
+    `(enabled, experiment_ref)` outcome CreateRunService observes at create_run() time;
+    EvaluateReleaseGateService now reads it back and fails the gate closed
+    (`reason=langsmith_unavailable`) only when `enabled=True` and `experiment_ref` is
+    still None — a disabled (never-attempted) integration, the default in every
+    existing test, never affects the gate.
   lld_mapping:
     - 07-data-model
     - 12-observability
@@ -22,8 +38,13 @@ SPEC-EI-013:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/infrastructure/test_langsmith_adapters.py
+    application: services/evaluation-improvement-service/tests/application/test_evaluate_release_gate_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      152 passed (130 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-011 through SPEC-EI-013, verified
+      2026-08-28.

@@ -1,0 +1,16 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.1
+# meta.spec: SPEC-OP-002
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/TargetDown.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-002-traceability.md
+#
+# Self-monitoring seed for the observability platform (SPEC-OP-033 owns the full set).
+groups:
+  - name: platform-self-recording
+    interval: 30s
+    rules:
+      - record: job:up:ratio
+        expr: avg by (job) (up)

@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-006", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "CamelCase name; must match ^[a-z][a-z0-9_]*[a-z0-9]$ and end with an allowed unit suffix" },
+  "metric": {
+    "name": "EvaluationScoreRatio",
+    "type": "gauge", "unit": "ratio", "namespace": "evaluation",
+    "labels": ["grader", "dataset"]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-006", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "duration in milliseconds; _ms is a forbidden unit substring (use _seconds)" },
+  "metric": {
+    "name": "http_server_request_duration_ms",
+    "type": "histogram", "unit": "ms", "namespace": "http",
+    "labels": ["http_request_method", "http_response_status_code"]
+  }
+}

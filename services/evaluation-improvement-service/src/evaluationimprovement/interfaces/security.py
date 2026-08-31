@@ -25,6 +25,19 @@ def actor(x_actor_id: str = Header(..., alias="X-Actor-Id"), x_actor_role: str =
     return x_actor_id, x_actor_role
 
 
+def optional_actor(
+    x_actor_id: str | None = Header(default=None, alias="X-Actor-Id"), x_actor_role: str | None = Header(default=None, alias="X-Actor-Role"),
+) -> tuple[str, str]:
+    """SPEC-EI-034 (evaluation-security-redaction-observability): unlike `actor()`,
+    a read endpoint must keep working for a caller who asserts no identity at all —
+    05-api-contracts's own default-read-floor (EVALUATION_VIEWER, "读取 report 和非敏感
+    score") applies, not a 400. Only case-level *evidence* visibility
+    (`can_view_sensitive_evidence()`) actually depends on the role this resolves to;
+    every other read stays unaffected by an absent header pair.
+    """
+    return x_actor_id or "anonymous", x_actor_role or "EVALUATION_VIEWER"
+
+
 def tenant_id(x_tenant_id: str = Header(default="default", alias="X-Tenant-Id")) -> str:
     return x_tenant_id
 

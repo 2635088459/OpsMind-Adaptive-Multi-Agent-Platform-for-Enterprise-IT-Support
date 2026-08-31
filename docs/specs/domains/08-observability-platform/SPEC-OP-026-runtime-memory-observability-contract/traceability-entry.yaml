@@ -1,0 +1,9 @@
+SPEC-OP-026:
+  domain: 08-observability-platform
+  name: Runtime And Memory Observability Contract
+  cn_name: Runtime 与 Memory 观测契约
+  status: planned
+  phase: phase-06-cross-domain-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

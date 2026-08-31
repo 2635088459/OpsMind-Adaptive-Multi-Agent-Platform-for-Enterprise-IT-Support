@@ -2,14 +2,29 @@ SPEC-EI-024:
   domain: 07-evaluation-improvement
   name: Improvement Candidate Aggregate State Machine
   cn_name: Improvement Candidate 聚合与状态机
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-05-improvement-candidate-lifecycle
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 ImprovementCandidate 聚合、candidate type、状态机和 finality。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Audited during the phase-05 pass and confirmed already complete from SPEC-EI-001's
+    own foundational build: `domain.improvement_candidate.ImprovementCandidate` is the
+    full aggregate — `_CANDIDATE_STATE_MACHINE` (StateMachine[CandidateStatus]) covers
+    every 03-state-machine transition (DRAFT -> BENCHMARKING -> PENDING_APPROVAL ->
+    APPROVED -> CANARYING -> {PROMOTED, ROLLED_BACK}; REJECTED/ROLLED_BACK terminal),
+    and a second `_CANARY_STATE_MACHINE` models Canary as a sub-state on the same
+    aggregate (`canary_status`/`canary_plan` fields, not a separate top-level
+    aggregate) — matching 01-domain-model's own field list and 07-data-model's own
+    single-table `improvement_candidates` row shape exactly. `request_approval()`
+    enforces `CandidateMissingBenchmarkException` (INV-EI-002), `approve()` enforces
+    `SelfApprovalNotAllowedException` (11-security: candidate 不能自我审批),
+    `start_canary()` enforces `CandidateMissingApprovalException`
+    (08-transaction-and-outbox: Canary requires a bound 06 approval reference), and
+    `is_final` exposes candidate finality via `StateMachine.is_terminal()`. This
+    phase's own SPEC-EI-025 work added one field to the same aggregate
+    (`benchmark_run_id: RunId | None`) and updated `record_benchmark_result()`'s
+    signature to bind it — see that spec's own traceability entry; no other change to
+    this spec's own scope was needed.
   lld_mapping:
     - 01-domain-model
     - 03-state-machine
@@ -22,8 +37,12 @@ SPEC-EI-024:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/domain/test_improvement_candidate.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      163 passed (139 non-integration + 24 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-023 through SPEC-EI-026, verified
+      2026-08-28.

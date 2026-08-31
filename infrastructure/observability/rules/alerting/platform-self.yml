@@ -1,0 +1,40 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.1
+# meta.spec: SPEC-OP-002
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/TargetDown.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-002-traceability.md
+#
+# Self-monitoring seed: proves the Prometheus -> Alertmanager wiring. SPEC-OP-033
+# owns the full observability-platform self-monitoring alert set; SPEC-OP-020 owns
+# the platform-wide rule catalog.
+groups:
+  - name: platform-self-alerting
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down"
+          description: "Prometheus has not scraped {{ $labels.job }} at {{ $labels.instance }} for >2m."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TargetDown.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: PrometheusRuleEvaluationFailing
+        expr: increase(prometheus_rule_evaluation_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Prometheus rule evaluation failing"
+          description: "One or more recording/alerting rules failed to evaluate in the last 5m."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/TargetDown.md"
+          dashboard: "Observability Platform Self-Monitoring"

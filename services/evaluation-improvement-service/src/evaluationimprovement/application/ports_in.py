@@ -13,8 +13,17 @@ from evaluationimprovement.application.commands import (
     ApproveCandidateCommand,
     ArchiveDatasetCommand,
     CancelRunCommand,
+    CollectOnlineSampleCommand,
     CompareRegressionCommand,
     CompleteCanaryRollbackCommand,
+    ConsumeApprovalDeniedCommand,
+    ConsumeApprovalGrantedCommand,
+    ConsumeMemoryRetrievalCompletedCommand,
+    ConsumeTicketReopenedCommand,
+    ConsumeTicketResolvedCommand,
+    ConsumeToolCompletedCommand,
+    ConsumeWorkflowCompletedCommand,
+    ConsumeWorkflowFailedCommand,
     CreateDatasetCommand,
     CreateDatasetVersionCommand,
     CreateImprovementCandidateCommand,
@@ -31,17 +40,23 @@ from evaluationimprovement.application.commands import (
     RejectDatasetReviewCommand,
     RequestCandidateApprovalCommand,
     RequestCanaryRollbackCommand,
+    RollbackPromotedCandidateCommand,
     ScoreCaseCommand,
     SkipCaseCommand,
     StartCanaryCommand,
     SubmitDatasetForReviewCommand,
 )
-from evaluationimprovement.application.records import AuditRecordEntry, GatePolicyConfig
+from evaluationimprovement.application.records import AuditRecordEntry, GatePolicyConfig, PoisonEventRecord
 from evaluationimprovement.application.views import (
+    CanaryPromotionDecisionView,
+    CaseRunnerReport,
     DatasetView,
     DispatchReport,
+    FailureClusterView,
     GraderDescriptor,
     ImprovementCandidateView,
+    OnlineEvaluationSampleView,
+    OnlineSampleScoringReport,
     RegressionReportView,
     RunView,
     ScoreView,
@@ -132,11 +147,24 @@ class RunQueryUseCase(Protocol):
 
     def find_run(self, run_id: RunId) -> RunView: ...
 
-    def find_scores(self, run_id: RunId) -> tuple[ScoreView, ...]: ...
+    def find_scores(self, run_id: RunId, actor: str, actor_role: str) -> tuple[ScoreView, ...]:
+        """SPEC-EI-034 (evaluation-security-redaction-observability): `actor`/
+        `actor_role` gate whether sensitive per-score evidence is included — see
+        CreateRunService.find_scores()'s own docstring.
+        """
+        ...
 
     def list_runs(self, dataset_id: DatasetId, status: str | None, limit: int) -> tuple[RunView, ...]:
         """SPEC-EI-010 / 05-api-contracts: "状态可见性" — `GET
         /evaluation/runs?dataset_id=&status=`, newest first.
+        """
+        ...
+
+    def find_stuck_runs(self, sla_seconds: int) -> tuple[RunView, ...]:
+        """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 12-observability
+        §"Alerts": "run stuck in RUNNING 或 SCORING beyond SLA" — see
+        EvaluationRunRepository.find_stuck()'s own docstring for how "stuck" is
+        measured. Oldest first.
         """
         ...
 
@@ -224,6 +252,13 @@ class ManageCanaryUseCase(Protocol):
 
     def complete_rollback(self, command: CompleteCanaryRollbackCommand) -> ImprovementCandidateView: ...
 
+    def rollback_promoted(self, command: RollbackPromotedCandidateCommand) -> ImprovementCandidateView:
+        """SPEC-EI-036: a promoted candidate's own rollback path — see
+        RollbackPromotedCandidateCommand's own docstring for why this is distinct
+        from request_rollback()/complete_rollback()'s own in-progress-canary shape.
+        """
+        ...
+
 
 class OutboxDispatchPort(Protocol):
     """08-transaction-and-outbox §"Outbox 发布". Not a domain use case, an operational
@@ -233,10 +268,44 @@ class OutboxDispatchPort(Protocol):
     def dispatch_due_events(self, batch_size: int) -> DispatchReport: ...
 
 
+class CaseRunnerPort(Protocol):
+    """SPEC-EI-011: an operational surface, not a domain use case — mirrors
+    OutboxDispatchPort exactly. infrastructure.runtime.case_runner_worker.
+    CaseRunnerWorker is this port's only real caller (a scheduled/looped worker
+    process); tests reach it directly through container.case_runner_port the same way
+    other tests reach container.outbox_dispatch_port.
+    """
+
+    def run_once(self, worker_id: str, batch_size: int) -> CaseRunnerReport: ...
+
+    def reclaim_expired_leases(self, batch_size: int) -> int: ...
+
+
 class AuditQueryUseCase(Protocol):
     """05-api-contracts §"管理 API": `GET /evaluation/audit`."""
 
     def list_audit_events(self, limit: int) -> list[AuditRecordEntry]: ...
+
+
+class AdminRecoveryUseCase(Protocol):
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 05-api-contracts
+    §"管理 API": `POST /evaluation/outbox/dispatch` — the manual replay trigger
+    10-failure-handling step "支持 admin replay" names, audited (unlike the plain
+    `OutboxDispatchPort.dispatch_due_events()` this wraps).
+    """
+
+    def dispatch_outbox_events(self, batch_size: int, actor: str, correlation_id: str) -> DispatchReport: ...
+
+
+class PoisonEventQueryUseCase(Protocol):
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 05-api-contracts
+    §"管理 API": `GET /evaluation/poison-events` — 10-failure-handling step 4's own
+    "支持 admin replay" surface: an operator sees what needs fixing, fixes the
+    upstream issue, then re-POSTs the same event to the same ingestion endpoint
+    (never marked processed, so the dedup gate lets it through again).
+    """
+
+    def list_poison_events(self, limit: int) -> list[PoisonEventRecord]: ...
 
 
 class GatePolicyUseCase(Protocol):
@@ -251,3 +320,69 @@ class GraderCatalogUseCase(Protocol):
     """05-api-contracts §"管理 API": `GET /evaluation/graders`."""
 
     def list_graders(self) -> tuple[GraderDescriptor, ...]: ...
+
+
+class CrossDomainEventConsumerPort(Protocol):
+    """SPEC-EI-030 (ticket-runtime-evaluation-contract) / SPEC-EI-031 (memory-tool-
+    evidence-contract): `POST /internal/evaluation/v1/events/*` — a manual/ops
+    trigger until a real RabbitMQ async consumer exists, mirroring
+    memory-knowledge-service's own interfaces/event/router.py precedent exactly.
+    """
+
+    def consume_ticket_resolved(self, command: ConsumeTicketResolvedCommand) -> bool: ...
+
+    def consume_ticket_reopened(self, command: ConsumeTicketReopenedCommand) -> bool: ...
+
+    def consume_workflow_completed(self, command: ConsumeWorkflowCompletedCommand) -> bool: ...
+
+    def consume_workflow_failed(self, command: ConsumeWorkflowFailedCommand) -> bool: ...
+
+    def consume_tool_completed(self, command: ConsumeToolCompletedCommand) -> bool: ...
+
+    def consume_memory_retrieval_completed(self, command: ConsumeMemoryRetrievalCompletedCommand) -> bool: ...
+
+
+class ApprovalDecisionEventConsumerPort(Protocol):
+    """SPEC-EI-032 (policy-approval-release-approval-contract): `POST
+    /internal/evaluation/v1/events/approval-granted`/`.../approval-denied`.
+    """
+
+    def consume_granted(self, command: ConsumeApprovalGrantedCommand) -> bool: ...
+
+    def consume_denied(self, command: ConsumeApprovalDeniedCommand) -> bool: ...
+
+
+class FailureClusterQueryUseCase(Protocol):
+    """SPEC-EI-023 (failure-clustering-root-cause-taxonomy): `GET
+    /evaluation/runs/{runId}/failure-clusters`.
+    """
+
+    def list_clusters(self, run_id: RunId) -> tuple[FailureClusterView, ...]: ...
+
+
+class OnlineSampleUseCase(Protocol):
+    """SPEC-EI-028 (online-sample-evaluation): `POST /evaluation/online-samples`."""
+
+    def collect(self, command: CollectOnlineSampleCommand) -> OnlineEvaluationSampleView: ...
+
+    def find_samples_for_candidate(self, candidate_id: CandidateId) -> tuple[OnlineEvaluationSampleView, ...]: ...
+
+
+class CanaryPromotionUseCase(Protocol):
+    """SPEC-EI-029 (promotion-criteria-rollback-request): `GET
+    /evaluation/improvement-candidates/{candidateId}/promotion-criteria`.
+    """
+
+    def evaluate(self, candidate_id: CandidateId) -> CanaryPromotionDecisionView: ...
+
+
+class OnlineSampleScoringPort(Protocol):
+    """SPEC-EI-028: an operational surface, not a domain use case — mirrors
+    OutboxDispatchPort/CaseRunnerPort exactly. No standing worker process consumes it
+    yet (04-use-cases UC-EI-006's own step 4 is delayed, non-blocking scoring, not a
+    synchronous call any REST request waits on); tests reach it directly through
+    container.online_sample_scoring_port the same way other tests reach
+    container.outbox_dispatch_port.
+    """
+
+    def score_pending(self, batch_size: int) -> OnlineSampleScoringReport: ...

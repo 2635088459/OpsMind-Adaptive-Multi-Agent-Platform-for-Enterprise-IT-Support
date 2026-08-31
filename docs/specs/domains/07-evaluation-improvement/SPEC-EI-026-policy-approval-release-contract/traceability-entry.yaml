@@ -2,14 +2,49 @@ SPEC-EI-026:
   domain: 07-evaluation-improvement
   name: Policy Approval Release Contract
   cn_name: Policy Approval Release Contract
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-05-improvement-candidate-lifecycle
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 07 向 06 发起 release approval request，并消费 approval granted/denied/expired/cancelled。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Implements the request-request half of this spec's own goal ("07 向 06 发起
+    release approval request"): new `HttpPolicyApprovalAdapter`
+    (infrastructure.policy.policy_approval_client), the real httpx client against
+    06-policy-approval-governance's own `POST /api/v1/approval-requests` contract
+    (read directly from that service's own ApprovalController.java /
+    RequestApprovalRequest.java / ApprovalRequestResponse.java) — mirrors
+    HttpAgentRuntimeEvaluationAdapter's own real/fake seam exactly, gated behind new
+    `Settings.policy_approval_mode: Literal["fake","http"]` ("fake" default keeps
+    FakePolicyApprovalAdapter, every hermetic test's own dependency).
+    `approvalType=GENERIC` (06's own catch-all — a candidate release approval is none
+    of 06's other named tool/ticket/workflow/policy-override types);
+    `requestKey=evaluation-improvement:candidate:{candidateId}` so a resubmitted
+    request_approval() call for the same candidate always converges on 06's own side.
+    New `PolicyApprovalUnavailableException` (application.exceptions, raised by the
+    infrastructure adapter the same way GraderNotFoundException already is) wraps
+    every real-call failure mode (timeout, non-2xx, malformed body) into one type,
+    mapped by interfaces.errors to `503 DEPENDENCY_UNAVAILABLE`
+    (05-api-contracts §"API 原则": 必须区分...dependency unavailable). Tested against
+    httpx.MockTransport, never a live 06 instance — 06's own
+    GovernanceRequestContext requires a real Spring Security Authentication with a
+    non-blank name to populate `requestedBy` server-side, which no cross-service
+    identity mechanism in this repo issues yet (the same gap
+    HttpAgentRuntimeEvaluationAdapter's own docstring names for 03's endpoint); this
+    adapter still carries `Settings.policy_approval_service_token` as an optional
+    bearer header, its own honest placeholder for that future identity.
+
+    Explicitly NOT implemented here, matching FakePolicyApprovalAdapter's own
+    pre-existing docstring precedent ("Real integration...is SPEC-EI-026/032 scope")
+    and every spec's own boundary rule ("不得扩大到相邻 phase 的实现范围"): consuming
+    06's own `approval.granted`/`approval.denied`/`approval.expired`/
+    `approval.cancelled` events. Today `approve()`/`reject()` on a candidate are still
+    driven synchronously by an admin/approver's own direct REST call
+    (ApproveCandidateCommand/RejectCandidateCommand, SPEC-EI-001 scope), not an
+    asynchronous 06 event — building the RabbitMQ consumer, processed-event dedup,
+    and event-to-command mapping this would need belongs to SPEC-EI-032
+    (phase-07-cross-domain-contracts), which sits later in this domain's own
+    sequential phase order and owns 06-event-contracts consumption as its own named
+    scope.
   lld_mapping:
     - 05-api-contracts
     - 06-event-contracts
@@ -23,8 +58,15 @@ SPEC-EI-026:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
+    unit: services/evaluation-improvement-service/tests/infrastructure/test_policy_approval_http_client.py
     integration: pending
     contract: pending
     security: pending
-    result: pending
+    result: >
+      163 passed (139 non-integration + 24 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-023 through SPEC-EI-026, verified
+      2026-08-28. No integration test targets 06 directly (06 is a separate service
+      this repo does not stand up in this test run) — coverage is the mock-transport
+      unit suite only, the same limitation HttpAgentRuntimeEvaluationAdapter's own
+      test_evidence carries for 03.

@@ -1,0 +1,9 @@
+SPEC-OP-019:
+  domain: 08-observability-platform
+  name: Agent LLM Cost And Capacity Dashboard
+  cn_name: Agent、LLM 成本与容量 Dashboard
+  status: planned
+  phase: phase-04-dashboards-correlation-analysis
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

@@ -1,0 +1,19 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-006
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/MetricCardinalityBudget.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-006-traceability.md
+#
+# Cardinality observability for SPEC-OP-006. SPEC-OP-012 tunes thresholds for the
+# real production TSDB.
+groups:
+  - name: cardinality-recording
+    interval: 1m
+    rules:
+      - record: job:series:count
+        expr: count by (job) ({__name__=~".+"})
+      - record: series:count:total
+        expr: sum(job:series:count)

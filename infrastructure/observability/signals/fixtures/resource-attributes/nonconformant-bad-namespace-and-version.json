@@ -1,0 +1,20 @@
+{
+  "_fixture": {
+    "spec": "SPEC-OP-004",
+    "kind": "nonconformant",
+    "producer": "java",
+    "expect": "reject",
+    "reject_reason": "service.namespace 'billing' is not an allowed domain slug; service.version 'dev' is neither SemVer nor git:<12hex>",
+    "collector_behavior": "these are not auto-corrected by SPEC-OP-004 enforcement (only missing service.name is); they surface as a contract-test failure in CI and, at runtime, as unfamiliar label values on dashboards"
+  },
+  "resource": {
+    "attributes": [
+      { "key": "service.name", "value": { "stringValue": "billing-service" } },
+      { "key": "service.version", "value": { "stringValue": "dev" } },
+      { "key": "service.namespace", "value": { "stringValue": "billing" } },
+      { "key": "deployment.environment", "value": { "stringValue": "prod" } },
+      { "key": "service.instance.id", "value": { "stringValue": "x" } },
+      { "key": "telemetry.sdk.language", "value": { "stringValue": "kotlin" } }
+    ]
+  }
+}

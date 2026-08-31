@@ -1,0 +1,9 @@
+SPEC-OP-029:
+  domain: 08-observability-platform
+  name: PostgreSQL RabbitMQ And Connector Contract
+  cn_name: PostgreSQL、RabbitMQ 与 Connector 契约
+  status: planned
+  phase: phase-06-cross-domain-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

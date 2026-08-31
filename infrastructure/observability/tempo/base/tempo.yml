@@ -1,0 +1,61 @@
+# owner: platform-observability
+# spec: SPEC-OP-002
+# rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate tempo
+#
+# Tempo config (ADR-0002). Receives traces ONLY from the Collector over internal OTLP
+# 4317 (host port NOT published). metrics_generator emits span metrics + service graphs
+# to Prometheus via remote_write — these are VIEWS, never business facts (ADR-0004).
+# Block retention / object storage is SPEC-OP-015. Overlay sets environment parameters.
+
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9096
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: ${TEMPO_BLOCK_RETENTION}
+
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      deployment_environment: ${TEMPO_ENV_LABEL}
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  traces_storage:
+    path: /var/tempo/generator/traces
+  processor:
+    local_blocks:
+      filter_server_spans: false
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics, local-blocks]
+
+usage_report:
+  reporting_enabled: false

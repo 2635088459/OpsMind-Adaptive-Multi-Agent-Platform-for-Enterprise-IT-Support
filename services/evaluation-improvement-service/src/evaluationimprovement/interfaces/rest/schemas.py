@@ -135,6 +135,13 @@ class SkipCaseRequest(BaseModel):
     correlation_id: str = Field(min_length=1)
 
 
+class EvidenceRefResponse(BaseModel):
+    artifact_provider: str
+    artifact_uri: str
+    artifact_hash: str
+    retention_until: str | None
+
+
 class ScoreResponse(BaseModel):
     score_id: UUID
     run_id: UUID
@@ -145,6 +152,63 @@ class ScoreResponse(BaseModel):
     grader_type: str
     grader_version: str
     failure_code: str | None
+    # SPEC-EI-034 (evaluation-security-redaction-observability): None/{} for any
+    # viewer without can_view_sensitive_evidence() — see
+    # CreateRunService.find_scores()'s own docstring.
+    evidence: EvidenceRefResponse | None = None
+    details: dict[str, Any] = {}
+
+
+class FailureClusterResponse(BaseModel):
+    """SPEC-EI-023 (failure-clustering-root-cause-taxonomy)."""
+
+    cluster_id: str
+    run_id: UUID
+    dimension: str
+    failure_code: str
+    case_count: int
+    test_case_ids: list[UUID]
+
+
+class CollectOnlineSampleRequest(BaseModel):
+    """SPEC-EI-028 (online-sample-evaluation) — see
+    application.commands.CollectOnlineSampleCommand's own docstring for what "already
+    selected/already redacted" means here.
+    """
+
+    candidate_id: UUID | None = None
+    target_version: str = Field(min_length=1)
+    source_event_type: str = Field(min_length=1)
+    source_trace_ref: str = Field(min_length=1)
+    redacted_context: dict[str, Any] = {}
+    correlation_id: str = Field(min_length=1)
+
+
+class OnlineEvaluationSampleResponse(BaseModel):
+    sample_id: UUID
+    candidate_id: UUID | None
+    target_version: str
+    source_event_type: str
+    source_trace_ref: str
+    status: str
+    collected_at: datetime
+    scored_at: datetime | None
+    composite_score: float | None
+    failure_code: str | None
+
+
+class CanaryPromotionDecisionResponse(BaseModel):
+    """SPEC-EI-029 (promotion-criteria-rollback-request): a recommendation only —
+    see application.views.CanaryPromotionDecisionView's own docstring.
+    """
+
+    candidate_id: UUID
+    eligible_to_advance: bool
+    recommend_rollback: bool
+    sample_count: int
+    required_sample_size: int
+    error_rate: float | None
+    reason: str
 
 
 class RegressionReportResponse(BaseModel):
@@ -177,6 +241,8 @@ class ImprovementCandidateResponse(BaseModel):
     risk_level: str
     status: str
     created_by: str
+    benchmark_run_id: UUID | None
+    benchmark_passed: bool
     approved_by: str | None
     approval_request_id: str | None
     canary_status: str | None
@@ -186,7 +252,7 @@ class ImprovementCandidateResponse(BaseModel):
 
 
 class RecordCandidateBenchmarkRequest(BaseModel):
-    passed: bool
+    benchmark_run_id: UUID
     correlation_id: str = Field(min_length=1)
 
 
@@ -208,6 +274,7 @@ class CanaryStageRequest(BaseModel):
     traffic_percent: float = Field(gt=0, le=100)
     min_duration_minutes: int = Field(gt=0)
     rollback_error_rate_threshold: float = Field(ge=0, le=1)
+    sample_size: int = Field(default=1, gt=0)
 
 
 class StartCanaryRequest(BaseModel):
@@ -218,6 +285,39 @@ class StartCanaryRequest(BaseModel):
 
 
 class RollbackCandidateRequest(BaseModel):
+    reason: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+
+
+class AdvanceCanaryRequest(BaseModel):
+    """SPEC-EI-036 (evaluation-contract-e2e-harness-final-release): closes a real gap
+    the phase's own final coverage audit found — advance()/promote() were real
+    ManageCanaryUseCase/CreateImprovementCandidateUseCase methods with no REST
+    endpoint at all, meaning a candidate approved and canary-started over HTTP could
+    never actually reach PROMOTED through the API.
+    """
+
+    correlation_id: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+
+
+class PauseCanaryRequest(BaseModel):
+    reason: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+
+
+class CompleteCanaryRollbackRequest(BaseModel):
+    correlation_id: str = Field(min_length=1)
+
+
+class PromoteCandidateRequest(BaseModel):
+    promoted_version: str = Field(min_length=1)
+    correlation_id: str = Field(min_length=1)
+
+
+class RollbackPromotedCandidateRequest(BaseModel):
     reason: str = Field(min_length=1)
     correlation_id: str = Field(min_length=1)
     idempotency_key: str = Field(min_length=1)

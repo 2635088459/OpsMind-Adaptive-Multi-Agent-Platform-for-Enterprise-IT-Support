@@ -1,0 +1,9 @@
+SPEC-OP-034:
+  domain: 08-observability-platform
+  name: Outage Backlog Drop And Recovery
+  cn_name: 故障、积压、丢弃与恢复
+  status: planned
+  phase: phase-08-self-monitoring-recovery-degraded-mode
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

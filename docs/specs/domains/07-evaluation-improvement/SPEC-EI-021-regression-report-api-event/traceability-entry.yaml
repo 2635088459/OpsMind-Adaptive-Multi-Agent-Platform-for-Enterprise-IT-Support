@@ -2,14 +2,20 @@ SPEC-EI-021:
   domain: 07-evaluation-improvement
   name: Regression Report Api Event
   cn_name: Regression Report API 与 Event
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-04-regression-and-release-gate
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 regression report persistence/API，以及 gate passed/failed/regression detected 事件。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Found already implemented by earlier phase-02/03 work (left `planned` even though
+    the code had landed) — `GET /evaluation/runs/{runId}/regression-report` and
+    `GET /evaluation/reports/{reportId}` (interfaces.rest.router) both real; 05-api-
+    contracts's own named events all real and outbox-committed same-transaction as
+    the aggregate write: `evaluation.regression.detected.v1` (CompareRegressionService,
+    only when a baseline comparison actually regressed a dimension),
+    `evaluation.gate.passed.v1`/`evaluation.gate.failed.v1`/`evaluation.run.completed.v1`
+    (EvaluateReleaseGateService). No code changes were needed for this spec during
+    the phase-04 audit; verified via the existing/expanded suite.
   lld_mapping:
     - 05-api-contracts
     - 06-event-contracts
@@ -22,8 +28,14 @@ SPEC-EI-021:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/contracts/test_event_envelope_contract.py
+    application: services/evaluation-improvement-service/tests/application/test_pipeline_walkthrough.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
+    end_to_end: services/evaluation-improvement-service/tests/test_app.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      177 passed (155 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-019 through SPEC-EI-022, verified
+      2026-08-29.

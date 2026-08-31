@@ -1,0 +1,9 @@
+SPEC-OP-025:
+  domain: 08-observability-platform
+  name: Identity And Ticket Observability Contract
+  cn_name: Identity 与 Ticket 观测契约
+  status: planned
+  phase: phase-06-cross-domain-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

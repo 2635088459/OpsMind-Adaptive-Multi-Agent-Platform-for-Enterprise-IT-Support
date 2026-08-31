@@ -2,14 +2,39 @@ SPEC-EI-028:
   domain: 07-evaluation-improvement
   name: Online Sample Evaluation
   cn_name: Online Sample Evaluation
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-06-canary-and-controlled-release
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现线上抽样评估、脱敏、sample queue、quality scoring 和 trend aggregation。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Implements UC-EI-006 steps 3-5 (queue, delayed quality scoring, trend metric) — a
+    genuine gap; nothing in this service touched online sampling before this phase.
+    Steps 1-2 (consuming 02/03's own workflow-completed/ticket-reopened/tool-failed/
+    approval-denied events and applying the sampling policy that selects a trace) are
+    explicitly out of scope here — SPEC-EI-030 (ticket-runtime-evaluation-contract,
+    phase-07) owns locking in that cross-domain event contract, the same
+    request-vs-consume split SPEC-EI-026/SPEC-EI-032 already established for policy
+    approval. New pragmatic-extension record `OnlineEvaluationSample` (application.
+    records, not a domain aggregate — no state machine, no invariant beyond
+    "QUEUED until scored") and port `OnlineSampleRepository`
+    (application.ports_out), backed by new in-memory/Postgres adapters and a new
+    `evaluation_online_samples` table (migration a3d9e2f5c186, nullable FK to
+    `improvement_candidates` — a sample may be general online monitoring, not scoped
+    to any one candidate's canary). New service `CollectOnlineSampleService`
+    (application.services.collect_online_sample): `collect()` queues an
+    already-selected, already-redacted trace reference (`POST
+    /evaluation/online-samples`, admin-only); `score_pending()` is an operational
+    surface — never REST-exposed, mirrors OutboxDispatchPort/CaseRunnerPort's own
+    precedent exactly — that delayed-scores queued samples via a new
+    `OnlineSampleQualityJudgePort` and emits an OpenTelemetry histogram
+    (`online_sample_quality_score`), never a gate. New judges
+    `PlaceholderOnlineSampleJudge`/`AnthropicOnlineSampleJudge`
+    (infrastructure.graders.llm_judge) reuse `JudgeAssessment`'s own four facets
+    (explanation quality / evidence grounding / handoff completeness / user
+    instruction clarity — UC-EI-006 step 4 names these exact four) unchanged, but
+    build their prompt from only the sample's own redacted context — never a ground
+    truth, since a production trace has none — gated behind the same
+    `Settings.llm_judge_mode` flag `_build_quality_judge()` already reads.
   lld_mapping:
     - 04-use-cases
     - 11-security
@@ -23,8 +48,14 @@ SPEC-EI-028:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_collect_online_sample_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      177 passed (152 non-integration + 25 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-027 through SPEC-EI-029, verified
+      2026-08-28. No integration test targets a live LLM (AnthropicOnlineSampleJudge
+      is tested against a mock client, same limitation AnthropicQualityJudge's own
+      test_evidence carries).

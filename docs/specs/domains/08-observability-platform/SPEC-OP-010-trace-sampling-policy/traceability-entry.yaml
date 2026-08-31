@@ -1,0 +1,9 @@
+SPEC-OP-010:
+  domain: 08-observability-platform
+  name: Trace Sampling Policy
+  cn_name: Trace Sampling 策略
+  status: planned
+  phase: phase-02-collector-intake-processing
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

@@ -1,0 +1,247 @@
+# OpsMind Observability Platform — LOCAL topology (SPEC-OP-002).
+# owner: platform-observability
+#
+# All six components (ADR-0001/0002) with pinned image+digest, ports, named volumes,
+# health checks, and CPU/memory limits. Config is bind-mounted read-only from
+# infrastructure/observability/<component>/{base,overlays/local}/ — Git is the source
+# of truth (ADR-0003). This stack is independent of local-platform.yml and can run
+# alongside it.
+#
+# Run it via the wrapper, which assembles the base + overlay --env-file list:
+#   scripts/observability-stack.sh up
+#   scripts/observability-stack.sh smoke
+#   scripts/observability-stack.sh down
+#
+# Or directly:
+#   docker compose \
+#     --env-file infrastructure/observability/versions.env \
+#     --env-file infrastructure/observability/prometheus/overlays/local/values.env \
+#     --env-file infrastructure/observability/alertmanager/overlays/local/values.env \
+#     -f infrastructure/docker-compose/observability-stack.yml up -d
+
+name: opsmind-observability
+
+x-obs-labels: &obs-labels
+  com.opsmind.domain: "08-observability-platform"
+  com.opsmind.spec: "SPEC-OP-002"
+
+networks:
+  observability:
+    name: opsmind-observability
+
+volumes:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  grafana-data:
+  alertmanager-data:
+
+services:
+  # --------------------------------------------------------------------------
+  # OpenTelemetry Collector — sole OTLP ingestion boundary (ADR-0001)
+  # --------------------------------------------------------------------------
+  otel-collector:
+    image: ${OTEL_COLLECTOR_IMAGE}:${OTEL_COLLECTOR_TAG}@${OTEL_COLLECTOR_DIGEST}
+    container_name: opsmind-otel-collector
+    restart: unless-stopped
+    command:
+      - "--config=/etc/otelcol/base.yaml"
+      - "--config=/etc/otelcol/local.yaml"
+    environment:
+      OTEL_DEPLOYMENT_ENVIRONMENT: local
+      OTEL_TEMPO_ENDPOINT: tempo:4317
+      OTEL_LOKI_ENDPOINT: http://loki:3100/otlp
+    volumes:
+      - ../observability/collector/base/config.yaml:/etc/otelcol/base.yaml:ro
+      - ../observability/collector/overlays/local/config.yaml:/etc/otelcol/local.yaml:ro
+    ports:
+      - "4317:4317"     # OTLP gRPC  (application ingress)
+      - "4318:4318"     # OTLP HTTP  (application ingress)
+      - "13133:13133"   # health_check extension
+      - "8888:8888"     # collector's own telemetry
+      - "8889:8889"     # prometheus exporter (app metrics)
+      - "55679:55679"   # zpages
+    # The contrib image is scratch-based: no shell, no wget/curl. Only the collector
+    # binary can run as a healthcheck. `validate` re-parses the merged config and
+    # exits non-zero on any error, so an unhealthy collector = a broken config.
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol/base.yaml", "--config=/etc/otelcol/local.yaml"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 128M }
+    labels: *obs-labels
+    networks: [observability]
+    depends_on:
+      tempo: { condition: service_healthy }
+      loki: { condition: service_healthy }
+
+  # --------------------------------------------------------------------------
+  # Prometheus — metrics store + rule evaluation (ADR-0002)
+  # --------------------------------------------------------------------------
+  prometheus:
+    image: ${PROMETHEUS_IMAGE}:${PROMETHEUS_TAG}@${PROMETHEUS_DIGEST}
+    container_name: opsmind-prometheus
+    restart: unless-stopped
+    user: root
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=${PROMETHEUS_STORAGE_PATH}"
+      - "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME}"
+      - "--storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE}"
+      - "--web.enable-lifecycle"
+      - "--web.enable-remote-write-receiver"
+      - "--enable-feature=expand-external-labels,exemplar-storage"
+    environment:
+      PROMETHEUS_ENV_LABEL: ${PROMETHEUS_ENV_LABEL}
+    volumes:
+      - ../observability/prometheus/base/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../observability/rules/recording:/etc/prometheus/rules/recording:ro
+      - ../observability/rules/alerting:/etc/prometheus/rules/alerting:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 768M }
+        reservations: { cpus: "0.25", memory: 192M }
+    labels: *obs-labels
+    networks: [observability]
+
+  # --------------------------------------------------------------------------
+  # Loki — log store (ADR-0002)
+  # --------------------------------------------------------------------------
+  loki:
+    image: ${LOKI_IMAGE}:${LOKI_TAG}@${LOKI_DIGEST}
+    container_name: opsmind-loki
+    restart: unless-stopped
+    command:
+      - "-config.file=/etc/loki/loki.yml"
+      - "-config.expand-env=true"
+    env_file:
+      - ../observability/loki/overlays/local/values.env
+    volumes:
+      - ../observability/loki/base/loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 128M }
+    labels: *obs-labels
+    networks: [observability]
+
+  # --------------------------------------------------------------------------
+  # Tempo — trace store (ADR-0002). OTLP 4317 is internal only (not published).
+  # --------------------------------------------------------------------------
+  tempo:
+    image: ${TEMPO_IMAGE}:${TEMPO_TAG}@${TEMPO_DIGEST}
+    container_name: opsmind-tempo
+    restart: unless-stopped
+    user: root
+    command:
+      - "-config.file=/etc/tempo/tempo.yml"
+      - "-config.expand-env=true"
+    env_file:
+      - ../observability/tempo/overlays/local/values.env
+    volumes:
+      - ../observability/tempo/base/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"     # HTTP / TraceQL
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 128M }
+    labels: *obs-labels
+    networks: [observability]
+
+  # --------------------------------------------------------------------------
+  # Grafana — dashboards + Explore correlation. Datasources are QUERY ONLY.
+  # --------------------------------------------------------------------------
+  grafana:
+    image: ${GRAFANA_IMAGE}:${GRAFANA_TAG}@${GRAFANA_DIGEST}
+    container_name: opsmind-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ../observability/grafana/base/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 512M }
+        reservations: { cpus: "0.25", memory: 128M }
+    labels: *obs-labels
+    networks: [observability]
+    depends_on:
+      prometheus: { condition: service_healthy }
+      loki: { condition: service_healthy }
+      tempo: { condition: service_healthy }
+
+  # --------------------------------------------------------------------------
+  # Alertmanager — routing / dedup / silence (component matrix §6)
+  # --------------------------------------------------------------------------
+  alertmanager:
+    image: ${ALERTMANAGER_IMAGE}:${ALERTMANAGER_TAG}@${ALERTMANAGER_DIGEST}
+    container_name: opsmind-alertmanager
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=${ALERTMANAGER_STORAGE_PATH}"
+      - "--data.retention=${ALERTMANAGER_RETENTION}"
+    volumes:
+      - ../observability/alertmanager/base/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "9093:9093"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+        reservations: { cpus: "0.1", memory: 64M }
+    labels: *obs-labels
+    networks: [observability]

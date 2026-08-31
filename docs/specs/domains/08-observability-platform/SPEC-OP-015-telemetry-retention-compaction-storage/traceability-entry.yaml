@@ -1,0 +1,9 @@
+SPEC-OP-015:
+  domain: 08-observability-platform
+  name: Telemetry Retention Compaction And Storage
+  cn_name: 遥测保留、压缩与存储
+  status: planned
+  phase: phase-03-telemetry-backends-retention
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

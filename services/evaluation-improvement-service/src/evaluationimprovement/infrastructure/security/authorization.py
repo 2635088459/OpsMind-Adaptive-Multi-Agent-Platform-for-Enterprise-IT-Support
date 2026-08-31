@@ -26,6 +26,10 @@ _ACTION_ROLES: dict[str, frozenset[str]] = {
     "approve_candidate": frozenset({"RELEASE_APPROVER", "EVALUATION_ADMIN"}),
     "manage_canary": frozenset({"EVALUATION_ADMIN", "RELEASE_APPROVER"}),
     "manage_gate_policy": frozenset({"EVALUATION_ADMIN"}),
+    # SPEC-EI-028: the ingestion side of online sampling is a system/service call (a
+    # future SPEC-EI-030 event consumer, not a human author), the same admin-only
+    # posture create_run already uses for its own system-triggered writes.
+    "collect_online_sample": frozenset({"EVALUATION_ADMIN"}),
 }
 
 _SENSITIVE_EVIDENCE_ROLES = frozenset({"EVALUATION_REVIEWER", "EVALUATION_ADMIN", "RELEASE_APPROVER"})

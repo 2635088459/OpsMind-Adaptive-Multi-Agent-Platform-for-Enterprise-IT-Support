@@ -61,6 +61,27 @@ class CaseExecutionStatus(str, Enum):
     SKIPPED = "SKIPPED"
 
 
+class CaseQueueStatus(str, Enum):
+    """SPEC-EI-011 / 04-use-cases UC-EI-002 step 3, 10-failure-handling: the work-queue
+    state of one (run, test_case) pair CaseRunnerWorker claims and drives — distinct
+    from CaseExecutionStatus, which is the *outcome* ExecuteCaseService records once an
+    attempt actually ran. PENDING is claimable (immediately, or once `next_attempt_at`
+    elapses after a retry). LEASED is currently owned by one worker until
+    `lease_expires_at` — a worker that dies mid-attempt leaves the entry LEASED until
+    reclaim_expired_leases() resets it back to PENDING (09-concurrency-and-idempotency
+    §"Worker Concurrent Claim" precedent from tool-integration-gateway's own
+    ExecutionWorker). DONE means the case reached a terminal, accounted-for outcome
+    (COMPLETED or SKIPPED). EXHAUSTED means every retry attempt failed — the case's own
+    CaseExecutionResult is still FAILED by then (never silently dropped, see
+    CaseRunnerService's own docstring), so finalize_scoring() can still account for it.
+    """
+
+    PENDING = "PENDING"
+    LEASED = "LEASED"
+    DONE = "DONE"
+    EXHAUSTED = "EXHAUSTED"
+
+
 class EvaluationDimension(str, Enum):
     """01-domain-model §"值对象": `EvaluationDimension`."""
 
@@ -168,3 +189,17 @@ class OutboxStatus(str, Enum):
     PUBLISHED = "PUBLISHED"
     FAILED = "FAILED"
     DEAD_LETTER = "DEAD_LETTER"
+
+
+class OnlineSampleStatus(str, Enum):
+    """SPEC-EI-028 (online-sample-evaluation) / 04-use-cases UC-EI-006: QUEUED is a
+    sampled production trace waiting for delayed quality scoring (step 3: "脱敏后写入
+    online evaluation queue"); SCORED means step 4's own delayed scoring
+    (explanation quality / evidence grounding / handoff completeness / user
+    instruction clarity) has run — this is the *only* status a sample ever needs
+    beyond that, since scoring is a quality signal, not a gate, and never retries or
+    blocks (step 5: "输出 trend metric，不直接阻塞业务链路").
+    """
+
+    QUEUED = "QUEUED"
+    SCORED = "SCORED"

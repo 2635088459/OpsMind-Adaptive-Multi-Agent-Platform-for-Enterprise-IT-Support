@@ -16,7 +16,7 @@ from evaluationimprovement.application.commands import (
     TestCaseInput,
 )
 from evaluationimprovement.application.exceptions import GatePolicyNotFoundException
-from evaluationimprovement.application.records import GatePolicyConfig
+from evaluationimprovement.application.records import GatePolicyConfig, LangSmithLinkRecord
 from evaluationimprovement.container import Container
 from evaluationimprovement.domain.enums import Criticality
 
@@ -77,3 +77,33 @@ def test_gate_policy_cannot_loosen_zero_tolerance_counters(container: Container)
         container.evaluate_release_gate_service.upsert_gate_policy(
             GatePolicyConfig(gate_policy="loose-gate", dimension_thresholds={}, max_policy_violations=1), actor="admin-1",
         )
+
+
+@pytest.mark.unit
+def test_a_failed_langsmith_link_fails_the_gate_closed_even_when_scores_pass(container: Container) -> None:
+    """SPEC-EI-013 / 10-failure-handling §"LangSmith 故障": "对离线 release gate：fail
+    closed." Settings.langsmith_mode="noop" (this fixture's own default) means
+    CreateRunService already saved `enabled=False` for this run — overwriting it here
+    simulates a deployment where LangSmith was genuinely enabled and the link attempt
+    failed, without needing to swap the whole container's own LangSmithPort wiring.
+    """
+    run = _run_to_comparing(container, "gate-langsmith-unavailable-001")
+    container.langsmith_link_repository.save(LangSmithLinkRecord(run_id=str(run.run_id), enabled=True, experiment_ref=None))
+
+    container.evaluate_release_gate_service.evaluate(EvaluateReleaseGateCommand(run_id=run.run_id, gate_policy="mvp-release-gate-v1", actor="ci", correlation_id="corr-1"))
+    final_run = container.create_run_service.find_run(run.run_id)
+    assert final_run.status.value == "FAILED"
+
+
+@pytest.mark.unit
+def test_a_disabled_langsmith_integration_never_blocks_the_gate(container: Container) -> None:
+    """The default no-op LangSmith mode is not a failure — see
+    LangSmithLinkRecord's own docstring."""
+    run = _run_to_comparing(container, "gate-langsmith-disabled-001")
+    link = container.langsmith_link_repository.find(run.run_id)
+    assert link is not None
+    assert link.enabled is False
+
+    container.evaluate_release_gate_service.evaluate(EvaluateReleaseGateCommand(run_id=run.run_id, gate_policy="mvp-release-gate-v1", actor="ci", correlation_id="corr-1"))
+    final_run = container.create_run_service.find_run(run.run_id)
+    assert final_run.status.value == "PASSED"

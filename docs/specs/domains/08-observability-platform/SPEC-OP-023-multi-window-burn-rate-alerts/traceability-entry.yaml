@@ -1,0 +1,9 @@
+SPEC-OP-023:
+  domain: 08-observability-platform
+  name: Multi Window Burn Rate Alerts
+  cn_name: 多窗口 Burn Rate 告警
+  status: planned
+  phase: phase-05-alerts-slos-runbooks
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

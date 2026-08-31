@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/observability/artifact-metadata.schema.json",
+  "title": "OpsMind Observability Artifact Metadata",
+  "description": "Required metadata for governed observability artifacts (dashboards, rule files, runbooks, signal contracts). See docs/artifact-metadata-convention.md. Spec: SPEC-OP-001.",
+  "type": "object",
+  "required": [
+    "owner",
+    "version",
+    "spec",
+    "access_policy",
+    "retention",
+    "runbook",
+    "rollback",
+    "audit_ref"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "owner": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Accountable team handle, e.g. platform-observability"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "SemVer of this artifact"
+    },
+    "spec": {
+      "type": "string",
+      "pattern": "^SPEC-OP-\\d{3}$",
+      "description": "Owning spec id"
+    },
+    "access_policy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Who may view/query and who may edit"
+    },
+    "retention": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Lifetime of the artifact's output or derived data"
+    },
+    "runbook": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to a runbook under runbooks/, a URL, or the literal 'self'"
+    },
+    "rollback": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Exact revert instruction"
+    },
+    "audit_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path or URL where changes to this artifact are recorded"
+    },
+    "slo_ref": { "type": "string" },
+    "dashboard": { "type": "string" },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "deprecated_by": { "type": "string" }
+  }
+}

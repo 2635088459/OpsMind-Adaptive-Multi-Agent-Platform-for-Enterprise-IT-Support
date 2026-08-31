@@ -2,14 +2,29 @@ SPEC-EI-014:
   domain: 07-evaluation-improvement
   name: Deterministic Grader Registry
   cn_name: Deterministic Grader Registry
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-03-graders-and-scoring
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 deterministic grader registry 和 classification/root cause/tool/final-state/verification 等评分插件。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    SPEC-EI-001 shipped only 2 of the LLD's own 9 named deterministic graders
+    (ClassificationAccuracyGrader, ToolAllowlistGrader), and
+    GraderRegistry.dimensions_for_case() only ever requested those two dimensions.
+    Closed: EvaluationDimension names one slot per concern, not one per LLD-named
+    class, so the remaining graders fold into whichever dimension actually fits (see
+    infrastructure.graders.deterministic's own module docstring for the exact
+    mapping) — RootCauseMatchGrader (ROOT_CAUSE_ACCURACY, requested only when a
+    dataset author supplies a `rootCause` distinct from `classification`);
+    ToolArgumentSchemaGrader (TOOL_ARGUMENTS, requested only when `expectedToolArgs`
+    is non-empty). POLICY_COMPLIANCE and RESOLUTION_SUCCESS (SPEC-EI-015's own
+    graders, see that entry) are now requested unconditionally. `CaseExecutionResult`
+    gained `tool_call_args: dict[str, dict]` (SPEC-EI-014/015/016 grading fields,
+    migration d7a1e5c93f26) since the old name-only `tool_calls` tuple could not
+    support argument-schema checking — both Fake/HttpAgentRuntimeEvaluationAdapter
+    populate it. `GraderRegistryPort` also gained `list_registered()`: SPEC-EI-001's
+    own `GraderCatalogService` kept a hand-maintained static tuple that had already
+    drifted from what was actually registered — replaced with real introspection of
+    `GraderRegistry`'s own dict, closing the gap that module's own docstring named.
   lld_mapping:
     - 13-package-and-class-design
     - 02-business-invariants
@@ -22,8 +37,12 @@ SPEC-EI-014:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/infrastructure/test_deterministic_graders.py, services/evaluation-improvement-service/tests/infrastructure/test_grader_registry.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      171 passed (149 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-014 through SPEC-EI-018, verified
+      2026-08-28.

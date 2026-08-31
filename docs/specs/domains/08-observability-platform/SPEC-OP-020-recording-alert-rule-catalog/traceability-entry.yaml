@@ -1,0 +1,9 @@
+SPEC-OP-020:
+  domain: 08-observability-platform
+  name: Recording And Alert Rule Catalog
+  cn_name: Recording 与 Alert Rule Catalog
+  status: planned
+  phase: phase-05-alerts-slos-runbooks
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

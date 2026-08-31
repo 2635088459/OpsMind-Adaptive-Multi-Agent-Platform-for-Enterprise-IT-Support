@@ -1,0 +1,9 @@
+SPEC-OP-030:
+  domain: 08-observability-platform
+  name: Observability Access Control
+  cn_name: 可观测平台访问控制
+  status: planned
+  phase: phase-07-security-privacy-config-governance
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

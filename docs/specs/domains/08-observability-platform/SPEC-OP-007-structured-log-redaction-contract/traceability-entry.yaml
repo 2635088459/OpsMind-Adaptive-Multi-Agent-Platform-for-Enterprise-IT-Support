@@ -1,0 +1,9 @@
+SPEC-OP-007:
+  domain: 08-observability-platform
+  name: Structured Log And Redaction Contract
+  cn_name: 结构化日志与脱敏契约
+  status: planned
+  phase: phase-01-unified-signal-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

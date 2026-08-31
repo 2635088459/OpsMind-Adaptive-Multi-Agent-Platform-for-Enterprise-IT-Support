@@ -1,0 +1,100 @@
+SPEC-OP-002:
+  domain: 08-observability-platform
+  name: Local Observability Topology
+  cn_name: 本地可观测拓扑
+  status: implemented
+  phase: phase-00-platform-engineering-foundation
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001]
+  tech_stack: "Docker Compose v2 / OTel Collector contrib 0.116.1 / Prometheus 3.1.0 / Loki 3.3.2 / Tempo 2.7.1 / Grafana 11.4.0 / Alertmanager 0.28.0 / POSIX sh smoke harness"
+  implementation_notes: >
+    Local topology for all six components on the SPEC-OP-001 contract, filling the
+    base/ + overlays/local/ skeleton. Compose file
+    infrastructure/docker-compose/observability-stack.yml (project opsmind-observability,
+    independent of local-platform.yml) declares each component with image pinned by
+    TAG@sha256 digest (from versions.env), documented host ports, named data volumes +
+    read-only config bind mounts, a healthcheck, and deploy.resources limits +
+    reservations. Base configs: collector/base/config.yaml (OTLP 4317/4318 receiver ->
+    memory_limiter + resource + batch -> prometheus exporter :8889 / otlp Tempo / otlphttp
+    Loki; health_check/pprof/zpages extensions; own metrics :8888) with a local overlay
+    merged via the collector's native multi --config; prometheus/base/prometheus.yml
+    (self-monitoring scrape of all six + rule_files from ../rules + alertmanager target,
+    expand-external-labels); loki/base/loki.yml (single-binary, tsdb v13, filesystem,
+    native OTLP, compactor retention, -config.expand-env); tempo/base/tempo.yml (OTLP
+    4317 internal only, local blocks, metrics_generator span-metrics/service-graphs
+    remote_write to Prometheus); alertmanager/base/alertmanager.yml (minimal valid route
+    tree + inhibit rule, null receiver); grafana/base/provisioning (Prometheus/Loki/Tempo
+    datasources QUERY ONLY with metrics<->logs<->traces correlation wired, dashboard file
+    provider). Overlays are values.env files consumed by compose --env-file / env_file.
+    Seed governed artifacts (self-monitoring, expanded by SPEC-OP-020/033):
+    rules/recording/platform-self.yml (job:up:ratio), rules/alerting/platform-self.yml
+    (TargetDown, PrometheusRuleEvaluationFailing), runbooks/TargetDown.md,
+    dashboards/observability-platform-self.json — all carry the SPEC-OP-001 metadata
+    header. Operational entry point scripts/observability-stack.sh {config,up,smoke,down}:
+    smoke brings the stack up --wait, pushes a real OTLP trace+log+metric to the
+    collector, and queries each back from Tempo/Prometheus/Loki asserting expected
+    fields and trace_id correlation. CI (.github/workflows/observability-platform-ci.yml)
+    gains a `config` job (compose config + otelcol validate + promtool + amtool + loki
+    verify-config, all via the pinned images) and a `smoke` job.
+    Deviation: collector pinned to 0.116.1 not 0.116.0 — the 0.116.0 published image
+    fails `exec /otelcol-contrib` on Docker Desktop/WSL2; 0.116.1 (patch release) runs
+    clean. Recorded in versions.env + VERSIONS.md.
+  lld_mapping:
+    - 03-state-machine
+    - 13-package-and-class-design
+    - 14-testing-strategy
+  forbidden:
+    - business_state_mutation
+    - alert_triggered_domain_write
+    - telemetry_store_as_system_of_record
+    - secret_or_pii_or_raw_prompt_in_telemetry
+    - unbounded_metric_label_cardinality
+    - unpinned_component_image
+    - custom_telemetry_backend
+    - producer_direct_write_to_backend
+  artifacts:
+    compose:
+      - infrastructure/docker-compose/observability-stack.yml
+    component_base:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/prometheus/base/prometheus.yml
+      - infrastructure/observability/loki/base/loki.yml
+      - infrastructure/observability/tempo/base/tempo.yml
+      - infrastructure/observability/alertmanager/base/alertmanager.yml
+      - infrastructure/observability/grafana/base/provisioning/datasources/datasources.yml
+      - infrastructure/observability/grafana/base/provisioning/dashboards/dashboards.yml
+    component_overlay_local:
+      - infrastructure/observability/collector/overlays/local/config.yaml
+      - infrastructure/observability/prometheus/overlays/local/values.env
+      - infrastructure/observability/loki/overlays/local/values.env
+      - infrastructure/observability/tempo/overlays/local/values.env
+      - infrastructure/observability/alertmanager/overlays/local/values.env
+    governed_seed:
+      - infrastructure/observability/rules/recording/platform-self.yml
+      - infrastructure/observability/rules/alerting/platform-self.yml
+      - infrastructure/observability/runbooks/TargetDown.md
+      - infrastructure/observability/dashboards/observability-platform-self.json
+    tooling:
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
+  test_evidence:
+    lint: "validate-observability-layout.py — 0 errors; promtool check config/rules SUCCESS; amtool check-config SUCCESS; otelcol validate exit 0; loki -verify-config 'config is valid'; docker compose config exit 0. Verified 2026-08-30."
+    unit: "scripts/tests/test_validate_observability_layout.py — 8 passed"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. docker compose up -d --wait:
+      all six components Healthy. OTLP trace+log+metric (service.name=op-002-smoke,
+      trace_id=0af7651916cd43dd8448eb211c80319c) pushed to collector :4318 and queried
+      back: trace in Tempo (/api/traces), metric op_002_smoke_total in Prometheus,
+      recording rule job:up:ratio evaluated, log line in Loki (query_range) carrying
+      trace_id, Alertmanager /api/v2/status OK. 6/6 scrape targets up. Stack torn down
+      clean (down -v). Verified 2026-08-30/31.
+    contract: "grafana datasource correlation (tracesToLogsV2 / derivedFields trace_id / serviceMap) provisioned; strict resource-attribute conformance is SPEC-OP-004"
+    security: "static scan for ':latest' and business-write exporters/receivers over collector+alertmanager+grafana config and the compose file — clean; smoke telemetry synthetic; grafana admin/admin + non-root users are local-overlay only"
+    result: >
+      Reproducible local topology delivered and CI-gated. One command
+      (scripts/observability-stack.sh smoke) stands up all six pinned components with
+      ports/volumes/health/limits and proves ingest -> store -> query -> correlate for
+      a real OTLP signal. Residual: minimal collector pipeline (redaction/cardinality/
+      sampling deferred to SPEC-OP-006/007/010), retention values not capacity-modelled
+      (SPEC-OP-015), no outage/disk-full drill yet (SPEC-OP-034). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-002-traceability.md

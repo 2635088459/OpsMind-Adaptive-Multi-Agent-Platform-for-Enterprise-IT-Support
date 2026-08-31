@@ -1,0 +1,20 @@
+# Review ownership for the OpsMind Observability Platform (Domain 08).
+# Spec: SPEC-OP-001 / ADR-0006.
+#
+# This file is scoped to infrastructure/observability/. If the repository adopts a
+# root CODEOWNERS, hoist these lines there with the same paths.
+
+*                       @opsmind/platform-observability
+
+# Governance documents and ADRs change the contract for every later spec:
+docs/                   @opsmind/platform-observability
+docs/adr/               @opsmind/platform-observability
+
+# Version bumps and boundary-sensitive config:
+versions.env            @opsmind/platform-observability
+collector/              @opsmind/platform-observability
+alertmanager/           @opsmind/platform-observability
+
+# Domain dashboards may be co-owned by the source-domain team (add here as they land),
+# e.g.:
+# dashboards/domain-ticket-workflow-*.json   @opsmind/platform-observability @opsmind/ticket-workflow

@@ -1,14 +1,15 @@
-"""06-event-contracts lists nine consumed events (`agent.workflow.completed.v1`,
-`agent.workflow.failed.v1`, `ticket.resolved.v1`, `ticket.reopened.v1`,
-`tool.execution.completed.v1`, `tool.execution.failed.v1`, `approval.granted.v1`,
-`approval.denied.v1`, `memory.retrieval.completed.v1`), but none of them backs a named
-use case in SPEC-EI-001's own 13-package-and-class-design service list (only
-create_dataset/publish_dataset/create_run/execute_case/score_run/compare_regression/
-evaluate_release_gate/create_improvement_candidate/manage_canary/
-dispatch_outbox_events). Consuming these to drive online-sample evaluation (04-use-cases
-UC-EI-006) is phase-06 (SPEC-EI-028) and phase-07 cross-domain-contracts (SPEC-EI-030/
-031) scope. This package intentionally has no router yet — see
-application.ports_out.ProcessedEventRepository's own docstring for the dedup mechanism
-already defined ahead of its first real consumer, mirroring
-memory-knowledge-service's own SPEC-MK-001 precedent for ProcessedEventRepository.
+"""SPEC-EI-030 (ticket-runtime-evaluation-contract) / SPEC-EI-031 (memory-tool-
+evidence-contract) / SPEC-EI-032 (policy-approval-release-approval-contract) built the
+real consumer this package's own docstring once described as future work: `router.py`
+now serves eight event-ingestion endpoints under `/internal/evaluation/v1/events/*` —
+ticket-resolved/ticket-reopened/workflow-completed/workflow-failed/tool-completed/
+memory-retrieval-completed (funnel into `CollectOnlineSampleService`, closing
+04-use-cases UC-EI-006's own consume step) and approval-granted/approval-denied
+(drive `CreateImprovementCandidateUseCase.approve()`/`reject()`, closing the
+SPEC-EI-026 request/consume loop). See `application.services.
+consume_cross_domain_event`/`consume_approval_decision_event`'s own module
+docstrings for the redaction and dedup rules; `infrastructure.messaging.
+rabbitmq_consumer`'s own module docstring still marks where a real broker consumer
+would eventually replace this REST stand-in, the same "manual/ops trigger" precedent
+memory-knowledge-service's own interfaces/event/router.py already established.
 """

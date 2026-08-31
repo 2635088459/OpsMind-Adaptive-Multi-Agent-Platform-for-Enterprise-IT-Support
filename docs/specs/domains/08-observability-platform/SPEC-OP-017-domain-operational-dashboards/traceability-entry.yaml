@@ -1,0 +1,9 @@
+SPEC-OP-017:
+  domain: 08-observability-platform
+  name: Domain Operational Dashboards
+  cn_name: 领域运行 Dashboard
+  status: planned
+  phase: phase-04-dashboards-correlation-analysis
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

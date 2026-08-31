@@ -2,14 +2,33 @@ SPEC-EI-029:
   domain: 07-evaluation-improvement
   name: Promotion Criteria Rollback Request
   cn_name: Promotion Criteria 与 Rollback Request
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-06-canary-and-controlled-release
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 canary promotion criteria、rollback thresholds、rollback recommendation 和 rollback requested event。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Rollback-request itself was already SPEC-EI-024/027 scope
+    (`ManageCanaryService.request_rollback()`, the `ImprovementRollbackRequested`
+    outbox event, `improvement.rollback.requested.v1`) and unchanged here — confirmed
+    during this phase's own audit. The genuine gap was Promotion Criteria:
+    `ManageCanaryService.advance()`'s own docstring already named it explicitly —
+    "The caller...is responsible for having already verified the current stage's own
+    threshold/time-window before calling" — an unenforced obligation with no real
+    implementation behind it. New service `EvaluateCanaryPromotionService`
+    (application.services.evaluate_canary_promotion), the sole implementation of new
+    port `CanaryPromotionUseCase`: `evaluate(candidate_id)` maps the candidate's
+    current `canary_status` (ACTIVE/EXPANDING) onto its own `CanaryPlan`'s matching
+    stage index (the same one-stage-at-a-time simplification
+    `ManageCanaryService.advance()` already makes), requires at least that stage's own
+    `sample_size` (SPEC-EI-027) SCORED `OnlineEvaluationSample`s (SPEC-EI-028) bound
+    to the candidate before it will render any decision, then computes an error rate
+    (fraction with a `failure_code` or a composite score below a quality-failure
+    floor) against the stage's own `rollback_error_rate_threshold`. Returns a pure
+    `CanaryPromotionDecisionView` recommendation — `eligible_to_advance`/
+    `recommend_rollback` — never an executed action (domain-rules "07 只请求
+    rollback，由 Runtime/Config owner 执行；不得直接执行 rollback": the caller still drives
+    `ManageCanaryUseCase.advance()`/`request_rollback()` itself). New read endpoint
+    `GET /evaluation/improvement-candidates/{candidateId}/promotion-criteria`.
   lld_mapping:
     - 06-event-contracts
     - 10-failure-handling
@@ -22,8 +41,12 @@ SPEC-EI-029:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_evaluate_canary_promotion_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      177 passed (152 non-integration + 25 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-027 through SPEC-EI-029, verified
+      2026-08-28.

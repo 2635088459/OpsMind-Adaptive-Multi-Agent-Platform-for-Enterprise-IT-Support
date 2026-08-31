@@ -3,27 +3,28 @@ audit_query.py was: 05-api-contracts §"管理 API" `GET /evaluation/graders` ne
 read surface over infrastructure.graders.registry.GraderRegistry's own catalog,
 reached only through GraderRegistryPort (application must not depend on
 infrastructure).
+
+SPEC-EI-001 kept a hand-maintained static tuple here, in sync with
+infrastructure.graders.registry.GraderRegistry's own SPEC-EI-001 scope only by
+convention — that module's own docstring named this exact gap: "until SPEC-EI-014+
+makes GraderRegistryPort itself introspectable." SPEC-EI-014 closes it:
+GraderRegistryPort.list_registered() is now the source of truth, so this service can
+never drift from what is actually registered again — including which LLM_JUDGE
+adapter is actually active (placeholder vs. the real judge SPEC-EI-016 added).
 """
 
 from __future__ import annotations
 
 from evaluationimprovement.application.ports_out import GraderRegistryPort
 from evaluationimprovement.application.views import GraderDescriptor
-from evaluationimprovement.domain.enums import EvaluationDimension, GraderType
-
-# SPEC-EI-001 only ever registers the three graders infrastructure.graders.registry
-# ships (see that module's own docstring for why); this catalog is kept in sync with
-# it by hand until SPEC-EI-014+ makes GraderRegistryPort itself introspectable.
-_KNOWN_GRADERS = (
-    GraderDescriptor("ClassificationAccuracyGrader", GraderType.DETERMINISTIC, EvaluationDimension.CLASSIFICATION_ACCURACY, "classification-accuracy-v1"),
-    GraderDescriptor("ToolAllowlistGrader", GraderType.DETERMINISTIC, EvaluationDimension.TOOL_SELECTION, "tool-allowlist-v1"),
-    GraderDescriptor("ExplanationQualityJudge", GraderType.LLM_JUDGE, EvaluationDimension.HANDOFF_COMPLETENESS, "explanation-quality-judge-placeholder-v0"),
-)
 
 
 class GraderCatalogService:
     def __init__(self, grader_registry: GraderRegistryPort) -> None:
-        self._grader_registry = grader_registry  # kept for the port dependency; the catalog itself is the static list above
+        self._grader_registry = grader_registry
 
     def list_graders(self) -> tuple[GraderDescriptor, ...]:
-        return _KNOWN_GRADERS
+        return tuple(
+            GraderDescriptor(name, grader_type, dimension, version)
+            for name, grader_type, dimension, version in self._grader_registry.list_registered()
+        )

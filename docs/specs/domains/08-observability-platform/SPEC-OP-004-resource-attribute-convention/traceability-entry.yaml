@@ -1,0 +1,93 @@
+SPEC-OP-004:
+  domain: 08-observability-platform
+  name: Resource Attribute Convention
+  cn_name: Resource Attribute 规范
+  status: implemented
+  phase: phase-01-unified-signal-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003]
+  tech_stack: "OTel semconv + OTLP/JSON fixtures / OTel Collector resourcedetection + transform (OTTL) / Python 3.12 + PyYAML validator / Prometheus alert rule / GitHub Actions"
+  implementation_notes: >
+    The producer-side resource-attribute contract, built against SPEC-OP-003's
+    governance rulebook. signals/resource-attributes.md (human) + .yaml (machine,
+    schema schemas/resource-attributes.schema.json) define: required attributes
+    service.name (^[a-z0-9-]{3,50}$), service.version (SemVer or git:<12hex>),
+    service.namespace (one of the 8 domain slugs + shared), deployment.environment
+    (local/ci/staging/production), service.instance.id (uuid or host/pid),
+    telemetry.sdk.language; recommended telemetry.sdk.*/host.name/process.runtime.*/
+    os.type; optional k8s.*/cloud.*/container.*/opsmind.tenant.id (single-tenant
+    today, low-card slug, SPEC-OP-031). governance/telemetry-governance.yaml bumped
+    to v1.1.0 with allow_fields.resource.required = the 6-key set; validate-signal-
+    contracts.py fails if the two diverge. Enforcement in collector/base/config.yaml:
+    resourcedetection [env, system] (override:false) fills host.name/os.type;
+    transform/resource-contract (OTTL set(...) where attributes["service.name"] == nil
+    or "") substitutes unknown_service and stamps opsmind.resource.violation on
+    resource context in all three pipelines — never drops (ADR-0004). Golden fixtures
+    signals/fixtures/resource-attributes/: conformant-java.json, conformant-python.json
+    (expect pass), nonconformant-missing-service-name.json, nonconformant-bad-
+    namespace-and-version.json (expect reject). New validator
+    scripts/validate-signal-contracts.py (PyYAML): contract shape, per-attribute
+    fields + value_pattern compile + value_enum_ref, governance-sync (required set
+    equality), fixture conformance (pass must pass / reject must fail), Collector
+    wiring (resourcedetection + transform/resource-contract in every pipeline, uses
+    missing_service_name_default + violation_attribute). 5 self-tests. Seed alert
+    rules/alerting/signal-conformance.yml (ResourceAttributeViolation) + runbook
+    runbooks/ResourceAttributeViolation.md. CI layout job runs the validator + self-
+    tests; config job promtool-checks the new rule; smoke job pushes a full conformant
+    resource and a resource missing service.name and asserts preservation +
+    violation-stamping.
+    Deviation: resourcedetection dropped to [env, system] — the `process` detector's
+    per-attribute config was rejected by collector-contrib 0.116.1 and is container-
+    flaky; process/k8s/cloud detectors are a production-overlay concern (SPEC-OP-008).
+  lld_mapping:
+    - 01-domain-model
+    - 06-event-contracts
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - dropping_a_signal_for_nonconformance
+    - secret_or_pii_or_raw_prompt_in_telemetry
+    - replica_scoped_attribute_as_prometheus_label
+    - silent_breaking_schema_change
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/resource-attributes.md
+      - infrastructure/observability/signals/resource-attributes.yaml
+      - infrastructure/observability/schemas/resource-attributes.schema.json
+    fixtures:
+      - infrastructure/observability/signals/fixtures/resource-attributes/conformant-java.json
+      - infrastructure/observability/signals/fixtures/resource-attributes/conformant-python.json
+      - infrastructure/observability/signals/fixtures/resource-attributes/nonconformant-missing-service-name.json
+      - infrastructure/observability/signals/fixtures/resource-attributes/nonconformant-bad-namespace-and-version.json
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/governance/telemetry-governance.yaml
+    rule_runbook:
+      - infrastructure/observability/rules/alerting/signal-conformance.yml
+      - infrastructure/observability/runbooks/ResourceAttributeViolation.md
+    tooling:
+      - scripts/validate-signal-contracts.py
+      - scripts/tests/test_validate_signal_contracts.py
+      - .github/workflows/observability-platform-ci.yml
+      - scripts/observability-stack.sh
+  test_evidence:
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0/0; validate-signal-contracts.py 0/0 (shape, governance-sync, 2 pass + 2 reject fixtures, collector wiring); otelcol validate exit 0; promtool check rules signal-conformance.yml SUCCESS"
+    unit: "scripts/tests — 20 passed (8 layout + 7 governance + 5 signal-contracts: conformant helper, real tree, broken-fixture fail, required-set-desync fail, collector-unwired fail)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Conformant trace: Resource
+      in Tempo carries all 6 required attrs + auto-detected host.name/os.type +
+      telemetry.pipeline. Violation trace (no service.name): still ingested (ADR-0004),
+      Resource = service.name=unknown_service + opsmind.resource.violation=
+      missing:service.name + host.name auto-added. Governance deny-list + metrics/logs/
+      rules paths unaffected. Stack torn down clean. Verified 2026-08-30.
+    contract: "Java + Python golden OTLP resource payloads + 2 negative fixtures under version control; SDK-side conformance is SPEC-OP-025+"
+    security: "no secrets/PII in fixtures; replica-scoped attrs (service.instance.id, k8s.pod.name, container.id) marked never-a-label; single-tenant, tenant slug low-cardinality"
+    result: >
+      Resource attribute contract defined (human + machine + schema), aligned with the
+      governance rulebook (v1.1.0), enforced at the Collector boundary, covered by
+      Java/Python + negative fixtures, and proven at runtime (conformant Resource
+      preserved incl. auto-detected host/os; missing service.name stamped not dropped).
+      CI-gated. Residual: only missing service.name is auto-corrected (bad namespace/
+      version surface as contract-test + dashboard anomalies); no process/k8s/cloud
+      detectors yet (SPEC-OP-008); no SDK-side test yet (SPEC-OP-025+). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-004-traceability.md

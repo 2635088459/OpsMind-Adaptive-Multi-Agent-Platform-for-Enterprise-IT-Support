@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/observability/trace-propagation.schema.json",
+  "title": "OpsMind HTTP/AMQP Trace Propagation Contract",
+  "description": "Structure of infrastructure/observability/signals/trace-propagation.yaml. Spec: SPEC-OP-005. Checked by scripts/validate-signal-contracts.py.",
+  "type": "object",
+  "required": [
+    "version",
+    "propagators",
+    "forbidden_propagators",
+    "http",
+    "amqp",
+    "baggage",
+    "collector_processor",
+    "span_attribute_prefix_removed",
+    "correlation_id_span_attribute"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "propagators": {
+      "type": "array",
+      "items": { "enum": ["tracecontext", "baggage"] },
+      "minItems": 1
+    },
+    "forbidden_propagators": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "http": {
+      "type": "object",
+      "required": ["inbound_headers", "outbound_headers", "proxy_passthrough",
+                   "malformed_traceparent", "no_traceparent"],
+      "additionalProperties": false,
+      "properties": {
+        "inbound_headers": { "type": "array", "items": { "type": "string" } },
+        "outbound_headers": { "type": "array", "items": { "type": "string" } },
+        "proxy_passthrough": { "type": "array", "items": { "type": "string" } },
+        "malformed_traceparent": { "type": "string" },
+        "no_traceparent": { "type": "string" }
+      }
+    },
+    "amqp": {
+      "type": "object",
+      "required": ["carrier", "header_keys", "publish_span_kind", "consume_span_kind",
+                   "linkage", "missing_headers", "redelivery"],
+      "additionalProperties": false,
+      "properties": {
+        "carrier": { "type": "string" },
+        "header_keys": { "type": "array", "items": { "type": "string" } },
+        "publish_span_kind": { "enum": ["PRODUCER"] },
+        "consume_span_kind": { "enum": ["CONSUMER"] },
+        "linkage": { "type": "string" },
+        "missing_headers": { "type": "string" },
+        "redelivery": { "type": "string" }
+      }
+    },
+    "baggage": {
+      "type": "object",
+      "required": ["max_total_bytes", "max_entries", "allowed_keys"],
+      "additionalProperties": false,
+      "properties": {
+        "max_total_bytes": { "type": "integer", "minimum": 1, "maximum": 8192 },
+        "max_entries": { "type": "integer", "minimum": 1 },
+        "allowed_keys": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["key", "value_pattern", "cardinality"],
+            "additionalProperties": false,
+            "properties": {
+              "key": { "type": "string" },
+              "value_pattern": { "type": "string" },
+              "cardinality": { "enum": ["bounded", "high"] },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "collector_processor": { "type": "string" },
+    "span_attribute_prefix_removed": { "type": "string" },
+    "correlation_id_span_attribute": { "type": "string" }
+  }
+}

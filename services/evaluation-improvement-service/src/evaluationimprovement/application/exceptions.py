@@ -107,6 +107,33 @@ class GraderNotFoundException(RuntimeError):
         super().__init__(f"no grader registered for dimension={dimension} grader_type={grader_type}")
 
 
+class PolicyApprovalUnavailableException(RuntimeError):
+    """SPEC-EI-026 (policy-approval-release-contract): raised when the real
+    HttpPolicyApprovalAdapter's call to 06-policy-approval-governance fails (timeout,
+    connection refused, non-2xx status, malformed response body) — one application-
+    layer type so interfaces.errors can map it to `503 DEPENDENCY_UNAVAILABLE`
+    without importing the infrastructure adapter directly (interfaces must not depend
+    on infrastructure — see pyproject.toml's own import-linter contracts). Mirrors
+    GraderNotFoundException's own shape/handling exactly.
+    """
+
+    def __init__(self, candidate_id: object, reason: str) -> None:
+        super().__init__(f"policy approval request for candidate {candidate_id} failed: {reason}")
+
+
+class PoisonApprovalDecisionEventException(RuntimeError):
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 10-failure-handling
+    §"Poison Event": raised after a genuinely late/conflicting `approval.granted.v1`/
+    `approval.denied.v1` decision has already been recorded to
+    PoisonEventRepository — see ConsumeApprovalDecisionEventService's own module
+    docstring. Never raised for a redelivered event (ProcessedEventRepository's own
+    dedup check already short-circuits that before this is ever reachable).
+    """
+
+    def __init__(self, event_id: str, reason: str) -> None:
+        super().__init__(f"approval decision event {event_id} could not be applied: {reason}")
+
+
 class CaseExecutionNotCompletedException(RuntimeError):
     """SPEC-EI-009: only a COMPLETED CaseExecutionResult carries real, scoreable
     execution data — scoring a FAILED/SKIPPED one would grade default/empty

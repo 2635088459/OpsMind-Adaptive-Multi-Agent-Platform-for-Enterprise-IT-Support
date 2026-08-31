@@ -12,10 +12,15 @@ requires-python = ">=3.12"
 # precedent exactly. SPEC-EI-002 (evaluation-schema-baseline) adds the real
 # `evaluation` PostgreSQL schema via SQLAlchemy + Alembic. The real RabbitMQ-backed
 # outbox publisher and processed-event persistence are SPEC-EI-003
-# (outbox-processed-event-audit-baseline) scope; real LangSmith Dataset/Experiment
-# mapping is SPEC-EI-013 (langsmith-experiment-linkage) scope. Neither dependency is
-# declared here yet — adding it ahead of an adapter that actually uses it would
-# misstate this spec's own real scope.
+# (outbox-processed-event-audit-baseline) scope. SPEC-EI-012
+# (agent-runtime-evaluation-client-contract) adds httpx as a real runtime dependency
+# (not just tests' own dev-only usage) for HttpAgentRuntimeEvaluationAdapter. SPEC-EI-013
+# (langsmith-experiment-linkage) adds the real `langsmith` SDK for
+# SdkLangSmithExperimentAdapter — imported lazily/defensively (see
+# container.py's own `_build_langsmith_port()`) so a missing/unconfigured install
+# never breaks the default Settings.langsmith_mode="noop" path. SPEC-EI-016
+# (quality-llm-judge-graders) adds the real `anthropic` SDK for AnthropicQualityJudge,
+# imported lazily the same way behind Settings.llm_judge_mode="anthropic".
 dependencies = [
     "fastapi>=0.118",
     "pydantic>=2.9",
@@ -24,10 +29,17 @@ dependencies = [
     "sqlalchemy>=2.0",
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
+    "httpx>=0.28",
+    "langsmith>=0.1.147",
+    "anthropic>=0.69",
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
 ]
+
+[project.scripts]
+# SPEC-EI-022 (ci-evaluation-gate-harness): `uv run evaluation-ci-gate --run-key ...`
+evaluation-ci-gate = "evaluationimprovement.ci_gate:main"
 
 [dependency-groups]
 dev = [

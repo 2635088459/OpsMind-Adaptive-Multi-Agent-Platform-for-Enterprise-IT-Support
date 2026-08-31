@@ -2,14 +2,32 @@ SPEC-EI-025:
   domain: 07-evaluation-improvement
   name: Candidate Benchmark Binding Gate Enforcement
   cn_name: Candidate Benchmark Binding 与 Gate Enforcement
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-05-improvement-candidate-lifecycle
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 candidate 与 benchmark run/report/gate 的绑定，禁止未通过 gate 的 candidate 进入审批。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closed a real gap: `RecordCandidateBenchmarkCommand` previously carried a bare
+    caller-supplied `passed: bool` that CreateImprovementCandidateService.
+    record_benchmark() trusted with zero verification against any real EvaluationRun
+    — violating this phase's own mandatory "Candidate 必须绑定...benchmark result."
+    `RecordCandidateBenchmarkCommand.passed` is replaced with `benchmark_run_id:
+    RunId`; `record_benchmark()` now looks the run up via a newly-injected
+    `EvaluationRunRepository`, raises `RunNotFoundException` if it does not exist,
+    raises `ValueError` if its status is not a terminal PASSED/FAILED release-gate
+    decision, and derives `passed = run.status == RunStatus.PASSED` itself — never
+    accepting the claim bare. `domain.improvement_candidate.ImprovementCandidate`
+    gained a `benchmark_run_id: RunId | None` field and
+    `record_benchmark_result(benchmark_run_id, passed, now)`'s signature was extended
+    to bind it (see SPEC-EI-024's own traceability entry). `ImprovementCandidateView`/
+    the REST response/the idempotency-cache dict codec/the Postgres
+    `improvement_candidates.benchmark_run_id` column (FK to `evaluation_runs.id`, new
+    migration f6c3a9e1b7d4) all carry the field end to end;
+    `RecordCandidateBenchmarkRequest.benchmark_run_id: UUID` replaces the REST
+    request's own `passed: bool`. Verified end to end via test_app.py's own real
+    HTTP E2E pipeline (`/evaluation/improvement-candidates/{id}/benchmark` now binds
+    the same run the E2E test already drove to PASSED) and against real Postgres via
+    testcontainers (the FK constraint itself only gets exercised there).
   lld_mapping:
     - 02-business-invariants
     - 08-transaction-and-outbox
@@ -22,8 +40,11 @@ SPEC-EI-025:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_create_improvement_candidate_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      154 passed (130 non-integration + 24 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-025, verified 2026-08-28.

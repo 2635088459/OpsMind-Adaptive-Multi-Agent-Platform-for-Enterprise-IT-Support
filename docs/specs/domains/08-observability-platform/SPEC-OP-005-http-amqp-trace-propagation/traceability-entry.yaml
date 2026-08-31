@@ -1,0 +1,93 @@
+SPEC-OP-005:
+  domain: 08-observability-platform
+  name: HTTP And AMQP Trace Propagation
+  cn_name: HTTP 与 AMQP Trace 传播
+  status: implemented
+  phase: phase-01-unified-signal-contracts
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002, SPEC-OP-003, SPEC-OP-004]
+  tech_stack: "W3C Trace Context / W3C Baggage / OTel Collector transform (OTTL) / OTLP-JSON carrier fixtures / Python 3.12 + PyYAML validator / GitHub Actions"
+  implementation_notes: >
+    The cross-process trace-context contract. signals/trace-propagation.md (human) +
+    .yaml (machine, schema schemas/trace-propagation.schema.json) fix: W3C Trace
+    Context (traceparent/tracestate) as the ONLY wire format; OTEL_PROPAGATORS=
+    tracecontext,baggage; forbidden propagators b3/b3multi/jaeger/xray/ottrace/datadog.
+    HTTP: inbound extract, outbound inject, proxy passthrough of traceparent/tracestate,
+    malformed/absent traceparent -> new root (never reject). AMQP/RabbitMQ: inject
+    traceparent/tracestate/baggage into the message HEADER TABLE on publish (PRODUCER
+    span), extract on consume (CONSUMER span), child span for 1:1 hand-off / span link
+    for fan-out, missing headers -> new root (never drop), redelivery keeps the
+    original traceparent. Baggage: allow-list of exactly 5 non-sensitive keys
+    (correlation_id [also a span attribute; never a metric label], deployment.environment,
+    tenant.id, session.kind, request.priority) each with a value_pattern, max_total_bytes
+    1024, max_entries 8; everything else dropped; deny_fields (SPEC-OP-003) still
+    removes forbidden keys regardless of prefix. Enforcement: collector/base/config.yaml
+    gains transform/baggage-contract running delete_matching_keys(attributes,
+    "^baggage\\.") over resource+span, resource+datapoint, resource+log in all three
+    pipelines (baggage is a transport mechanism, not a telemetry attribute; allowed
+    values appear under their real keys). Fixtures signals/fixtures/trace-propagation/:
+    http-inbound-conformant.json, amqp-message-conformant.json (pass);
+    http-b3-nonconformant.json (B3 headers, no traceparent),
+    baggage-forbidden-key-nonconformant.json (authorization + user.email in baggage)
+    (reject). validate-signal-contracts.py extended: propagation .yaml shape,
+    propagators == [tracecontext, baggage], forbidden_propagators non-empty, baggage
+    limits + allowed_keys pattern compile; per-fixture conformance (traceparent
+    present, no forbidden header, baggage keys allow-listed + patterns + limits);
+    collector wiring (transform/baggage-contract in every pipeline + ^baggage delete).
+    7 new self-tests. Runbook runbooks/BrokenTracePropagation.md (manual investigation
+    — no dedicated alert: a root span is normal and fan-out legitimately starts a new
+    trace, so there is no clean single-series signal; conformance is covered by CI
+    fixtures + the SPEC-OP-035 lifecycle trace). Smoke test pushes a PRODUCER +
+    CONSUMER child trace carrying baggage.* attrs and asserts one linked trace +
+    baggage.* stripped + plain correlation_id preserved.
+  lld_mapping:
+    - 06-event-contracts
+    - 09-concurrency-and-idempotency
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - non_w3c_propagator
+    - sensitive_data_in_baggage
+    - dropping_a_message_or_request_for_missing_trace_context
+    - baggage_attribute_persisted_on_a_span
+    - correlation_id_as_metric_label
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/trace-propagation.md
+      - infrastructure/observability/signals/trace-propagation.yaml
+      - infrastructure/observability/schemas/trace-propagation.schema.json
+    fixtures:
+      - infrastructure/observability/signals/fixtures/trace-propagation/http-inbound-conformant.json
+      - infrastructure/observability/signals/fixtures/trace-propagation/amqp-message-conformant.json
+      - infrastructure/observability/signals/fixtures/trace-propagation/http-b3-nonconformant.json
+      - infrastructure/observability/signals/fixtures/trace-propagation/baggage-forbidden-key-nonconformant.json
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+    runbook:
+      - infrastructure/observability/runbooks/BrokenTracePropagation.md
+    tooling:
+      - scripts/validate-signal-contracts.py
+      - scripts/tests/test_validate_signal_contracts.py
+      - scripts/observability-stack.sh
+  test_evidence:
+    lint: "validate-observability-layout.py 0 err; validate-signal-contracts.py 0/0 (resource + propagation contracts, 2 pass + 2 reject propagation fixtures, transform/baggage-contract wired x3); otelcol validate exit 0"
+    unit: "scripts/tests — 26 passed (8 layout + 7 governance + 11 signal-contracts incl. 7 propagation: parse baggage, conformant HTTP, B3 rejected, forbidden baggage key, broken-fixture fail, baggage-contract-unwired fail)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed a trace with a
+      PRODUCER span (ticket.created publish) and a CONSUMER child (ticket.created
+      process) carrying baggage.correlation_id + baggage.authorization + plain
+      correlation_id. Tempo: both spans in one trace, child parentSpanId resolves to
+      the producer span; no baggage.* attribute survived (transform/baggage-contract);
+      plain correlation_id preserved. SPEC-OP-003/004 assertions still green. Stack
+      torn down clean. Verified 2026-08-30.
+    contract: "HTTP + AMQP carrier golden fixtures + 2 negative fixtures under version control; SDK-side OTEL_PROPAGATORS + instrumentation is SPEC-OP-025+"
+    security: "no secrets/PII in fixtures; baggage restricted to 5 non-sensitive allow-listed keys with size limits; baggage.* stripped at the boundary; deny_fields still removes forbidden keys under any prefix"
+    result: >
+      W3C Trace Context fixed as the only wire format; baggage is a 5-key non-sensitive
+      allow-list with size caps; the Collector strips every baggage.* attribute.
+      Java/Python + negative fixtures CI-checked; smoke proves a publish->consume
+      hand-off is one linked trace with baggage removed and correlation_id intact.
+      Residual: key-prefix-based enforcement (deny_fields backs it up); traceparent
+      correctness not runtime-checked (SPEC-OP-035); no edge block for B3 headers yet
+      (SPEC-OP-025). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-005-traceability.md

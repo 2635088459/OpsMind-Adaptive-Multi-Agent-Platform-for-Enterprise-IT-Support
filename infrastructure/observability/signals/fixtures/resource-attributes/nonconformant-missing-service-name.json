@@ -1,0 +1,19 @@
+{
+  "_fixture": {
+    "spec": "SPEC-OP-004",
+    "kind": "nonconformant",
+    "producer": "python",
+    "expect": "reject",
+    "reject_reason": "required attribute 'service.name' is absent",
+    "collector_behavior": "transform/resource-contract substitutes service.name=unknown_service and stamps opsmind.resource.violation=missing:service.name; the signal is NOT dropped (ADR-0004)"
+  },
+  "resource": {
+    "attributes": [
+      { "key": "service.version", "value": { "stringValue": "0.9.0" } },
+      { "key": "service.namespace", "value": { "stringValue": "agent-runtime" } },
+      { "key": "deployment.environment", "value": { "stringValue": "local" } },
+      { "key": "service.instance.id", "value": { "stringValue": "laptop/22114" } },
+      { "key": "telemetry.sdk.language", "value": { "stringValue": "python" } }
+    ]
+  }
+}

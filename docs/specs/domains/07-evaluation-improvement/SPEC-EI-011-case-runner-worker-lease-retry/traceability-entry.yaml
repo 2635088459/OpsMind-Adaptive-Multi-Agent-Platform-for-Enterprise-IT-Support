@@ -2,14 +2,35 @@ SPEC-EI-011:
   domain: 07-evaluation-improvement
   name: Case Runner Worker Lease Retry
   cn_name: Case Runner Worker、Lease 与 Retry
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-02-benchmark-run-and-runner
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 case runner worker、claim/lease、retry、stale result guard 和 partial run 行为。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closed the gap interfaces.rest.router's own "Pipeline steps" comment named: no
+    worker process claimed/executed queued cases, only admin-triggered REST endpoints
+    did. New pragmatic-extension port `CaseExecutionQueueRepository`
+    (application.ports_out) plus in-memory/Postgres adapters back a new
+    `evaluation_case_execution_queue` table (migration
+    c2f9a6e4d8b1_case_execution_queue_and_langsmith_link.py) tracking one
+    PENDING/LEASED/DONE/EXHAUSTED row per (run, test_case) — CreateRunService now
+    enqueues every dataset test case at create_run() time. New application service
+    `CaseRunnerService` (application.services.run_case_queue), the sole implementation
+    of new port `CaseRunnerPort`: `run_once()` claims due entries via a compare-and-
+    swap (`claim()`, mirroring every other repository's own expected_status CAS
+    convention in this codebase) and drives one `ExecuteCaseService.execute_case()`
+    attempt each, retrying a FAILED result with exponential backoff
+    (30s * 2**(attempt-1), same shape as DispatchOutboxEventsService's own constants)
+    up to 5 attempts before marking EXHAUSTED; `reclaim_expired_leases()` resets a
+    crashed worker's LEASED entry back to PENDING and, if exhausted with no
+    CaseExecutionResult ever recorded (crash before execute_case()'s own save), backfills
+    a synthetic FAILED result so finalize_scoring() can never be stuck in
+    IncompleteRunException forever. New infrastructure driver
+    `infrastructure.runtime.case_runner_worker.CaseRunnerWorker` (run_once/
+    reclaim_expired_leases/run_forever) mirrors tool-integration-gateway's own
+    workers.execution_worker.ExecutionWorker precedent exactly. Stale-result guard
+    itself (`runGeneration` comparison) was already SPEC-EI-009 scope
+    (ScoreRunService.score_case()) and is unchanged here.
   lld_mapping:
     - 04-use-cases
     - 10-failure-handling
@@ -22,8 +43,12 @@ SPEC-EI-011:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_case_runner_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      152 passed (130 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-011 through SPEC-EI-013, verified
+      2026-08-28.

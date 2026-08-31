@@ -59,6 +59,7 @@ class ImprovementCandidate:
     created_by: str
     created_at: datetime
     updated_at: datetime
+    benchmark_run_id: RunId | None = None
     benchmark_passed: bool = False
     approval_request_id: str | None = None
     approved_by: str | None = None
@@ -87,13 +88,18 @@ class ImprovementCandidate:
         _CANDIDATE_STATE_MACHINE.assert_transition(self.status, CandidateStatus.BENCHMARKING)
         return dataclasses.replace(self, status=CandidateStatus.BENCHMARKING, updated_at=now)
 
-    def record_benchmark_result(self, passed: bool, now: datetime) -> "ImprovementCandidate":
-        """`passed=False` records the benchmark outcome but does not itself transition
-        status — the caller (CreateImprovementCandidateService) still calls reject()
-        explicitly, keeping "what happened" (benchmark_passed) and "what state we're
-        in" (status) as two separate, individually-auditable facts.
+    def record_benchmark_result(self, benchmark_run_id: RunId, passed: bool, now: datetime) -> "ImprovementCandidate":
+        """SPEC-EI-025 (candidate-benchmark-binding-gate-enforcement) / phase-05 own
+        "强制约束": "Candidate 必须绑定...benchmark result." `benchmark_run_id` is the
+        actual EvaluationRun that benchmarked this candidate's proposed change — the
+        caller (CreateImprovementCandidateService) derives `passed` from that run's
+        own terminal PASSED/FAILED release-gate status, never accepts it as a bare
+        caller-supplied claim. `passed=False` records the benchmark outcome but does
+        not itself transition status — the caller still calls reject() explicitly,
+        keeping "what happened" (benchmark_passed) and "what state we're in" (status)
+        as two separate, individually-auditable facts.
         """
-        return dataclasses.replace(self, benchmark_passed=passed, updated_at=now)
+        return dataclasses.replace(self, benchmark_run_id=benchmark_run_id, benchmark_passed=passed, updated_at=now)
 
     def request_approval(self, now: datetime) -> "ImprovementCandidate":
         """02-business-invariants INV-EI-002: benchmark (release gate) must pass before

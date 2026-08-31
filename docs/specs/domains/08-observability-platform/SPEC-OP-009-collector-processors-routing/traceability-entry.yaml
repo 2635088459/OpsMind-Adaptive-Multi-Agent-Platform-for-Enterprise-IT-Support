@@ -1,0 +1,9 @@
+SPEC-OP-009:
+  domain: 08-observability-platform
+  name: Collector Processors And Routing
+  cn_name: Collector Processor 与路由
+  status: planned
+  phase: phase-02-collector-intake-processing
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

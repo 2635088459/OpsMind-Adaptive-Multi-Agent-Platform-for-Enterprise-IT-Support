@@ -2,14 +2,29 @@ SPEC-EI-018:
   domain: 07-evaluation-improvement
   name: Judge Calibration Drift Guard
   cn_name: Judge Calibration 与 Drift Guard
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-03-graders-and-scoring
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 judge calibration set、drift detection、grader bundle version 和 drift alert。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closed 10-failure-handling's own "同一 judge bundle 对固定 calibration set 超出阈值时禁用该
+    bundle" — no drift concept existed at all before this. New pragmatic-extension
+    port `JudgeBundleStatusRepository` (+ in-memory/Postgres adapters, table
+    `evaluation_judge_bundle_status`, migration e4b8f01c7a92) persists one
+    enabled/disabled row per judge `grader_version`. New
+    `EvaluateJudgeCalibrationService.evaluate(judge, calibration_cases,
+    drift_threshold=0.15)` grades a caller-supplied, fixed calibration set (a
+    `(EvaluationTestCase, CaseExecutionResult, expected_score)` tuple each — reuses
+    existing shapes rather than a parallel one; the set itself is an ops/CI concern
+    per 14-testing-strategy, not a persisted 07-data-model aggregate) directly with
+    the judge (never through GraderRegistry, which would recurse into this same gate),
+    computes mean absolute error against each `expected_score`, and disables the
+    bundle when MAE exceeds the threshold — a judge call that itself fails during
+    calibration counts as maximum deviation (1.0), never skipped. `GraderRegistry.
+    grade()` now checks `JudgeBundleStatusRepository.find_status(grader.version)`
+    before ever invoking an LLM_JUDGE grader; a disabled bundle short-circuits to
+    UNSCORED (spending no tokens) instead. New `judge_calibration_drift_total` metric
+    (12-observability's own named alert signal).
   lld_mapping:
     - 12-observability
     - 14-testing-strategy
@@ -22,8 +37,12 @@ SPEC-EI-018:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application/test_evaluate_judge_calibration_service.py
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      171 passed (149 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-014 through SPEC-EI-018, verified
+      2026-08-28.

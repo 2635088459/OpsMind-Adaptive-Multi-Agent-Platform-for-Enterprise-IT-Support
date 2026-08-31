@@ -2,14 +2,44 @@ SPEC-EI-033:
   domain: 07-evaluation-improvement
   name: Observability Evaluation Signal Contract
   cn_name: Observability Evaluation Signal Contract
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-07-cross-domain-contracts
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 锁定 07 输出给 08 的 metrics/logs/traces/alerts/dashboard semantic fields。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    08-observability-platform has no real service anywhere in this repo yet (its own
+    docs/low-level-design/domains/08-observability-platform/README.md: "Status:
+    planned" — a one-line stub, no LLD sections at all) — this spec's own real,
+    self-verifiable scope is 07's own signal *output* conforming to this domain's own
+    12-observability field contract (LLD mapping 12-observability/14-testing-strategy,
+    not 06-event-contracts — never a cross-service consumer). Audited
+    application.telemetry.EvaluationTelemetry against that doc's own eleven named
+    metrics and found three genuinely unwired: `evaluation_score`,
+    `evaluation_cost_tokens_total`, `evaluation_latency_seconds` — added, backed by
+    real per-case data already flowing through ScoreRunService
+    (EvaluationScore.score, CaseExecutionResult.cost_tokens/latency_ms; "model" has
+    no dedicated identifier anywhere in this domain's own data, so both
+    evaluation_cost_tokens_total labels reuse `target_version` rather than inventing
+    one) plus new `time.perf_counter()` wall-clock timing around the
+    SCORE/COMPARE/GATE pipeline stages (EXECUTE's own latency was already real data
+    on CaseExecutionResult). Traces: no application code created a single span
+    anywhere in this service before this spec, despite infrastructure.observability's
+    own TracerProvider already being fully configured since SPEC-EI-001 — added all
+    seven "关键 span" this domain's own LLD names
+    (EvaluationRunService.createRun/CaseRunner.executeCase/GraderRegistry.grade/
+    RegressionComparator.compare/ReleaseGateEvaluator.evaluate/
+    ImprovementCandidateService.create/CanaryManager.evaluate), mirroring
+    agent-runtime-service's own `tracer.start_as_current_span()` precedent exactly.
+    Logs: added one structured `logger.info()` line at case-scoring (carries
+    runId/testCaseId/datasetVersion/targetVersion/graderVersion/traceId/
+    correlationId/failureCode — the single point in the pipeline where every one of
+    those fields is simultaneously available) and one at candidate creation (carries
+    candidateId, the field case-scoring has no use for), rather than fabricating a
+    single log line that would need fields from two genuinely different contexts. New
+    contract test verifies all three signal types against real telemetry calls,
+    real log records (caplog), and real spans (an InMemorySpanExporter added onto the
+    already-configured global TracerProvider via `add_span_processor()` — the one
+    provider-replacement operation that composes rather than being one-shot).
   lld_mapping:
     - 12-observability
     - 14-testing-strategy
@@ -22,8 +52,12 @@ SPEC-EI-033:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
-    contract: pending
+    unit: services/evaluation-improvement-service/tests/contracts/test_observability_signal_contract.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
+    contract: services/evaluation-improvement-service/tests/contracts/test_observability_signal_contract.py
     security: pending
-    result: pending
+    result: >
+      220 passed (194 non-integration + 26 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-030 through SPEC-EI-033, verified
+      2026-08-29.

@@ -1,0 +1,74 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "0.1.0",
+    "spec": "SPEC-OP-002",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/TargetDown.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-002-traceability.md"
+  },
+  "uid": "opsmind-observability-self",
+  "title": "Observability Platform Self-Monitoring",
+  "tags": ["opsmind", "owner:platform-observability", "v:0.1.0", "spec:SPEC-OP-002"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Scrape targets (up)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "up", "instant": true, "format": "table" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+          ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Collector — accepted vs refused spans (rate/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))", "legendFormat": "accepted" },
+        { "refId": "B", "expr": "sum(rate(otelcol_receiver_refused_spans_total[5m]))", "legendFormat": "refused" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Collector — send queue size",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "otelcol_exporter_queue_size", "legendFormat": "{{exporter}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Prometheus — TSDB head series",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "prometheus_tsdb_head_series", "legendFormat": "head series" }
+      ]
+    }
+  ]
+}

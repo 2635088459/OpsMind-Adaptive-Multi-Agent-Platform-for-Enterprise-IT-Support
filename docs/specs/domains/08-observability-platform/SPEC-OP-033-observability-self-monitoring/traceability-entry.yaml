@@ -1,0 +1,9 @@
+SPEC-OP-033:
+  domain: 08-observability-platform
+  name: Observability Self Monitoring
+  cn_name: 可观测平台自监控
+  status: planned
+  phase: phase-08-self-monitoring-recovery-degraded-mode
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

@@ -1,0 +1,9 @@
+SPEC-OP-011:
+  domain: 08-observability-platform
+  name: Collector Batch Retry And Backpressure
+  cn_name: Collector Batch、Retry 与 Backpressure
+  status: planned
+  phase: phase-02-collector-intake-processing
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

@@ -45,6 +45,56 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str = "localhost:4317"
     otel_service_name: str = "evaluation-improvement-service"
 
+    # SPEC-EI-012: "fake" (default) keeps FakeAgentRuntimeEvaluationAdapter — the
+    # deterministic in-process simulator every hermetic test in this service relies
+    # on. "http" wires HttpAgentRuntimeEvaluationAdapter, the real client against
+    # 03-agent-runtime-orchestration's own evaluation endpoint contract.
+    agent_runtime_evaluation_mode: Literal["fake", "http"] = "fake"
+    agent_runtime_base_url: str = "http://localhost:8003"
+    agent_runtime_timeout_seconds: float = 60.0
+
+    # SPEC-EI-013: "noop" (default) keeps NoOpLangSmithExperimentAdapter —
+    # LangSmithPort.is_enabled() reports False, so EvaluateReleaseGateService's own
+    # fail-closed rule never triggers over it (10-failure-handling §"LangSmith 故障"
+    # applies only to a genuinely *attempted* call). "sdk" wires
+    # SdkLangSmithExperimentAdapter against the real langsmith SDK — requires
+    # langsmith_api_key, and only takes effect if the `langsmith` package actually
+    # imports (see container.py's own `_build_langsmith_port()`).
+    langsmith_mode: Literal["noop", "sdk"] = "noop"
+    langsmith_api_key: str | None = None
+    langsmith_api_url: str = "https://api.smith.langchain.com"
+
+    # SPEC-EI-011: how long a claimed case-execution lease stays owned before another
+    # worker's reclaim_expired_leases() pass may take it back — long enough to outlast
+    # a slow-but-healthy Agent Runtime call, short enough that a genuinely crashed
+    # worker's work is not stuck for long.
+    case_runner_lease_seconds: int = 300
+
+    # SPEC-EI-016: "placeholder" (default) keeps ExplanationQualityJudge — always
+    # UNSCORED, no network call, no key required (every hermetic test relies on this).
+    # "anthropic" wires AnthropicQualityJudge against the real `anthropic` SDK —
+    # 02-business-invariants INV-EI-003 still applies regardless: this dimension is
+    # quality-only and never read by any gate/regression decision.
+    llm_judge_mode: Literal["placeholder", "anthropic"] = "placeholder"
+    anthropic_api_key: str | None = None
+    anthropic_judge_model: str = "claude-opus-5"
+
+    # SPEC-EI-026: "fake" (default) keeps FakePolicyApprovalAdapter — every request
+    # comes back PENDING, no network call, no key required (every hermetic test in
+    # this service relies on this). "http" wires HttpPolicyApprovalAdapter, the real
+    # client against 06-policy-approval-governance's own
+    # `POST /api/v1/approval-requests` contract. `policy_approval_service_token` is
+    # this service's own bearer token for that call — 06's own
+    # GovernanceRequestContext requires a real Spring Security Authentication with a
+    # non-blank name, which no cross-service identity mechanism in this repo issues
+    # yet; carrying the setting now (even unset) is this spec's own honest half of
+    # that contract, the same precedent HttpAgentRuntimeEvaluationAdapter set for a
+    # 03 endpoint that does not exist yet either.
+    policy_approval_mode: Literal["fake", "http"] = "fake"
+    policy_approval_base_url: str = "http://localhost:8006"
+    policy_approval_timeout_seconds: float = 30.0
+    policy_approval_service_token: str | None = None
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

@@ -1,0 +1,20 @@
+# owner: platform-observability
+# spec: SPEC-OP-002
+# rollback: git revert <sha>; recreate grafana
+#
+# Loads dashboard JSON from infrastructure/observability/dashboards/ (mounted read-only
+# at /var/lib/grafana/dashboards). Git is the source of truth (ADR-0003); console edits
+# are not authoritative. SPEC-OP-016+ add the real dashboards.
+
+apiVersion: 1
+
+providers:
+  - name: opsmind-observability
+    orgId: 1
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

@@ -171,6 +171,9 @@ class ImprovementCandidateRow(Base):
     risk_level: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     created_by: Mapped[str] = mapped_column(String(200), nullable=False)
+    benchmark_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.evaluation_runs.id"), nullable=True
+    )
     benchmark_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     approval_request_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     approved_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -233,6 +236,74 @@ class CaseExecutionResultRow(Base):
     # application.records.CaseExecutionResult's own docstring.
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="COMPLETED")
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SPEC-EI-014/015: see application.records.CaseExecutionResult's own docstring.
+    approval_triggered: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verification_passed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    tool_call_args_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    explanation_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaseExecutionQueueRow(Base):
+    """SPEC-EI-011. Not in 07-data-model's own literal table list — the work-queue
+    counterpart to CaseExecutionResultRow (see that class's own docstring for the
+    natural-key precedent this mirrors). `status` values are domain.enums.
+    CaseQueueStatus's own PENDING/LEASED/DONE/EXHAUSTED.
+    """
+
+    __tablename__ = "evaluation_case_execution_queue"
+    __table_args__ = (Index("ix_evaluation_case_execution_queue_status_next_attempt_at", "status", "next_attempt_at"),)
+
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.evaluation_runs.id"), primary_key=True)
+    test_case_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.evaluation_test_cases.id"), primary_key=True
+    )
+    run_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    leased_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    leased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LangSmithRunLinkRow(Base):
+    """SPEC-EI-013. One row per run — see application.ports_out.LangSmithLinkRepository's
+    own docstring for why this exists separately from EvaluationRunRow (07-data-model
+    §"Artifact 引用": a reference, never folded onto the core aggregate row).
+    """
+
+    __tablename__ = "evaluation_run_langsmith_links"
+
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.evaluation_runs.id"), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    experiment_ref: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class JudgeBundleStatusRow(Base):
+    """SPEC-EI-018. One row per `grader_version` — the judge bundle's own identity,
+    same natural key application.ports_out.JudgeBundleStatusRepository's own docstring
+    names.
+    """
+
+    __tablename__ = "evaluation_judge_bundle_status"
+
+    grader_version: Mapped[str] = mapped_column(String(100), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_mean_absolute_error: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    disabled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
@@ -314,3 +385,53 @@ class AuditRecordRow(Base):
     correlation_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     detail: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OnlineEvaluationSampleRow(Base):
+    """SPEC-EI-028 (online-sample-evaluation) — not in 07-data-model's own literal
+    table list, added the same pragmatic way `evaluation_case_execution_results` was.
+    `candidate_id` is a nullable FK (a sample may be general online monitoring, not
+    scoped to any one candidate's canary), `redacted_context_json` is caller-pre-
+    redacted (see application.records.OnlineEvaluationSample's own docstring).
+    """
+
+    __tablename__ = "evaluation_online_samples"
+    __table_args__ = (Index("ix_evaluation_online_samples_status_collected_at", "status", "collected_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    candidate_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.improvement_candidates.id"), nullable=True)
+    target_version: Mapped[str] = mapped_column(String(200), nullable=False)
+    source_event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    source_trace_ref: Mapped[str] = mapped_column(String(500), nullable=False)
+    redacted_context_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    composite_score: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    score_details_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    failure_code: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class PoisonEventRow(Base):
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 10-failure-handling
+    §"Poison Event" — not in 07-data-model's own literal table list, a pragmatic
+    extension the same way `evaluation_case_execution_results` was. Append-only, no
+    update method on the matching repository — mirrors AuditRecordRow's own
+    precedent.
+    """
+
+    __tablename__ = "evaluation_poison_events"
+    __table_args__ = (Index("ix_evaluation_poison_events_recorded_at", "recorded_at"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    consumer_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

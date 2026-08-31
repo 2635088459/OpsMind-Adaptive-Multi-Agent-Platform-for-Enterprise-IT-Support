@@ -1,0 +1,66 @@
+# owner: platform-observability
+# spec: SPEC-OP-002
+# rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate loki
+#
+# Loki single-binary config (ADR-0002). Receives logs ONLY from the Collector via the
+# native OTLP endpoint (/otlp/v1/logs, enabled by default in Loki 3.x). Structured-log
+# shape and PII/secret redaction are enforced upstream in the Collector (SPEC-OP-007);
+# Loki must never persist unredacted PII. Retention / object storage / limits tuning is
+# SPEC-OP-015. Overlay (values.env) sets only environment parameters.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9095
+  log_level: info
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  metric_aggregation_enabled: true
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  max_streams_per_user: 5000
+  ingestion_rate_mb: 8
+  ingestion_burst_size_mb: 16
+  # Structured metadata is how OTLP attributes land in Loki 3.x.
+  allow_structured_metadata: true
+  retention_period: ${LOKI_RETENTION_PERIOD}
+
+compactor:
+  working_directory: /loki/compactor
+  delete_request_store: filesystem
+  retention_enabled: true
+  compaction_interval: 10m
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  enable_api: true
+
+analytics:
+  reporting_enabled: false

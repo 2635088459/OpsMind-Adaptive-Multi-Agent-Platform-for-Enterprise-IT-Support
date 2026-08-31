@@ -1,0 +1,9 @@
+SPEC-OP-016:
+  domain: 08-observability-platform
+  name: Golden Path And Service Overview Dashboard
+  cn_name: Golden Path 与服务总览 Dashboard
+  status: planned
+  phase: phase-04-dashboards-correlation-analysis
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

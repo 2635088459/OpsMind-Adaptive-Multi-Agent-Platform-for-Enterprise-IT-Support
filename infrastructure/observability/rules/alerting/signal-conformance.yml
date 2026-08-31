@@ -1,0 +1,35 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-004
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/ResourceAttributeViolation.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-004-traceability.md
+#
+# Signal-contract conformance alerts. SPEC-OP-004 seeds resource-attribute violations;
+# SPEC-OP-005/006/007 add propagation / cardinality / redaction conformance here.
+groups:
+  - name: signal-conformance
+    rules:
+      - alert: ResourceAttributeViolation
+        # The Collector stamps opsmind.resource.violation on any signal missing a
+        # required resource attribute; resource_to_telemetry_conversion turns it into
+        # the label opsmind_resource_violation on exported metrics.
+        expr: |
+          count by (service_namespace, opsmind_resource_violation) (
+            {opsmind_resource_violation!=""}
+          ) > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Resource attribute violation: {{ $labels.opsmind_resource_violation }}"
+          description: >
+            One or more producers are emitting telemetry that fails the SPEC-OP-004
+            Resource Attribute Convention (service_namespace={{ $labels.service_namespace }}).
+            The signal is still ingested (ADR-0004) but is hard to attribute.
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/ResourceAttributeViolation.md"
+          dashboard: "Observability Platform Self-Monitoring"

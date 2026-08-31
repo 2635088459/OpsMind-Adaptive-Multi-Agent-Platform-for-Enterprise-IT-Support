@@ -25,6 +25,7 @@ from evaluationimprovement.application.commands import (
 )
 from evaluationimprovement.application.ports_in import (
     CandidateQueryUseCase,
+    CanaryPromotionUseCase,
     CompareRegressionUseCase,
     CreateDatasetUseCase,
     CreateImprovementCandidateUseCase,
@@ -32,7 +33,9 @@ from evaluationimprovement.application.ports_in import (
     DatasetQueryUseCase,
     EvaluateReleaseGateUseCase,
     ExecuteCaseUseCase,
+    FailureClusterQueryUseCase,
     ManageCanaryUseCase,
+    OnlineSampleUseCase,
     PublishDatasetUseCase,
     ReportQueryUseCase,
     RunQueryUseCase,
@@ -40,6 +43,7 @@ from evaluationimprovement.application.ports_in import (
 )
 from evaluationimprovement.container import (
     get_candidate_query_port,
+    get_canary_promotion_port,
     get_compare_regression_port,
     get_create_dataset_port,
     get_create_improvement_candidate_port,
@@ -47,7 +51,9 @@ from evaluationimprovement.container import (
     get_dataset_query_port,
     get_evaluate_release_gate_port,
     get_execute_case_port,
+    get_failure_cluster_query_port,
     get_manage_canary_port,
+    get_online_sample_port,
     get_publish_dataset_port,
     get_report_query_port,
     get_run_query_port,
@@ -56,16 +62,24 @@ from evaluationimprovement.container import (
 from evaluationimprovement.domain.ids import CandidateId, DatasetId, RunId, TestCaseId
 from evaluationimprovement.interfaces.rest.mapper import (
     to_add_test_cases_command,
+    to_advance_canary_command,
     to_approve_candidate_command,
     to_archive_dataset_command,
     to_candidate_response,
     to_cancel_run_command,
+    to_complete_canary_rollback_command,
     to_create_candidate_command,
     to_create_dataset_command,
     to_create_dataset_version_command,
     to_create_run_command,
     to_dataset_response,
+    to_canary_promotion_decision_response,
+    to_collect_online_sample_command,
     to_deprecate_dataset_command,
+    to_failure_cluster_response,
+    to_online_sample_response,
+    to_pause_canary_command,
+    to_promote_candidate_command,
     to_publish_dataset_command,
     to_record_benchmark_command,
     to_regression_report_response,
@@ -73,6 +87,7 @@ from evaluationimprovement.interfaces.rest.mapper import (
     to_reject_review_command,
     to_request_approval_command,
     to_request_canary_rollback_command,
+    to_rollback_promoted_candidate_command,
     to_run_response,
     to_score_response,
     to_skip_case_command,
@@ -82,16 +97,24 @@ from evaluationimprovement.interfaces.rest.mapper import (
 )
 from evaluationimprovement.interfaces.rest.schemas import (
     AddTestCasesRequest,
+    AdvanceCanaryRequest,
     ApproveCandidateRequest,
     ArchiveDatasetRequest,
+    CanaryPromotionDecisionResponse,
     CancelRunRequest,
+    CollectOnlineSampleRequest,
+    CompleteCanaryRollbackRequest,
     CreateDatasetRequest,
     CreateDatasetVersionRequest,
     CreateImprovementCandidateRequest,
     CreateRunRequest,
     DatasetResponse,
     DeprecateDatasetRequest,
+    FailureClusterResponse,
     ImprovementCandidateResponse,
+    OnlineEvaluationSampleResponse,
+    PauseCanaryRequest,
+    PromoteCandidateRequest,
     PublishDatasetRequest,
     RecordCandidateBenchmarkRequest,
     RegressionReportResponse,
@@ -99,6 +122,7 @@ from evaluationimprovement.interfaces.rest.schemas import (
     RejectDatasetReviewRequest,
     RequestCandidateApprovalRequest,
     RollbackCandidateRequest,
+    RollbackPromotedCandidateRequest,
     RunResponse,
     ScoreResponse,
     SkipCaseRequest,
@@ -106,6 +130,7 @@ from evaluationimprovement.interfaces.rest.schemas import (
     SubmitDatasetForReviewRequest,
     TestCaseResponse,
 )
+from evaluationimprovement.interfaces.security import optional_actor as _optional_actor
 from evaluationimprovement.interfaces.security import require_role as _require_role
 from evaluationimprovement.interfaces.security import tenant_id as _tenant_id
 
@@ -247,14 +272,46 @@ def list_runs(
     return [to_run_response(v) for v in port.list_runs(DatasetId(dataset_id), status_filter, limit)]
 
 
+@router.get("/runs/stuck", response_model=list[RunResponse])
+def find_stuck_runs(
+    sla_seconds: int = Query(default=3600, ge=1), actor: str = Depends(_require_role("manage_gate_policy")),
+    port: RunQueryUseCase = Depends(get_run_query_port),
+) -> list[RunResponse]:
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery) / 12-observability
+    §"Alerts": "run stuck in RUNNING 或 SCORING beyond SLA." Registered before
+    `/runs/{run_id}` — FastAPI resolves routes in registration order within one
+    router, and `{run_id}` is a UUID path param that would otherwise 422 on the
+    literal segment "stuck" rather than falling through to this route.
+    """
+    return [to_run_response(v) for v in port.find_stuck_runs(sla_seconds)]
+
+
 @router.get("/runs/{run_id}", response_model=RunResponse)
 def find_run(run_id: UUID, port: RunQueryUseCase = Depends(get_run_query_port)) -> RunResponse:
     return to_run_response(port.find_run(RunId(run_id)))
 
 
 @router.get("/runs/{run_id}/scores", response_model=list[ScoreResponse])
-def find_scores(run_id: UUID, port: RunQueryUseCase = Depends(get_run_query_port)) -> list[ScoreResponse]:
-    return [to_score_response(v) for v in port.find_scores(RunId(run_id))]
+def find_scores(
+    run_id: UUID, caller: tuple[str, str] = Depends(_optional_actor), port: RunQueryUseCase = Depends(get_run_query_port),
+) -> list[ScoreResponse]:
+    """SPEC-EI-034 (evaluation-security-redaction-observability): a caller who never
+    asserts an identity still reads aggregate scores (05-api-contracts's own default
+    read floor) — only case-level evidence visibility depends on the resolved role.
+    """
+    actor_id, actor_role = caller
+    return [to_score_response(v) for v in port.find_scores(RunId(run_id), actor_id, actor_role)]
+
+
+@router.get("/runs/{run_id}/failure-clusters", response_model=list[FailureClusterResponse])
+def list_failure_clusters(
+    run_id: UUID, port: FailureClusterQueryUseCase = Depends(get_failure_cluster_query_port),
+) -> list[FailureClusterResponse]:
+    """SPEC-EI-023 (failure-clustering-root-cause-taxonomy): the `(dimension,
+    failure_code)` root-cause taxonomy for a run's own failed scores, derived at
+    query time — see application.services.cluster_run_failures's own docstring.
+    """
+    return [to_failure_cluster_response(v) for v in port.list_clusters(RunId(run_id))]
 
 
 @router.post("/runs/{run_id}/cancel", response_model=RunResponse)
@@ -394,3 +451,87 @@ def request_candidate_rollback(
     port: ManageCanaryUseCase = Depends(get_manage_canary_port),
 ) -> ImprovementCandidateResponse:
     return to_candidate_response(port.request_rollback(to_request_canary_rollback_command(CandidateId(candidate_id), request, actor)))
+
+
+@router.post("/improvement-candidates/{candidate_id}/advance-canary", response_model=ImprovementCandidateResponse)
+def advance_canary(
+    candidate_id: UUID, request: AdvanceCanaryRequest, actor: str = Depends(_require_role("manage_canary")),
+    port: ManageCanaryUseCase = Depends(get_manage_canary_port),
+) -> ImprovementCandidateResponse:
+    """SPEC-EI-036 (evaluation-contract-e2e-harness-final-release): closes the gap
+    this phase's own final coverage audit found — see AdvanceCanaryRequest's own
+    docstring.
+    """
+    return to_candidate_response(port.advance(to_advance_canary_command(CandidateId(candidate_id), request, actor)))
+
+
+@router.post("/improvement-candidates/{candidate_id}/pause-canary", response_model=ImprovementCandidateResponse)
+def pause_canary(
+    candidate_id: UUID, request: PauseCanaryRequest, actor: str = Depends(_require_role("manage_canary")),
+    port: ManageCanaryUseCase = Depends(get_manage_canary_port),
+) -> ImprovementCandidateResponse:
+    return to_candidate_response(port.pause(to_pause_canary_command(CandidateId(candidate_id), request, actor)))
+
+
+@router.post("/improvement-candidates/{candidate_id}/complete-rollback", response_model=ImprovementCandidateResponse)
+def complete_candidate_rollback(
+    candidate_id: UUID, request: CompleteCanaryRollbackRequest, actor: str = Depends(_require_role("manage_canary")),
+    port: ManageCanaryUseCase = Depends(get_manage_canary_port),
+) -> ImprovementCandidateResponse:
+    """10-failure-handling §"Candidate Rollback": records that the rollback the
+    Runtime/Config owner already executed has completed — see
+    ManageCanaryService.complete_rollback()'s own docstring.
+    """
+    return to_candidate_response(port.complete_rollback(to_complete_canary_rollback_command(CandidateId(candidate_id), request, actor)))
+
+
+@router.post("/improvement-candidates/{candidate_id}/promote", response_model=ImprovementCandidateResponse)
+def promote_candidate(
+    candidate_id: UUID, request: PromoteCandidateRequest, actor: str = Depends(_require_role("manage_canary")),
+    port: CreateImprovementCandidateUseCase = Depends(get_create_improvement_candidate_port),
+) -> ImprovementCandidateResponse:
+    """02-business-invariants INV-EI-002: promotion requires benchmark + release gate
+    + 06 approval + Canary SUCCEEDED — enforced in
+    CreateImprovementCandidateService.promote() itself. Gated behind the same
+    "manage_canary" role start-canary/advance-canary already use — promotion is the
+    canary lifecycle's own terminal step, not a separate authorization concern.
+    """
+    return to_candidate_response(port.promote(to_promote_candidate_command(CandidateId(candidate_id), request, actor)))
+
+
+@router.post("/improvement-candidates/{candidate_id}/rollback-promoted", response_model=ImprovementCandidateResponse)
+def rollback_promoted_candidate(
+    candidate_id: UUID, request: RollbackPromotedCandidateRequest, actor: str = Depends(_require_role("manage_canary")),
+    port: ManageCanaryUseCase = Depends(get_manage_canary_port),
+) -> ImprovementCandidateResponse:
+    """SPEC-EI-036 (evaluation-contract-e2e-harness-final-release): the promoted-
+    candidate rollback path this phase's own final coverage audit found missing —
+    see RollbackPromotedCandidateCommand's own docstring.
+    """
+    return to_candidate_response(port.rollback_promoted(to_rollback_promoted_candidate_command(CandidateId(candidate_id), request, actor)))
+
+
+@router.get("/improvement-candidates/{candidate_id}/promotion-criteria", response_model=CanaryPromotionDecisionResponse)
+def evaluate_canary_promotion(
+    candidate_id: UUID, port: CanaryPromotionUseCase = Depends(get_canary_promotion_port),
+) -> CanaryPromotionDecisionResponse:
+    """SPEC-EI-029 (promotion-criteria-rollback-request): a recommendation only — the
+    caller still drives advance()/request_rollback() itself (07 只请求 rollback，由
+    Runtime/Config owner 执行；不得直接执行 rollback).
+    """
+    return to_canary_promotion_decision_response(port.evaluate(CandidateId(candidate_id)))
+
+
+# Online Sample API ------------------------------------------------------------------
+# SPEC-EI-028 (online-sample-evaluation): the ingestion side only — see
+# CollectOnlineSampleCommand's own docstring for why consuming the actual upstream
+# events/sampling policy is SPEC-EI-030's own scope (phase-07). Delayed scoring
+# (score_pending()) is an operational surface, never REST-exposed — mirrors
+# outbox dispatch/case-runner's own precedent (see OnlineSampleScoringPort's own
+# docstring).
+@router.post("/online-samples", response_model=OnlineEvaluationSampleResponse, status_code=status.HTTP_201_CREATED)
+def collect_online_sample(
+    request: CollectOnlineSampleRequest, actor: str = Depends(_require_role("collect_online_sample")),
+    port: OnlineSampleUseCase = Depends(get_online_sample_port),
+) -> OnlineEvaluationSampleResponse:
+    return to_online_sample_response(port.collect(to_collect_online_sample_command(request, actor)))

@@ -1,0 +1,9 @@
+SPEC-OP-022:
+  domain: 08-observability-platform
+  name: SLI SLO And Error Budget Model
+  cn_name: SLI、SLO 与 Error Budget 模型
+  status: planned
+  phase: phase-05-alerts-slos-runbooks
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  test_evidence:
+    result: pending

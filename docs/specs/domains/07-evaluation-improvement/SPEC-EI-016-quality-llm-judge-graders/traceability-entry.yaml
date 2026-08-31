@@ -2,14 +2,31 @@ SPEC-EI-016:
   domain: 07-evaluation-improvement
   name: Quality Llm Judge Graders
   cn_name: Quality LLM Judge Graders
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-03-graders-and-scoring
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 explanation quality、evidence grounding、handoff completeness、user instruction clarity 的 LLM Judge。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    SPEC-EI-001 shipped only ExplanationQualityJudge, an honestly-labeled placeholder
+    always returning UNSCORED. New `AnthropicQualityJudge` is the real judge, backed
+    by the `anthropic` SDK's structured-output `messages.parse()` (model
+    `claude-opus-5` by default) — folds all four LLD-named judges
+    (ExplanationQualityJudge/EvidenceGroundingJudge/HandoffCompletenessJudge/
+    UserInstructionClarityJudge) into one composite HANDOFF_COMPLETENESS assessment
+    (`JudgeAssessment`: four 0.0-1.0 sub-scores averaged, each kept in the score's own
+    `details`), the same dimension-folding infrastructure.graders.deterministic's own
+    module docstring already documents for the deterministic catalog. New
+    `Settings.llm_judge_mode` ("placeholder" default / "anthropic") lets container.py
+    pick between them — every existing hermetic test is unaffected since the default
+    is unchanged; a missing package or failed client construction degrades to the
+    placeholder rather than failing service startup. Unlike
+    HttpAgentRuntimeEvaluationAdapter (which must never leak ground truth to the
+    system under test), the judge prompt deliberately includes it — grading against
+    ground truth is the whole job. New `CaseExecutionResult.explanation_text` field
+    (migration d7a1e5c93f26) gives the judge the one piece of free text to actually
+    read — everything else on that record is a structured field a deterministic
+    grader already covers. `GraderRegistry.dimensions_for_case()` now requests
+    HANDOFF_COMPLETENESS unconditionally.
   lld_mapping:
     - 01-domain-model
     - 10-failure-handling
@@ -22,8 +39,12 @@ SPEC-EI-016:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/infrastructure/test_llm_judge.py
+    integration: services/evaluation-improvement-service/tests/integration/test_app_postgres_integration.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      171 passed (149 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-014 through SPEC-EI-018, verified
+      2026-08-28.

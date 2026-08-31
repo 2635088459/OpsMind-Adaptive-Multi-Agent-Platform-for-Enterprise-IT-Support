@@ -40,3 +40,27 @@ class GraderResponse(BaseModel):
     grader_type: str
     dimension: str
     version: str
+
+
+class DispatchOutboxEventsRequest(BaseModel):
+    batch_size: int = Field(default=50, ge=1, le=500)
+    correlation_id: str = Field(min_length=1)
+
+
+class DispatchReportResponse(BaseModel):
+    dispatched: int
+    failed: int
+    dead_lettered: int
+
+
+class PoisonEventResponse(BaseModel):
+    """SPEC-EI-035 (langsmith-grader-outbox-failure-recovery)."""
+
+    id: str
+    event_id: str
+    consumer_name: str
+    event_type: str
+    payload: str
+    error_message: str
+    occurred_at: datetime
+    recorded_at: datetime

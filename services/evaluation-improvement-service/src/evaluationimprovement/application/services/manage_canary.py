@@ -11,6 +11,7 @@ from evaluationimprovement.application.commands import (
     CompleteCanaryRollbackCommand,
     PauseCanaryCommand,
     RequestCanaryRollbackCommand,
+    RollbackPromotedCandidateCommand,
     StartCanaryCommand,
 )
 from evaluationimprovement.application.exceptions import CandidateNotFoundException
@@ -31,7 +32,7 @@ from evaluationimprovement.application.services.create_improvement_candidate imp
 from evaluationimprovement.application.services.idempotency import CommandIdempotencyGuard
 from evaluationimprovement.application.telemetry import EvaluationTelemetry
 from evaluationimprovement.application.views import ImprovementCandidateView
-from evaluationimprovement.domain.enums import CanaryStatus
+from evaluationimprovement.domain.enums import CandidateStatus, CanaryStatus
 from evaluationimprovement.domain.events import ImprovementRollbackRequested
 from evaluationimprovement.domain.ids import CandidateId
 from evaluationimprovement.domain.improvement_candidate import ImprovementCandidate
@@ -65,7 +66,8 @@ class ManageCanaryService:
         plan = CanaryPlan(
             plan_version=command.plan_version,
             stages=tuple(
-                CanaryStage(s.traffic_percent, s.min_duration_minutes, s.rollback_error_rate_threshold) for s in command.stages
+                CanaryStage(s.traffic_percent, s.min_duration_minutes, s.rollback_error_rate_threshold, s.sample_size)
+                for s in command.stages
             ),
         )
         # 02-business-invariants INV-EI-002: start_canary() itself refuses without a
@@ -178,6 +180,42 @@ class ManageCanaryService:
             action="complete_canary_rollback", resource_type="IMPROVEMENT_CANDIDATE", resource_id=str(saved.candidate_id),
             actor=command.actor, outcome="SUCCESS", correlation_id=command.correlation_id,
         )
+        return candidate_to_view(saved)
+
+    def rollback_promoted(self, command: RollbackPromotedCandidateCommand) -> ImprovementCandidateView:
+        """SPEC-EI-036: closes the gap RollbackPromotedCandidateCommand's own
+        docstring names — a promoted candidate has no in-progress canary traffic to
+        halt first, so this calls `candidate.rollback()` directly rather than the
+        Canary sub-state machine's own two-step ACTIVE->FAILED->ROLLBACK_REQUESTED
+        dance `request_rollback()`/`complete_rollback()` model.
+        """
+        return self._idempotency_guard.run(
+            command_type="rollback_promoted_candidate", target_id=str(command.candidate_id),
+            idempotency_key=command.idempotency_key,
+            request_payload={"candidateId": str(command.candidate_id), "reason": command.reason},
+            execute=lambda: self._do_rollback_promoted(command), to_dict=candidate_view_to_dict, from_dict=candidate_view_from_dict,
+        )
+
+    def _do_rollback_promoted(self, command: RollbackPromotedCandidateCommand) -> ImprovementCandidateView:
+        candidate = self._require_candidate(command.candidate_id)
+        if candidate.status != CandidateStatus.PROMOTED:
+            raise ValueError(f"candidate {command.candidate_id} is {candidate.status}, expected PROMOTED")
+        original_status = candidate.status
+        now = self._clock.now()
+        candidate = candidate.rollback(now)
+        saved = self._candidate_repository.save(candidate, expected_status=original_status)
+
+        self._outbox_repository.append(build_outbox_record(
+            ImprovementRollbackRequested(candidate_id=saved.candidate_id, reason=command.reason, occurred_at=now),
+            "improvement.rollback.requested.v1", aggregate_id=str(saved.candidate_id), occurred_at=now,
+            correlation_id=to_correlation_id(command.correlation_id),
+        ))
+        self._audit_recorder.record(
+            action="rollback_promoted_candidate", resource_type="IMPROVEMENT_CANDIDATE", resource_id=str(saved.candidate_id),
+            actor=command.actor, outcome="SUCCESS", correlation_id=command.correlation_id,
+            detail=f'{{"reason": {command.reason!r}}}',
+        )
+        self._telemetry.record_canary_rollback(command.reason)
         return candidate_to_view(saved)
 
     def _require_candidate(self, candidate_id: CandidateId) -> ImprovementCandidate:

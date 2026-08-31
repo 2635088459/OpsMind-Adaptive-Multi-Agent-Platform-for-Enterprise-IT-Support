@@ -1,0 +1,125 @@
+# owner: platform-observability
+# spec: SPEC-OP-006
+# rollback: git revert <sha>; redeploy otel-collector + prometheus
+#
+# Machine-readable metric naming + cardinality contract. Human doc: metric-naming.md.
+# Schema: ../schemas/metric-naming.schema.json. Fixtures: fixtures/metric-naming/.
+# Namespace budgets mirror ../governance/telemetry-governance.yaml cardinality_budgets
+# (validate-signal-contracts.py fails if they diverge).
+
+version: "1.0.0"
+
+naming:
+  name_pattern: "^[a-z][a-z0-9_]*[a-z0-9]$"
+  namespaces: [http, amqp, db, runtime, agent, evaluation, slo, otelcol]
+  # a valid unit/type suffix a metric name may end with
+  allowed_suffixes: ["_seconds", "_bytes", "_ratio", "_total", "_usd", "_tokens", "_info"]
+
+units:
+  allowed: [seconds, bytes, ratio, "1", usd, tokens]
+  forbidden_substrings: ["_ms", "_us", "_ns", "_millis", "_kb", "_mb", "_gb", "_percent"]
+
+bucket_sets:
+  latency_seconds: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+  payload_bytes: [64, 256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304]
+  llm_tokens: [16, 64, 256, 1024, 4096, 16384, 65536]
+  cost_usd: [0.0005, 0.005, 0.05, 0.5, 1, 5]
+
+# Per namespace: label allow-list + forbidden labels + the budget (kept == governance).
+namespaces:
+  - namespace: http
+    allowed_labels: [http_request_method, http_response_status_code, http_route, server_address, network_protocol_version, outcome]
+    forbidden_labels: [user_id, ticket_id, workflow_id, request_id, trace_id, session_id, email, url_path_raw]
+    max_label_keys: 6
+    max_series: 40000
+    example_metrics: [http_server_request_duration_seconds, http_server_active_requests, http_server_request_body_size_bytes]
+  - namespace: amqp
+    allowed_labels: [messaging_system, messaging_destination_name, messaging_operation, outcome]
+    forbidden_labels: [message_id, correlation_id, ticket_id, workflow_id]
+    max_label_keys: 6
+    max_series: 20000
+    example_metrics: [amqp_publish_duration_seconds, amqp_consume_duration_seconds, amqp_messages_total]
+  - namespace: db
+    allowed_labels: [db_system, db_operation, db_collection_name, outcome]
+    forbidden_labels: [db_statement, row_id, ticket_id]
+    max_label_keys: 6
+    max_series: 15000
+    example_metrics: [db_client_operation_duration_seconds, db_client_connections_usage]
+  - namespace: runtime
+    allowed_labels: [runtime, pool]
+    forbidden_labels: [pid, thread_name]
+    max_label_keys: 4
+    max_series: 8000
+    example_metrics: [runtime_jvm_memory_used_bytes, runtime_cpu_utilization_ratio]
+  - namespace: agent
+    allowed_labels: [agent_role, model, outcome, step_kind]
+    forbidden_labels: [ticket_id, workflow_id, run_id, user_id, prompt_hash]
+    max_label_keys: 8
+    max_series: 30000
+    example_metrics: [agent_run_duration_seconds, agent_llm_tokens, agent_llm_cost_usd, agent_tool_calls_total]
+  - namespace: evaluation
+    allowed_labels: [grader, dataset, outcome, severity]
+    forbidden_labels: [case_id, run_id, candidate_id, ticket_id]
+    max_label_keys: 8
+    max_series: 20000
+    example_metrics: [evaluation_case_duration_seconds, evaluation_score_ratio, evaluation_cases_total]
+  - namespace: slo
+    allowed_labels: [slo, objective, window]
+    forbidden_labels: [ticket_id, user_id, request_id]
+    max_label_keys: 4
+    max_series: 5000
+    example_metrics: [slo_error_budget_ratio, slo_burn_rate_ratio]
+  - namespace: otelcol
+    allowed_labels: [receiver, exporter, processor, transport, data_type]
+    forbidden_labels: []
+    max_label_keys: 10
+    max_series: 10000
+    example_metrics: [otelcol_receiver_accepted_spans_total, otelcol_exporter_queue_size]
+
+# Prometheus active-series ceiling per producing domain (service.namespace).
+service_series_budgets:
+  - service_namespace: user-access-authentication
+    local: 12000
+    ci: 12000
+    prod: 60000
+  - service_namespace: ticket-workflow
+    local: 15000
+    ci: 15000
+    prod: 80000
+  - service_namespace: agent-runtime
+    local: 25000
+    ci: 25000
+    prod: 120000
+  - service_namespace: memory-knowledge
+    local: 12000
+    ci: 12000
+    prod: 60000
+  - service_namespace: tool-integration
+    local: 12000
+    ci: 12000
+    prod: 60000
+  - service_namespace: policy-approval-governance
+    local: 10000
+    ci: 10000
+    prod: 40000
+  - service_namespace: evaluation-improvement
+    local: 15000
+    ci: 15000
+    prod: 60000
+  - service_namespace: observability-platform
+    local: 15000
+    ci: 15000
+    prod: 40000
+  - service_namespace: shared
+    local: 10000
+    ci: 10000
+    prod: 30000
+
+exemplars:
+  histograms_attach_trace_id: true
+  exemplar_label_allowlist: [trace_id]
+
+# The Collector processor that strips forbidden id/hash/path label keys from metric
+# datapoint attributes. validate-signal-contracts.py checks this name is wired into
+# the metrics pipeline and its regex covers every governance forbidden_label.
+collector_processor: transform/metric-cardinality

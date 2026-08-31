@@ -2,14 +2,19 @@ SPEC-EI-017:
   domain: 07-evaluation-improvement
   name: Evaluation Score Persistence
   cn_name: Evaluation Score Persistence
-  status: planned
+  status: implemented
   service: evaluation-improvement-service
   phase: phase-03-graders-and-scoring
   tech_stack: "Python 3.12 / FastAPI / Pydantic / SQLAlchemy / Alembic / PostgreSQL / RabbitMQ / LangSmith SDK / OpenTelemetry / pytest"
   implementation_notes: >
-    Planned spec for 实现 score batch write、failure code、evidence ref、active/superseded score 和 score audit。
-    It must preserve the 07 boundary: evaluation facts and controlled improvement only,
-    no direct production mutation of Agent, Prompt, Policy, Tool, Ticket, Workflow, or Memory.
+    Closed 08-transaction-and-outbox's own "写 score 时，score 可以按 case 分批提交；每批必须可
+    幂等重放" — SPEC-EI-001's own `score_case()` called `ScoreRepository.save()` once
+    per dimension (N separate transactions per case). New `ScoreRepository.save_many()`
+    (in-memory: same lock, N supersede-then-append writes; Postgres: one session, one
+    commit for the whole batch) replaces that loop — every dimension a case grades now
+    lands together, replaying idempotently exactly like N individual save() calls
+    would (each dimension still only ever has one active row, unchanged from
+    SPEC-EI-001's own append/supersede invariant).
   lld_mapping:
     - 07-data-model
     - 08-transaction-and-outbox
@@ -22,8 +27,12 @@ SPEC-EI-017:
     - policy_approval_ownership_bypass
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: pending
-    integration: pending
+    unit: services/evaluation-improvement-service/tests/application
+    integration: services/evaluation-improvement-service/tests/integration/test_postgres_repositories.py
     contract: pending
     security: pending
-    result: pending
+    result: >
+      171 passed (149 non-integration + 22 real-Postgres integration tests via
+      testcontainers, python:3.12-alpine in Docker), 3 import-linter contracts kept,
+      0 pyflakes warnings — full suite after SPEC-EI-014 through SPEC-EI-018, verified
+      2026-08-28.
