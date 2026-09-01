@@ -60,6 +60,9 @@ jobs:
       - name: Validate rule catalog (SPEC-OP-020/024)
         run: python scripts/validate-rule-catalog.py
 
+      - name: Validate config-change audit trail (SPEC-OP-032)
+        run: python scripts/validate-config-change-audit.py
+
       - name: Run validator self-tests
         run: python -m unittest discover -s scripts/tests -v
 
@@ -79,6 +82,7 @@ jobs:
             --env-file infrastructure/observability/versions.env \
             --env-file infrastructure/observability/prometheus/overlays/local/values.env \
             --env-file infrastructure/observability/alertmanager/overlays/local/values.env \
+            --env-file infrastructure/observability/collector/overlays/local/values.env \
             -f infrastructure/docker-compose/observability-stack.yml config >/dev/null
           echo "compose config OK"
 

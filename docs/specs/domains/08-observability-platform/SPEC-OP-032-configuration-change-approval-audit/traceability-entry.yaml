@@ -2,8 +2,101 @@ SPEC-OP-032:
   domain: 08-observability-platform
   name: Configuration Change Approval And Audit
   cn_name: 配置变更审批与审计
-  status: planned
+  status: implemented
   phase: phase-07-security-privacy-config-governance
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-002]
+  tech_stack: "Git (CODEOWNERS review) + GitHub Actions CI + a new header-audit validator + a live-proven git-revert rollback — no new control plane or database, consistent with ADR-0005"
+  implementation_notes: >
+    Concrete objective: "Govern config lifecycle through Git review, CI,
+    approval, audit, deployment, and rollback." Closes phase-07.
+
+    Investigating first found most of this objective already real, just
+    never assembled into one coherent, spec-owned story: Git review via
+    CODEOWNERS (SPEC-OP-001/ADR-0006), CI via
+    observability-platform-ci.yml's layout/config/smoke jobs (running since
+    early phases), and an audit-header convention (# owner: / # spec: /
+    # rollback:) every component config file has followed since SPEC-OP-002
+    — but that convention was NEVER machine-checked; a future file could
+    silently omit it. This is the one genuine gap this spec closes for
+    "audit". "Approval" was checked honestly against this domain's real
+    surfaces: unlike domains 01-07, domain 08 has no hexagonal service or
+    runtime write API of its own, so the generic per-spec template phrase
+    ("administrative writes require domain-01 identity ... and domain-06
+    approval when risk is high", repeated near-verbatim across many
+    SPEC-OP-0xx docs) describes no real integration point here — the real
+    approval mechanism is the required CODEOWNERS PR review itself, stated
+    plainly rather than inventing a fake domain-06 API call this domain
+    never makes. Full reasoning: ADR-0009.
+
+    BUILT: new scripts/validate-config-change-audit.py (wired into CI's
+    layout job) — requires every non-empty base/overlay config file across
+    all 6 components to carry # owner:, # spec: (naming a real SPEC-OP-0xx
+    id), and # rollback: (naming git revert or recreate <service>) in its
+    first 10 lines; confirmed empirically it passes against all 17 real
+    config files with zero pre-existing violations (the convention was
+    already universal, just unenforced). New ADR-0009 (git review + CI +
+    git-log audit + proven rollback, no new control plane; documents the
+    exact GitHub branch-protection settings that SHOULD be configured,
+    honestly marked as not verified live since no gh CLI/admin token is
+    available in this environment). New runbook
+    ConfigurationChangeRollback.md documenting the real, proven rollback
+    procedure. Fixed a related, adjacent gap: the CI config job's compose
+    render was missing --env-file collector/overlays/local/values.env
+    (harmless for a static `config` render, but inconsistent with the
+    smoke job's own correct env-file list) - added it. Added ADR-0007/0008
+    (real, existing, previously created but never added) to both the ADR
+    index (docs/adr/README.md) and validate-observability-layout.py's
+    required-ADR list, closing a small tracking gap from earlier specs.
+
+    REAL LIVE ROLLBACK PROOF (not merely documented): bumped
+    tempo/overlays/local/values.env's TEMPO_BLOCK_RETENTION 24h -> 48h in
+    an isolated commit (f4a7a8c), redeployed Tempo, confirmed
+    block_retention: 48h0m0s via Tempo's own /status/config; `git revert
+    f4a7a8c` (commit c15b988), redeployed again, confirmed
+    block_retention: 24h0m0s exactly restored, Tempo healthy throughout
+    both cycles — the first time any spec in this domain has actually
+    exercised the rollback mechanism its own header comments have claimed
+    since SPEC-OP-002, not merely asserted it works.
+  lld_mapping:
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - fabricating_a_domain_06_approval_integration_with_no_real_surface
+    - building_a_redundant_config_change_database
+  artifacts:
+    contract:
+      - infrastructure/observability/docs/adr/0009-config-change-approval-and-audit.md
+      - infrastructure/observability/CODEOWNERS
+    enforcement:
+      - scripts/validate-config-change-audit.py
+      - .github/workflows/observability-platform-ci.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/ConfigurationChangeRollback.md
+    tooling:
+      - scripts/tests/test_validate_config_change_audit.py
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err/0 warn (1 transient warn until this file's own audit_ref existed, now resolved); validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-collector-pipeline.py 0 err/0 warn; validate-dashboards.py 0 err/1 pre-existing warn; validate-rule-catalog.py 0 err/12 warn (1 new expected orphaned-runbook warning for ConfigurationChangeRollback.md, same category as AlertRoutingAndSilencing.md/ObservabilityAccessControl.md); validate-config-change-audit.py (NEW) 0 err/0 warn, scanned 17 real config files"
+    unit: "scripts/tests — 88 passed (6 new: test_validate_config_change_audit.py covering real-tree-pass, missing-owner-header, spec-header-without-real-id, rollback-header-without-real-mechanism, empty-placeholder-ignored, new-file-without-any-header)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS, every
+      SPEC-OP-002~031 assertion green. Separately, a real live rollback
+      cycle executed against the running stack (not part of the smoke
+      script, a one-off proof for this spec): commit -> redeploy -> confirm
+      new value live -> git revert -> redeploy -> confirm original value
+      restored, via Tempo's own /status/config endpoint, Tempo healthy
+      throughout. Stack torn down clean. Verified 2026-09-01.
+    result: >
+      Configuration-change governance for this domain is Git review
+      (CODEOWNERS, real since SPEC-OP-001) + CI (existing workflow,
+      strengthened with 1 new validator + 1 env-file fix) + audit (git
+      log/blame, now CI-enforced via a header check across every real
+      config file) + rollback (git revert, proven live end-to-end for the
+      first time in this domain's history) — assembled and closed, not
+      newly invented. "Approval" is honestly scoped to what this domain
+      actually has (PR review), not a fabricated runtime integration with
+      domain 06. GitHub branch-protection settings are documented as the
+      real intended enforcement mechanism but explicitly flagged as
+      unverified live, since this environment has no GitHub admin access —
+      a stated, honest residual, not hidden. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-032-traceability.md

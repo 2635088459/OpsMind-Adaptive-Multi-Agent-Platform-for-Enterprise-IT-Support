@@ -47,6 +47,9 @@ ADRS = [
     "0004-observability-never-mutates-business-state.md",
     "0005-thin-control-plane-api-only-when-gitops-insufficient.md",
     "0006-repository-layout-and-ownership-model.md",
+    "0007-otlp-gateway-requires-tls-and-bearer-auth.md",
+    "0008-sdk-level-redaction-contract.md",
+    "0009-config-change-approval-and-audit.md",
 ]
 VERSION_KEYS = {
     "collector": "OTEL_COLLECTOR",
