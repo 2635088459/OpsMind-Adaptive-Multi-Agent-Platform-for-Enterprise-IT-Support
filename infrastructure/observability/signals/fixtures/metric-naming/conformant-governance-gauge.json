@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-027", "kind": "conformant", "expect": "pass",
+    "note": "policy-approval-governance-service's own outbox-pending gauge — the third real service to use this exact _count gauge shape (after identity's and tool's own)." },
+  "metric": {
+    "name": "governance_outbox_pending_count",
+    "type": "gauge", "unit": "1", "namespace": "governance",
+    "labels": []
+  }
+}

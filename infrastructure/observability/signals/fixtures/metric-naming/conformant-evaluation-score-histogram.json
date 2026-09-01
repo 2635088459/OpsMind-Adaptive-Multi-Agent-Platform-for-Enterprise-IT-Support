@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-028", "kind": "conformant", "expect": "pass",
+    "note": "proves the new _score suffix (added this spec) actually works — evaluation-improvement-service's own bare-named `evaluation_score` histogram, exactly as its LLD (SPEC-EI-033) names it, no unit suffix." },
+  "metric": {
+    "name": "evaluation_score",
+    "type": "histogram", "unit": "1", "namespace": "evaluation",
+    "labels": ["dimension", "dataset", "target_version"]
+  }
+}

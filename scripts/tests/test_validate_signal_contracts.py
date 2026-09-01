@@ -262,9 +262,10 @@ class EndToEndTests(unittest.TestCase):
             clone = self._clone(tmp)
             fx = (clone / "infrastructure" / "observability" / "signals" / "fixtures"
                   / "metric-naming" / "conformant-agent-counter.json")
-            fx.write_text(fx.read_text(encoding="utf-8").replace(
-                '"agent_role", "model", "outcome"', '"agent_role", "ticket_id"'),
-                encoding="utf-8")
+            text = fx.read_text(encoding="utf-8")
+            broken = text.replace('"labels": ["workflow_type"]', '"labels": ["workflow_type", "ticket_id"]')
+            self.assertNotEqual(text, broken, "fixture replace did not match — update this test")
+            fx.write_text(broken, encoding="utf-8")
             r = self._run(clone)
             self.assertEqual(r.returncode, 1)
             self.assertIn("expected conformant but failed", r.stdout)

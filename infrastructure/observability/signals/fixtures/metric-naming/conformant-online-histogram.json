@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-028", "kind": "conformant", "expect": "pass",
+    "note": "evaluation-improvement-service's real online-sample quality-score histogram (SPEC-EI-028) — `online` is this metric's own literal prefix, a domain-specific 'online production sample' concept, not a generic web/HTTP namespace." },
+  "metric": {
+    "name": "online_sample_quality_score",
+    "type": "histogram", "unit": "1", "namespace": "online",
+    "labels": ["source_event_type"]
+  }
+}

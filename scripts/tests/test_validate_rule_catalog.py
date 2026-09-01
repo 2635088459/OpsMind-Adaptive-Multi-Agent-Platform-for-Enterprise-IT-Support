@@ -5,6 +5,7 @@ Run: uv run --with pyyaml python -m unittest discover -s scripts/tests
 from __future__ import annotations
 
 import importlib.util
+import re
 import shutil
 import subprocess
 import sys
@@ -46,7 +47,7 @@ groups:
         annotations: { summary: s, description: d, runbook_url: "x/runbooks/A.md", dashboard: D }
 """, encoding="utf-8")
             vrc.errors.clear()
-            vrc.check_alerting_file(p, set())
+            vrc.check_alerting_file(p, set(), {})
             self.assertTrue(any("labels.severity" in e for e in vrc.errors))
 
     def test_alert_missing_runbook_annotation_fails(self) -> None:
@@ -62,7 +63,7 @@ groups:
         annotations: { summary: s, description: d, dashboard: D }
 """, encoding="utf-8")
             vrc.errors.clear()
-            vrc.check_alerting_file(p, set())
+            vrc.check_alerting_file(p, set(), {})
             self.assertTrue(any("annotations.runbook_url" in e for e in vrc.errors))
 
     def test_nonexistent_runbook_fails(self) -> None:
@@ -79,7 +80,7 @@ groups:
           runbook_url: "https://x/runbooks/DoesNotExist12345.md" }
 """, encoding="utf-8")
             vrc.errors.clear()
-            vrc.check_alerting_file(p, set())
+            vrc.check_alerting_file(p, set(), {})
             self.assertTrue(any("does not exist" in e for e in vrc.errors))
 
     def test_valid_alert_passes(self) -> None:
@@ -97,9 +98,89 @@ groups:
 """, encoding="utf-8")
             vrc.errors.clear()
             refs: set[str] = set()
-            vrc.check_alerting_file(p, refs)
+            sevs: dict[str, set[str]] = {}
+            vrc.check_alerting_file(p, refs, sevs)
             self.assertEqual(vrc.errors, [])
             self.assertIn("TargetDown.md", refs)
+            self.assertEqual(sevs["TargetDown.md"], {"warning"})
+
+
+class RunbookStructureTests(unittest.TestCase):
+    """SPEC-OP-024 — the runbook BODY (not just its file existence) must have
+    every required section, filled in for real."""
+
+    def test_split_sections(self) -> None:
+        sections = vrc._split_sections("intro\n## Impact\nline1\nline2\n## Detection\nline3\n")
+        self.assertEqual(sections["Impact"], "line1\nline2")
+        self.assertEqual(sections["Detection"], "line3")
+
+    def _write_runbook(self, tmp: str, name: str, sections: dict[str, str]) -> None:
+        body = "\n".join(f"## {h}\n\n{c}\n" for h, c in sections.items())
+        (Path(tmp) / name).write_text(f"# {name}\n\n> owner: x\n\n{body}", encoding="utf-8")
+
+    def _full_sections(self, **overrides: str) -> dict[str, str]:
+        base = {h: f"Real, specific {h.lower()} content for this incident class." for h in vrc.REQUIRED_RUNBOOK_SECTIONS}
+        base.update(overrides)
+        return base
+
+    def test_missing_section_on_critical_runbook_is_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sections = self._full_sections()
+            del sections["Escalation"]
+            self._write_runbook(tmp, "R.md", sections)
+            orig = vrc.RUNBOOKS
+            vrc.RUNBOOKS = Path(tmp)
+            try:
+                vrc.errors.clear()
+                vrc.warnings.clear()
+                vrc.check_runbook_structure({"R.md": {"critical"}})
+                self.assertTrue(any("missing required '## Escalation'" in e for e in vrc.errors))
+            finally:
+                vrc.RUNBOOKS = orig
+
+    def test_missing_section_on_warning_only_runbook_is_a_warning_not_an_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sections = self._full_sections()
+            del sections["Escalation"]
+            self._write_runbook(tmp, "R.md", sections)
+            orig = vrc.RUNBOOKS
+            vrc.RUNBOOKS = Path(tmp)
+            try:
+                vrc.errors.clear()
+                vrc.warnings.clear()
+                vrc.check_runbook_structure({"R.md": {"warning"}})
+                self.assertEqual(vrc.errors, [])
+                self.assertTrue(any("missing required '## Escalation'" in w for w in vrc.warnings))
+            finally:
+                vrc.RUNBOOKS = orig
+
+    def test_leftover_template_placeholder_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sections = self._full_sections(Escalation="Who to page and when (owner → secondary → domain owner).")
+            self._write_runbook(tmp, "R.md", sections)
+            orig = vrc.RUNBOOKS
+            vrc.RUNBOOKS = Path(tmp)
+            try:
+                vrc.errors.clear()
+                vrc.warnings.clear()
+                vrc.check_runbook_structure({"R.md": {"critical"}})
+                self.assertTrue(any("literal TEMPLATE.md boilerplate" in e for e in vrc.errors))
+            finally:
+                vrc.RUNBOOKS = orig
+
+    def test_fully_filled_runbook_passes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write_runbook(tmp, "R.md", self._full_sections())
+            orig = vrc.RUNBOOKS
+            vrc.RUNBOOKS = Path(tmp)
+            try:
+                vrc.errors.clear()
+                vrc.warnings.clear()
+                vrc.check_runbook_structure({"R.md": {"critical"}})
+                self.assertEqual(vrc.errors, [])
+                self.assertEqual(vrc.warnings, [])
+            finally:
+                vrc.RUNBOOKS = orig
 
 
 class EndToEndTests(unittest.TestCase):
@@ -130,6 +211,23 @@ class EndToEndTests(unittest.TestCase):
             r = self._run(clone / "scripts" / SCRIPT.name)
             self.assertEqual(r.returncode, 1)
             self.assertIn("labels.owner", r.stdout)
+
+    def test_stubbed_runbook_section_fails_on_real_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = self._clone(tmp)
+            f = clone / "infrastructure" / "observability" / "runbooks" / "HttpGoldenSignals.md"
+            text = f.read_text(encoding="utf-8")
+            broken = re.sub(
+                r"## Escalation\n\n.*?\n\n## Post-incident",
+                "## Escalation\n\n## Post-incident",
+                text, count=1, flags=re.S,
+            )
+            self.assertNotEqual(text, broken, "fixture regex did not match — update this test")
+            f.write_text(broken, encoding="utf-8")
+            r = self._run(clone / "scripts" / SCRIPT.name)
+            self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+            self.assertIn("HttpGoldenSignals.md", r.stdout)
+            self.assertIn("Escalation", r.stdout)
 
     def test_loki_ruler_rules_are_scanned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

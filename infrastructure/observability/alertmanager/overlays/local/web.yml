@@ -1,0 +1,14 @@
+# owner: platform-observability
+# spec: SPEC-OP-030
+# rollback: git revert <sha>; recreate alertmanager
+#
+# SPEC-OP-030 — Alertmanager's own native `--web.config.file` basic-auth gate
+# (same exporter-toolkit mechanism as Prometheus's own web.yml, no external
+# IdP needed). Authentication only, no role differentiation — see
+# prometheus/overlays/local/web.yml's own comment for the same caveat.
+#
+# Password is a NON-secret local-dev placeholder — same convention as
+# GF_SECURITY_ADMIN_PASSWORD / OTEL_GATEWAY_AUTH_TOKEN. bcrypt hash generated
+# via: htpasswd -nbBC 10 admin admin
+basic_auth_users:
+  admin: $2y$10$MTenQgkiOX7VszcdLmvJUemM3suTmfyYwJl0vqfkIozcPgU./ze1m

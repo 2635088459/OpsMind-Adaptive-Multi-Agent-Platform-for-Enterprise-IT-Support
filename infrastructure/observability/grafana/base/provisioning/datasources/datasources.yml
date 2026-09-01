@@ -16,6 +16,15 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    # SPEC-OP-030 — Prometheus now gates its whole web server behind
+    # web.yml's basic_auth_users; Grafana's own proxy-mode queries need
+    # credentials or every panel/alert-rule query against this datasource
+    # would start failing with 401. Same local-dev-placeholder password as
+    # prometheus/overlays/local/web.yml (never a real secret).
+    basicAuth: true
+    basicAuthUser: admin
+    secureJsonData:
+      basicAuthPassword: admin
     jsonData:
       httpMethod: POST
       manageAlerts: false

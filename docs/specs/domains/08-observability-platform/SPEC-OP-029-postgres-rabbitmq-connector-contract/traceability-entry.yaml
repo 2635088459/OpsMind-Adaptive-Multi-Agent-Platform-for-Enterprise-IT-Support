@@ -1,9 +1,124 @@
 SPEC-OP-029:
   domain: 08-observability-platform
   name: PostgreSQL RabbitMQ And Connector Contract
-  cn_name: PostgreSQL、RabbitMQ 与 Connector 契约
-  status: planned
+  cn_name: PostgreSQL、RabbitMQ 与连接器契约
+  status: implemented
   phase: phase-06-cross-domain-contracts
-  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager, obs-postgres, postgres-exporter, obs-rabbitmq]
+  depends_on: [SPEC-OP-012, SPEC-OP-018]
+  tech_stack: "Real postgres_exporter (prometheus-community) + RabbitMQ's own built-in rabbitmq_prometheus plugin, wired via SPEC-OP-012's file_sd discovery; a dedicated obs-postgres/obs-rabbitmq pair added to this stack's own docker-compose"
+  implementation_notes: >
+    Concrete objective: "Integrate infrastructure/connector exporters and
+    standardize health, lag, retry, limit, and dependency spans." This
+    closes an ALREADY-NAMED gap, not a newly-discovered one: SPEC-OP-018's
+    own DatabaseBrokerInfrastructure runbook and dashboard already stated in
+    writing "postgres_exporter/rabbitmq_exporter/node_exporter do not exist
+    in this stack yet... this is explicitly SPEC-OP-029's scope" — confirmed
+    still true (`infrastructure/postgres/` and `infrastructure/rabbitmq/`
+    remain placeholder directories, only `.gitkeep`).
+    REAL ARCHITECTURE DECISION: `infrastructure/docker-compose/local-
+    platform.yml` already runs a real, shared Postgres+RabbitMQ pair for
+    domain services (a SEPARATE compose project, its own network, no shared
+    network with `observability-stack.yml` today). Rather than couple this
+    domain's own CI/smoke test to another compose project being
+    simultaneously up (which `observability-stack.yml`'s own header comment
+    already states this stack must not depend on — "independent of local-
+    platform.yml"), added a DEDICATED, throwaway `obs-postgres`/
+    `obs-rabbitmq` pair directly to `observability-stack.yml` itself — small
+    footprint, real containers, purely so the exporters have something real
+    to connect to and report real (mostly-empty) health metrics from. A
+    production topology would point the same exporters at the real shared
+    instances instead; this spec proves the INTEGRATION mechanism, not a
+    specific target.
+    Added 3 new pinned images to `versions.env` (postgres:16-alpine,
+    quay.io/prometheuscommunity/postgres-exporter:v0.15.0, rabbitmq:4.3.4-
+    management — same tag `local-platform.yml` already pins, for
+    consistency), each with a real digest pulled and inspected, not a
+    placeholder. `postgres_exporter` is a real separate sidecar (Postgres has
+    no native Prometheus endpoint); RabbitMQ instead uses its OWN built-in
+    `rabbitmq_prometheus` plugin (ships with the image since 3.8+, enabled at
+    container startup via a command override) — no separate exporter
+    container needed for RabbitMQ, a real architectural difference between
+    the two backends, not an oversight.
+    Wired both via 2 new `file_sd/*.json` target files
+    (`postgres-exporter.json`, `obs-rabbitmq.json`) — exactly the mechanism
+    `prometheus.yml`'s own comment already named as ready for this
+    (`SPEC-OP-012`), confirmed requiring zero edit to that file.
+    New `rules/recording/db-broker-infrastructure.yml`
+    (`postgres:connections:ratio`, `rabbitmq:queue_depth:sum`) +
+    `rules/alerting/db-broker-infrastructure.yml`
+    (`PostgresConnectionPoolNearSaturation` warning >80% for 10m;
+    `RabbitmqQueueBacklogHigh` warning >1000 messages for 15m — both early-
+    warning capacity signals, not an outright outage, hence both warning not
+    critical). Rewrote `runbooks/DatabaseBrokerInfrastructure.md` from its
+    prior "honest half-scope, dashboard-guide-only" shape (SPEC-OP-018) to
+    the full 8-section incident-runbook structure (now alert-linked) and
+    updated `dashboards/database-broker-infrastructure.json`'s previously-
+    deferred bottom row with 4 real panels, replacing the text-only scope
+    note.
+    PROVEN end-to-end via a real docker-compose smoke test: confirmed
+    `pg_up=1` (postgres_exporter genuinely connected to obs-postgres),
+    `pg_settings_max_connections` and `rabbitmq_identity_info` both scraped
+    (real, standard metrics from each exporter — `rabbitmq_identity_info`
+    specifically proves the `rabbitmq_prometheus` plugin is enabled and
+    live, not just that the container is up), both new recording rules
+    query-valid, both new alerts loaded. Every SPEC-OP-002~028 assertion in
+    the same run stayed green — this is the first spec in this domain to add
+    NEW CONTAINERS to the compose stack itself since SPEC-OP-002, and every
+    prior spec's assertions still held.
+    MINOR OBSERVATION: `scripts/observability-stack.sh down` (`dc down -v
+    --remove-orphans`) removed both new containers and the network
+    correctly, but left the 2 new named volumes
+    (`opsmind-observability_obs-postgres-data`/`obs-rabbitmq-data`)
+    orphaned on first teardown — cleaned up manually
+    (`docker volume rm`). Noted as a residual risk below rather than
+    silently worked around.
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - coupling_this_stacks_ci_to_local_platform_yml_being_up
+    - fabricating_a_dependency_this_spec_did_not_actually_stand_up
+  artifacts:
+    contract:
+      - infrastructure/observability/versions.env
+      - infrastructure/docker-compose/observability-stack.yml
+    enforcement:
+      - infrastructure/observability/prometheus/base/file_sd/postgres-exporter.json
+      - infrastructure/observability/prometheus/base/file_sd/obs-rabbitmq.json
+      - infrastructure/observability/rules/recording/db-broker-infrastructure.yml
+      - infrastructure/observability/rules/alerting/db-broker-infrastructure.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/DatabaseBrokerInfrastructure.md
+      - infrastructure/observability/dashboards/database-broker-infrastructure.json
+    tooling:
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err (4 expected audit_ref warnings, cleared by this file, incl. 3 new pinned-image entries validated); validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-collector-pipeline.py 0 err/0 warn; validate-dashboards.py 0 err (1 expected audit_ref warning); validate-rule-catalog.py 0 err, 10 expected warnings (unchanged); compose config render OK (3 new services); promtool check rules SUCCESS (2 recording + 2 alerting)"
+    unit: "scripts/tests — 82 passed, unaffected (no validator logic changed)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS, first run in this
+      domain to bring up 3 NEW containers beyond the original 6-component
+      topology. Confirmed pg_up=1, pg_settings_max_connections scraped,
+      rabbitmq_identity_info scraped (proves the rabbitmq_prometheus plugin
+      is genuinely enabled, not just that the container started), both new
+      recording rules query-valid, both new alerts loaded. Every
+      SPEC-OP-002~028 assertion in the same run stayed green — a real
+      regression-safety proof that adding 3 new services didn't disturb
+      anything already built. Stack torn down; 2 new named volumes needed a
+      manual follow-up removal (noted, not hidden). Verified 2026-08-31.
+    result: >
+      Closes the infrastructure-level gap SPEC-OP-018 explicitly deferred
+      and named in writing — real postgres_exporter + RabbitMQ's own built-in
+      Prometheus plugin now genuinely scraped, proven via real, distinctive
+      per-exporter metrics (not just a generic `up` check), through the
+      exact file_sd mechanism SPEC-OP-012 already prepared for this. A
+      dedicated, throwaway infra pair was added rather than coupling this
+      domain's CI to another compose project's lifecycle — an explicit
+      architecture decision, not an oversight. This closes phase-06
+      (SPEC-OP-025 through SPEC-OP-029) of the observability-platform domain
+      roadmap in full. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-029-traceability.md

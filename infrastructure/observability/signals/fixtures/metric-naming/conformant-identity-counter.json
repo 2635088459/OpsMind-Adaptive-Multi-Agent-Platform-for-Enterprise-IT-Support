@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-025", "kind": "conformant", "expect": "pass",
+    "note": "identity authorization-decision counter from user-access-authentication-service's real IdentityMetricsPort (SPEC-UA-030); effect is a bounded 3-value enum." },
+  "metric": {
+    "name": "identity_authorization_decision_total",
+    "type": "counter", "unit": "1", "namespace": "identity",
+    "labels": ["effect"]
+  }
+}

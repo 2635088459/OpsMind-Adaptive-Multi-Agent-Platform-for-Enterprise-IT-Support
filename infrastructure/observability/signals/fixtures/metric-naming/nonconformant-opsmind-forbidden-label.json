@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-025", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "ticket_id is an unbounded, per-entity identifier — forbidden in the opsmind namespace exactly as TicketTelemetry.java's own class javadoc already states (\"no ticketId, requesterId, eventId, or idempotencyKey\")." },
+  "metric": {
+    "name": "opsmind_ticket_created_total",
+    "type": "counter", "unit": "1", "namespace": "opsmind",
+    "labels": ["application_code", "ticket_id"]
+  }
+}

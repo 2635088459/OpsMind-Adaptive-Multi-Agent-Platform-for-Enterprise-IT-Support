@@ -118,6 +118,9 @@ services:
       # internal network; it is not the producer-facing OTLP boundary.
       - "--web.enable-admin-api"
       - "--enable-feature=expand-external-labels,exemplar-storage"
+      # SPEC-OP-030 — Prometheus's own native basic-auth gate on the whole web
+      # server (query API included), no external IdP needed.
+      - "--web.config.file=/etc/prometheus/web.yml"
     environment:
       PROMETHEUS_ENV_LABEL: ${PROMETHEUS_ENV_LABEL}
     volumes:
@@ -125,11 +128,17 @@ services:
       - ../observability/prometheus/base/file_sd:/etc/prometheus/file_sd:ro
       - ../observability/rules/recording:/etc/prometheus/rules/recording:ro
       - ../observability/rules/alerting:/etc/prometheus/rules/alerting:ro
+      - ../observability/prometheus/overlays/local/web.yml:/etc/prometheus/web.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      # SPEC-OP-030 — basic_auth_users in web.yml applies to EVERY endpoint,
+      # /-/healthy included — Prometheus's exporter-toolkit auth middleware
+      # wraps the whole server, no built-in health-endpoint exemption; the
+      # healthcheck itself needs credentials now (verified live in this
+      # spec's own traceability doc).
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--http-user=admin", "--http-password=admin", "--spider", "http://localhost:9090/-/healthy"]
       interval: 15s
       timeout: 5s
       retries: 5

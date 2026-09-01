@@ -169,9 +169,9 @@ processors:
     error_mode: ignore
     metric_statements:
       - context: resource
-        statements: ['delete_matching_keys(attributes, "(?i)^(user[_.-]?id|ticket[_.-]?id|workflow[_.-]?id|request[_.-]?id|trace[_.-]?id|session[_.-]?id|email|url[_.-]?path[_.-]?raw|message[_.-]?id|correlation[_.-]?id|db[_.-]?statement|row[_.-]?id|pid|thread[_.-]?name|run[_.-]?id|prompt[_.-]?hash|case[_.-]?id|candidate[_.-]?id)$")']
+        statements: ['delete_matching_keys(attributes, "(?i)^(user[_.-]?id|ticket[_.-]?id|workflow[_.-]?id|request[_.-]?id|trace[_.-]?id|session[_.-]?id|email|url[_.-]?path[_.-]?raw|message[_.-]?id|correlation[_.-]?id|db[_.-]?statement|row[_.-]?id|pid|thread[_.-]?name|run[_.-]?id|prompt[_.-]?hash|case[_.-]?id|candidate[_.-]?id|token|subject|event[_.-]?id|idempotency[_.-]?key|requester[_.-]?id|workflow[_.-]?instance[_.-]?id|agent[_.-]?task[_.-]?id|memory[_.-]?id|retrieval[_.-]?id|document[_.-]?id|tool[_.-]?request[_.-]?id|execution[_.-]?id|result[_.-]?envelope[_.-]?id|policy[_.-]?id|decision[_.-]?id|approval[_.-]?id)$")']
       - context: datapoint
-        statements: ['delete_matching_keys(attributes, "(?i)^(user[_.-]?id|ticket[_.-]?id|workflow[_.-]?id|request[_.-]?id|trace[_.-]?id|session[_.-]?id|email|url[_.-]?path[_.-]?raw|message[_.-]?id|correlation[_.-]?id|db[_.-]?statement|row[_.-]?id|pid|thread[_.-]?name|run[_.-]?id|prompt[_.-]?hash|case[_.-]?id|candidate[_.-]?id)$")']
+        statements: ['delete_matching_keys(attributes, "(?i)^(user[_.-]?id|ticket[_.-]?id|workflow[_.-]?id|request[_.-]?id|trace[_.-]?id|session[_.-]?id|email|url[_.-]?path[_.-]?raw|message[_.-]?id|correlation[_.-]?id|db[_.-]?statement|row[_.-]?id|pid|thread[_.-]?name|run[_.-]?id|prompt[_.-]?hash|case[_.-]?id|candidate[_.-]?id|token|subject|event[_.-]?id|idempotency[_.-]?key|requester[_.-]?id|workflow[_.-]?instance[_.-]?id|agent[_.-]?task[_.-]?id|memory[_.-]?id|retrieval[_.-]?id|document[_.-]?id|tool[_.-]?request[_.-]?id|execution[_.-]?id|result[_.-]?envelope[_.-]?id|policy[_.-]?id|decision[_.-]?id|approval[_.-]?id)$")']
 
   # SPEC-OP-007 Structured Log & Redaction — LOGS pipeline only. Stamps a schema
   # violation attribute (never drops the record, ADR-0004) for: no trace/correlation

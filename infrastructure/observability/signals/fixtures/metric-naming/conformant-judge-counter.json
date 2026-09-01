@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-028", "kind": "conformant", "expect": "pass",
+    "note": "evaluation-improvement-service's real judge-calibration-drift counter." },
+  "metric": {
+    "name": "judge_calibration_drift_total",
+    "type": "counter", "unit": "1", "namespace": "judge",
+    "labels": ["grader_version"]
+  }
+}

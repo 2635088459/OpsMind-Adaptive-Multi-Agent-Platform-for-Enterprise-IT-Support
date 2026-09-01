@@ -1,9 +1,9 @@
 {
-  "_fixture": { "spec": "SPEC-OP-006", "kind": "conformant", "expect": "pass",
-    "note": "agent tool-call counter; labels are all bounded." },
+  "_fixture": { "spec": "SPEC-OP-026", "kind": "conformant", "expect": "pass",
+    "note": "agent-runtime-service's real RuntimeTelemetry (SPEC-ARO-034) workflow-completed counter; labels are all bounded. Replaces this fixture's original agent_tool_calls_total/agent_role/model/step_kind content, which grep confirmed was never emitted anywhere in this codebase (SPEC-OP-026's own traceability doc records the correction)." },
   "metric": {
-    "name": "agent_tool_calls_total",
+    "name": "agent_runtime_workflow_completed_total",
     "type": "counter", "unit": "1", "namespace": "agent",
-    "labels": ["agent_role", "model", "outcome"]
+    "labels": ["workflow_type"]
   }
 }

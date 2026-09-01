@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-026", "kind": "conformant", "expect": "pass",
+    "note": "the first GAUGE-typed fixture in this contract — proves the new _pending suffix (metric-naming.yaml naming.allowed_suffixes) actually lets a real observable gauge pass; no fixture had ever exercised this metric type before this spec." },
+  "metric": {
+    "name": "agent_runtime_outbox_pending",
+    "type": "gauge", "unit": "1", "namespace": "agent",
+    "labels": []
+  }
+}

@@ -72,7 +72,10 @@ empty, restored from the tarball, and the canary log line was confirmed still
 queryable afterward. Prometheus restore is the mirror image (untar the snapshot into
 a fresh `prometheus-data` volume before starting).
 
-## Detection (retention/compaction health)
+## Detection
+
+Retention/compaction health, specifically (backup/restore itself has no alert —
+see Impact):
 
 - `loki:compactor_retention_run_age:seconds` / `tempo:retention_errors:rate30m` /
   `tempo:compaction_errors:rate30m` (`rules/recording/telemetry-retention.yml`).

@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-028", "kind": "conformant", "expect": "pass",
+    "note": "evaluation-improvement-service's real canary-rollback counter." },
+  "metric": {
+    "name": "canary_rollback_total",
+    "type": "counter", "unit": "1", "namespace": "canary",
+    "labels": ["reason"]
+  }
+}

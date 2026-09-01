@@ -1,0 +1,18 @@
+# owner: platform-observability
+# spec: SPEC-OP-030
+# rollback: git revert <sha>; recreate prometheus
+#
+# SPEC-OP-030 — Prometheus's own native `--web.config.file` basic-auth gate
+# (exporter-toolkit, built into Prometheus since 2.24 — no external IdP
+# needed). This is AUTHENTICATION only, not role-differentiated RBAC:
+# Prometheus itself has no concept of separate admin/viewer permissions for
+# its own query API — everyone who authenticates gets the same access. Real
+# RBAC (Admin/Editor/Viewer) exists at the Grafana layer instead (this
+# spec's other half); see runbooks/ObservabilityAccessControl.md.
+#
+# Password is a NON-secret local-dev placeholder — this stack never leaves
+# localhost — same convention as GF_SECURITY_ADMIN_PASSWORD (observability-
+# stack.yml) and OTEL_GATEWAY_AUTH_TOKEN (collector/overlays/local/values.env).
+# bcrypt hash generated via: htpasswd -nbBC 10 admin admin
+basic_auth_users:
+  admin: $2y$10$MTenQgkiOX7VszcdLmvJUemM3suTmfyYwJl0vqfkIozcPgU./ze1m

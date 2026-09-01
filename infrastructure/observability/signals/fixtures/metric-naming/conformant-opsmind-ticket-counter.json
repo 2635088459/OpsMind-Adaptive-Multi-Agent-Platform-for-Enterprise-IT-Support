@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-025", "kind": "conformant", "expect": "pass",
+    "note": "ticket-created counter from ticket-workflow-service's real TicketTelemetry; the namespace is `opsmind` (that service's own metric-name prefix), not `ticket` — see metric-naming.yaml's own comment on this namespace." },
+  "metric": {
+    "name": "opsmind_ticket_created_total",
+    "type": "counter", "unit": "1", "namespace": "opsmind",
+    "labels": ["application_code", "source"]
+  }
+}

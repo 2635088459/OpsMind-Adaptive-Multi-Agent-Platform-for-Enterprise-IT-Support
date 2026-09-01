@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-026", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "retrieval_id is an unbounded per-request identifier — forbidden in the memory namespace exactly as MemoryTelemetry.py's own module docstring already states (\"never an id (memoryId, candidateId, retrievalId, documentId)\")." },
+  "metric": {
+    "name": "memory_search_requests_total",
+    "type": "counter", "unit": "1", "namespace": "memory",
+    "labels": ["requester_type", "retrieval_id"]
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-028", "kind": "nonconformant", "expect": "reject",
+    "reject_reason": "case_id is an unbounded per-case identifier — forbidden in the evaluation namespace exactly as EvaluationTelemetry.py's own module docstring already states (\"never an id as a label value\")." },
+  "metric": {
+    "name": "evaluation_case_total",
+    "type": "counter", "unit": "1", "namespace": "evaluation",
+    "labels": ["result", "case_id"]
+  }
+}

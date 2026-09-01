@@ -1,0 +1,9 @@
+{
+  "_fixture": { "spec": "SPEC-OP-028", "kind": "conformant", "expect": "pass",
+    "note": "evaluation-improvement-service's real improvement-candidate counter — a distinct `improvement_` prefix from the same EvaluationTelemetry class's other `evaluation_*` metrics." },
+  "metric": {
+    "name": "improvement_candidate_total",
+    "type": "counter", "unit": "1", "namespace": "improvement",
+    "labels": ["type", "status", "risk_level"]
+  }
+}

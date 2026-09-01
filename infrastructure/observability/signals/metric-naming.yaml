@@ -11,9 +11,24 @@ version: "1.0.0"
 
 naming:
   name_pattern: "^[a-z][a-z0-9_]*[a-z0-9]$"
-  namespaces: [http, amqp, db, runtime, agent, evaluation, slo, otelcol]
-  # a valid unit/type suffix a metric name may end with
-  allowed_suffixes: ["_seconds", "_bytes", "_ratio", "_total", "_usd", "_tokens", "_info"]
+  namespaces: [http, amqp, db, runtime, agent, evaluation, slo, otelcol, identity, opsmind, memory, knowledge, tool, policy, governance, approval, improvement, canary, grader, judge, online]
+  # a valid unit/type suffix a metric name may end with.
+  # SPEC-OP-026 added _pending/_backlog: no fixture had ever exercised a real
+  # GAUGE metric name before this spec — agent_runtime_outbox_pending /
+  # memory_outbox_backlog are both real, already-shipped observable gauges
+  # (mirroring identity_outbox_pending_count's own shape from SPEC-UA-030)
+  # that this list had never actually been tested against. Narrowly added
+  # only what these real metrics need.
+  # SPEC-OP-027 added _count: a THIRD real domain (tool-integration-gateway's
+  # tool_outbox_pending_count, policy-approval-governance-service's own
+  # governance_outbox_pending_count) uses this exact gauge-naming shape.
+  # SPEC-OP-028 added _score: evaluation-improvement-service's own LLD
+  # (SPEC-EI-033, 12-observability §Metrics) names its per-dimension score
+  # histogram literally `evaluation_score` — no unit suffix, since a 0..1
+  # score isn't naturally seconds/bytes/ratio/etc. Real and LLD-mandated, not
+  # an accidental naming choice (unlike the `_ms` case documented under the
+  # `memory`/`knowledge` namespaces, which IS a real violation).
+  allowed_suffixes: ["_seconds", "_bytes", "_ratio", "_total", "_usd", "_tokens", "_info", "_pending", "_backlog", "_count", "_score"]
 
 units:
   allowed: [seconds, bytes, ratio, "1", usd, tokens]
@@ -51,18 +66,44 @@ namespaces:
     max_label_keys: 4
     max_series: 8000
     example_metrics: [runtime_jvm_memory_used_bytes, runtime_cpu_utilization_ratio]
+  # SPEC-OP-026 — CORRECTED to match reality. This namespace's original
+  # allowed_labels (agent_role, model, step_kind) and example_metrics
+  # (agent_run_duration_seconds, agent_llm_tokens, agent_llm_cost_usd,
+  # agent_tool_calls_total) were never emitted anywhere in this codebase —
+  # grep confirmed zero real usage of any of those 4 metric names before
+  # this spec. agent-runtime-service's real RuntimeTelemetry (SPEC-ARO-034)
+  # emits 16 real `agent_runtime_*` metrics (workflow/task lifecycle,
+  # events, outbox) that were never contracted. `agent_role` IS a real,
+  # bounded domain concept in that service (a fixed small vocabulary —
+  # "triage_agent"/"kb_agent" — see agentruntime.infrastructure.
+  # capability_policy) but is never actually attached as a metric label
+  # anywhere in RuntimeTelemetry; kept out of allowed_labels below because
+  # contracting a label nothing emits yet invites exactly the same drift
+  # this correction is fixing.
   - namespace: agent
-    allowed_labels: [agent_role, model, outcome, step_kind]
-    forbidden_labels: [ticket_id, workflow_id, run_id, user_id, prompt_hash]
+    allowed_labels: [workflow_type, checkpoint_inconsistent, event_type, outcome]
+    forbidden_labels: [ticket_id, workflow_id, workflow_instance_id, agent_task_id, run_id, user_id, prompt_hash]
+    max_label_keys: 4
+    max_series: 30000
+    example_metrics: [agent_runtime_workflow_started_total, agent_runtime_workflow_completed_total, agent_runtime_task_claimed_total, agent_runtime_task_duration_seconds, agent_runtime_event_consumed_total, agent_runtime_outbox_pending]
+  # SPEC-OP-028 — CORRECTED to match reality, same class of fix as
+  # SPEC-OP-026's "agent" namespace correction. This namespace's original
+  # allowed_labels (grader, dataset, outcome, severity — partially real,
+  # partially not) and example_metrics (evaluation_case_duration_seconds,
+  # evaluation_score_ratio, evaluation_cases_total) never matched anything
+  # evaluation-improvement-service's real EvaluationTelemetry actually emits
+  # — grep confirmed zero real usage of any of those 3 metric names.
+  # EvaluationTelemetry (12-observability, SPEC-EI-033) emits 8 real
+  # `evaluation_*` metrics plus 5 metrics under 5 OTHER first-underscore-
+  # segment prefixes from the SAME class (improvement_*, canary_*,
+  # grader_*, judge_*, online_*) — five more real, separate namespaces
+  # below, not folded into this one.
+  - namespace: evaluation
+    allowed_labels: [status, dataset, target_version, result, criticality, gate_policy, reason, dimension, severity, model, stage]
+    forbidden_labels: [case_id, run_id, candidate_id, ticket_id, user_id]
     max_label_keys: 8
     max_series: 30000
-    example_metrics: [agent_run_duration_seconds, agent_llm_tokens, agent_llm_cost_usd, agent_tool_calls_total]
-  - namespace: evaluation
-    allowed_labels: [grader, dataset, outcome, severity]
-    forbidden_labels: [case_id, run_id, candidate_id, ticket_id]
-    max_label_keys: 8
-    max_series: 20000
-    example_metrics: [evaluation_case_duration_seconds, evaluation_score_ratio, evaluation_cases_total]
+    example_metrics: [evaluation_run_total, evaluation_case_total, evaluation_gate_pass_total, evaluation_gate_fail_total, evaluation_regression_total, evaluation_score, evaluation_cost_tokens_total, evaluation_latency_seconds]
   - namespace: slo
     allowed_labels: [slo, objective, window]
     forbidden_labels: [ticket_id, user_id, request_id]
@@ -75,6 +116,153 @@ namespaces:
     max_label_keys: 10
     max_series: 10000
     example_metrics: [otelcol_receiver_accepted_spans_total, otelcol_exporter_queue_size]
+  # SPEC-OP-025 — user-access-authentication-service's real IdentityMetricsPort /
+  # MicrometerIdentityMetrics (SPEC-UA-030/032), contracted for the first time.
+  # `effect` is DecisionEffect {ALLOW, DENY, REQUIRE_STEP_UP}; `action` covers
+  # both role-assignment and session lifecycle transitions (a handful of enum
+  # values each); `outcome` covers step-up outcomes. All low-cardinality by
+  # construction — no user_id/session_id/token ever leaves the service as a label.
+  - namespace: identity
+    allowed_labels: [effect, action, outcome]
+    forbidden_labels: [user_id, session_id, token, email, subject]
+    max_label_keys: 4
+    max_series: 5000
+    example_metrics: [identity_authorization_decision_total, identity_role_assignment_total, identity_session_total, identity_step_up_total, identity_jwks_degraded_fallback_total, identity_outbox_pending_count]
+  # SPEC-OP-025 — ticket-workflow-service's real TicketTelemetry (183 distinct
+  # Counter/Timer/DistributionSummary registrations across ticket lifecycle,
+  # support-queue authorization, and several policy-gate sub-capabilities),
+  # contracted for the first time. Unlike every other domain here, this
+  # service's OWN established convention prefixes EVERY one of its business
+  # metrics with the literal token `opsmind_`, not a domain-specific word — so
+  # the namespace value here is `opsmind`, not `ticket`, because
+  # validate-signal-contracts.py's namespace-prefix check
+  # (`name.split("_", 1)[0]`) extracts the metric name's FIRST underscore
+  # segment, and that segment is `opsmind` for all 183 of them. This is
+  # ticket-workflow-service's own already-shipped, already-tested naming
+  # choice — domain 08 contracts it as-is (`preserves source-domain semantic
+  # ownership`, 12-observability §Cross-domain boundary) rather than asking
+  # another domain to rename 183 already-tested metrics after the fact.
+  - namespace: opsmind
+    allowed_labels: [actor_type, application_code, catalog_type, cursor_present, decision_code, event_type, has_filters, message_type, operation, outcome, priority, reason, resolution_code, resume_applied, source, transition, type, view_type, visibility]
+    forbidden_labels: [ticket_id, requester_id, event_id, idempotency_key, user_id]
+    max_label_keys: 4
+    max_series: 50000
+    example_metrics: [opsmind_ticket_created_total, opsmind_ticket_status_transition_commands_total, opsmind_ticket_authorization_denied_total, opsmind_ticket_event_dlq_total, opsmind_support_queue_authorization_decisions_total, opsmind_step_up_authentication_policy_decisions_total]
+  # SPEC-OP-026 — memory-knowledge-service's real MemoryTelemetry
+  # (SPEC-MK-028), contracted for the first time. 12 real metrics across
+  # search/retrieval, candidate lifecycle, and knowledge-graph counters, plus
+  # one observable gauge (memory_outbox_backlog, same shape as identity's own
+  # outbox gauge). RESIDUAL FINDING, not fixed here: memory_search_latency_ms
+  # and memory_graph_expansion_latency_ms both use a MILLISECOND unit — this
+  # violates units.forbidden_substrings ("_ms") below, a real pre-existing
+  # non-conformance in already-shipped code, not something domain 08 can
+  # unilaterally rename in another domain's service (12-observability §Cross-
+  # domain boundary). Deliberately NOT listed in example_metrics or given a
+  # "conformant: pass" fixture — a real fix needs a domain-04 follow-up
+  # (rename to `_seconds`, dividing recorded values by 1000).
+  - namespace: memory
+    allowed_labels: [requester_type, degraded_reason, memory_type, node_type, edge_type, outcome, context]
+    forbidden_labels: [memory_id, candidate_id, retrieval_id, document_id, user_id]
+    max_label_keys: 4
+    max_series: 12000
+    example_metrics: [memory_search_requests_total, memory_search_degraded_total, memory_retrieval_empty_total, memory_candidate_created_total, memory_candidate_approved_total, memory_conflict_detected_total, memory_graph_nodes_total, memory_graph_edges_total, memory_graph_path_returned_total, memory_outbox_backlog]
+  # SPEC-OP-026 — memory-knowledge-service's own document-ingestion/embedding
+  # metrics use a DIFFERENT first-underscore-segment (`knowledge_`) than its
+  # other 12 `memory_*` metrics, from the same MemoryTelemetry class — a
+  # second real, distinct namespace, not a typo to normalize away (mirrors
+  # how ticket-workflow-service's SPEC-OP-025 "opsmind" namespace is also
+  # named for the metric's real prefix, not an assumed domain-concept word).
+  # RESIDUAL FINDING: knowledge_document_ingestion_latency_ms also uses a
+  # millisecond unit — same real, pre-existing non-conformance as above, same
+  # reason it is not fixture-tested here.
+  - namespace: knowledge
+    allowed_labels: [context, outcome]
+    forbidden_labels: [document_id, memory_id]
+    max_label_keys: 2
+    max_series: 2000
+    example_metrics: [knowledge_embedding_failure_total]
+  # SPEC-OP-027 — tool-integration-gateway's real ToolGatewayTelemetry
+  # (SPEC-TG-026), contracted for the first time. 12 real metrics: request
+  # lifecycle, execution/approval latency, connector error/timeout,
+  # reconciliation, outbox, credential access, redaction failure. Its own
+  # docstring already states the low-cardinality rule this allow-list
+  # enforces: never toolRequestId/executionId/resultEnvelopeId as a label.
+  - namespace: tool
+    allowed_labels: [status, connector, capability, risk_level, error_code, outcome, scope]
+    forbidden_labels: [tool_request_id, execution_id, result_envelope_id, user_id]
+    max_label_keys: 4
+    max_series: 20000
+    example_metrics: [tool_request_created_total, tool_execution_latency_seconds, tool_connector_error_total, tool_reconciliation_total, tool_credential_access_total, tool_outbox_pending_count]
+  # SPEC-OP-027 — policy-approval-governance-service's real
+  # MicrometerGovernanceMetrics, contracted for the first time. ONE class
+  # emits THREE distinct metric-name prefixes (policy_*, governance_*,
+  # approval_*) — three real, separate namespaces below, not one; confirmed
+  # by reading every metric name this class actually registers, not assumed.
+  # REAL FINDING: this class's tag KEYS are written in camelCase Java literals
+  # ("riskLevel", "approvalType", "sourceDomain" — see recordPolicyDecision/
+  # recordApprovalDecision/recordApprovalRequested's own registry.counter(...)
+  # calls) and rely on Micrometer's PrometheusMeterRegistry naming convention
+  # (auto-configured by Spring Boot Actuator) converting camelCase to
+  # snake_case before Prometheus exposition — unlike ticket-workflow-service's
+  # own TicketTelemetry.java, which hand-writes snake_case tag key literals
+  # directly. Both are valid Java/Micrometer styles; this contract lists the
+  # POST-CONVERSION snake_case form (risk_level, approval_type,
+  # source_domain) since that is what actually reaches the Collector/
+  # Prometheus, not the pre-conversion Java literal.
+  - namespace: policy
+    allowed_labels: [effect, risk_level, source_domain]
+    forbidden_labels: [policy_id, decision_id, request_id, user_id]
+    max_label_keys: 4
+    max_series: 8000
+    example_metrics: [policy_decision_total, policy_decision_latency_seconds, policy_evaluation_failure_total, policy_publish_total]
+  - namespace: governance
+    allowed_labels: [effect, action]
+    forbidden_labels: [event_id, user_id]
+    max_label_keys: 2
+    max_series: 4000
+    example_metrics: [governance_policy_degraded_total, governance_override_total, governance_outbox_pending_count]
+  - namespace: approval
+    allowed_labels: [approval_type, risk_level, decision]
+    forbidden_labels: [approval_id, request_id, user_id]
+    max_label_keys: 4
+    max_series: 8000
+    example_metrics: [approval_request_created_total, approval_decision_total, approval_wait_seconds, approval_expired_total]
+  # SPEC-OP-028 — same EvaluationTelemetry class, a distinct prefix.
+  - namespace: improvement
+    allowed_labels: [type, status, risk_level]
+    forbidden_labels: [candidate_id, ticket_id, user_id]
+    max_label_keys: 4
+    max_series: 5000
+    example_metrics: [improvement_candidate_total]
+  - namespace: canary
+    allowed_labels: [reason]
+    forbidden_labels: [candidate_id, run_id]
+    max_label_keys: 2
+    max_series: 2000
+    example_metrics: [canary_rollback_total]
+  - namespace: grader
+    allowed_labels: [grader_type, grader_version]
+    forbidden_labels: [case_id, run_id]
+    max_label_keys: 4
+    max_series: 5000
+    example_metrics: [grader_error_total]
+  - namespace: judge
+    allowed_labels: [grader_version]
+    forbidden_labels: [case_id, run_id]
+    max_label_keys: 2
+    max_series: 2000
+    example_metrics: [judge_calibration_drift_total]
+  # "online" is EvaluationTelemetry's own literal metric prefix
+  # (online_sample_quality_score, SPEC-EI-028) — not a generic web/HTTP
+  # concept, a domain-specific "online [production traffic] sample" signal,
+  # same mechanical extraction reasoning as every other multi-prefix finding
+  # in this domain (SPEC-OP-025's "opsmind", SPEC-OP-027's 3-way split).
+  - namespace: online
+    allowed_labels: [source_event_type]
+    forbidden_labels: [case_id, run_id, user_id]
+    max_label_keys: 2
+    max_series: 8000
+    example_metrics: [online_sample_quality_score]
 
 # Prometheus active-series ceiling per producing domain (service.namespace).
 service_series_budgets:

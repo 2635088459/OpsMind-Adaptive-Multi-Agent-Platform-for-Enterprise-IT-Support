@@ -195,14 +195,34 @@ cardinality_budgets:
       max_label_keys: 4
       max_series: 8000
       forbidden_labels: ["pid", "thread_name"]
-    - namespace: "agent"
+    - namespace: "agent"          # SPEC-OP-026 — corrected max_label_keys 8->4, forbidden_labels +2 (see metric-naming.yaml's own comment on why)
+      max_label_keys: 4
+      max_series: 30000
+      forbidden_labels: ["ticket_id", "workflow_id", "workflow_instance_id", "agent_task_id", "run_id", "user_id", "prompt_hash"]
+    - namespace: "evaluation"    # SPEC-OP-028 — corrected max_series 20000->30000, forbidden_labels +1 (see metric-naming.yaml's own comment on why)
       max_label_keys: 8
       max_series: 30000
-      forbidden_labels: ["ticket_id", "workflow_id", "run_id", "user_id", "prompt_hash"]
-    - namespace: "evaluation"
-      max_label_keys: 8
-      max_series: 20000
-      forbidden_labels: ["case_id", "run_id", "candidate_id", "ticket_id"]
+      forbidden_labels: ["case_id", "run_id", "candidate_id", "ticket_id", "user_id"]
+    - namespace: "improvement"   # SPEC-OP-028
+      max_label_keys: 4
+      max_series: 5000
+      forbidden_labels: ["candidate_id", "ticket_id", "user_id"]
+    - namespace: "canary"        # SPEC-OP-028
+      max_label_keys: 2
+      max_series: 2000
+      forbidden_labels: ["candidate_id", "run_id"]
+    - namespace: "grader"        # SPEC-OP-028
+      max_label_keys: 4
+      max_series: 5000
+      forbidden_labels: ["case_id", "run_id"]
+    - namespace: "judge"         # SPEC-OP-028
+      max_label_keys: 2
+      max_series: 2000
+      forbidden_labels: ["case_id", "run_id"]
+    - namespace: "online"        # SPEC-OP-028 — evaluation-improvement-service's own metric prefix
+      max_label_keys: 2
+      max_series: 8000
+      forbidden_labels: ["case_id", "run_id", "user_id"]
     - namespace: "slo"
       max_label_keys: 4
       max_series: 5000
@@ -211,6 +231,38 @@ cardinality_budgets:
       max_label_keys: 10
       max_series: 10000
       forbidden_labels: []
+    - namespace: "identity"       # SPEC-OP-025
+      max_label_keys: 4
+      max_series: 5000
+      forbidden_labels: ["user_id", "session_id", "token", "email", "subject"]
+    - namespace: "opsmind"        # SPEC-OP-025 — ticket-workflow-service's own metric prefix
+      max_label_keys: 4
+      max_series: 50000
+      forbidden_labels: ["ticket_id", "requester_id", "event_id", "idempotency_key", "user_id"]
+    - namespace: "memory"         # SPEC-OP-026
+      max_label_keys: 4
+      max_series: 12000
+      forbidden_labels: ["memory_id", "candidate_id", "retrieval_id", "document_id", "user_id"]
+    - namespace: "knowledge"      # SPEC-OP-026 — memory-knowledge-service's own second metric prefix
+      max_label_keys: 2
+      max_series: 2000
+      forbidden_labels: ["document_id", "memory_id"]
+    - namespace: "tool"           # SPEC-OP-027
+      max_label_keys: 4
+      max_series: 20000
+      forbidden_labels: ["tool_request_id", "execution_id", "result_envelope_id", "user_id"]
+    - namespace: "policy"         # SPEC-OP-027
+      max_label_keys: 4
+      max_series: 8000
+      forbidden_labels: ["policy_id", "decision_id", "request_id", "user_id"]
+    - namespace: "governance"     # SPEC-OP-027
+      max_label_keys: 2
+      max_series: 4000
+      forbidden_labels: ["event_id", "user_id"]
+    - namespace: "approval"       # SPEC-OP-027
+      max_label_keys: 4
+      max_series: 8000
+      forbidden_labels: ["approval_id", "request_id", "user_id"]
 
 # --------------------------------------------------------------------------------
 # LOG BODY REDACTION — SPEC-OP-007. deny_fields (above) deletes attribute KEYS;

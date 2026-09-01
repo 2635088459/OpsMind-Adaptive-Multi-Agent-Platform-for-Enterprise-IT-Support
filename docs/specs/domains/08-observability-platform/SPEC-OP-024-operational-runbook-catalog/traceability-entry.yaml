@@ -2,8 +2,94 @@ SPEC-OP-024:
   domain: 08-observability-platform
   name: Operational Runbook Catalog
   cn_name: 运维 Runbook Catalog
-  status: planned
+  status: implemented
   phase: phase-05-alerts-slos-runbooks
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-020, SPEC-OP-021, SPEC-OP-023]
+  tech_stack: "Extends scripts/validate-rule-catalog.py (SPEC-OP-020) with a runbook BODY-content structure check; no new component/config"
+  implementation_notes: >
+    Concrete objective: "Require every paging alert to link an owned runbook
+    with diagnosis, mitigation, recovery, and escalation." Investigating first
+    (per this domain's standing scoping practice) found MOST of this objective
+    was already real, built during earlier specs, not a fresh gap: every
+    runbook already carries the required `# meta.*` header (validate-
+    observability-layout.py, SPEC-OP-001) and every alert's `runbook_url`
+    already resolves to a real file (validate-rule-catalog.py, SPEC-OP-020 —
+    its own docstring literally already says "this is the actual cross-
+    reference SPEC-OP-024's 'runbook catalog' promises"). The one genuinely
+    unbuilt piece: nothing had ever checked what's actually INSIDE a runbook
+    — a `runbook_url` could point at an empty file and every prior check would
+    still pass.
+    New `check_runbook_structure()` in `validate-rule-catalog.py`: for every
+    runbook referenced by at least one alert's `runbook_url`, parses its `##`
+    headings and requires all 8 sections `runbooks/README.md` already promised
+    (Impact, Detection, Triage, Mitigation, Resolution, Rollback, Escalation,
+    Post-incident) to be present with real content — not missing, not just the
+    literal `TEMPLATE.md` boilerplate copy-pasted and never filled in (checked
+    against the exact normalized placeholder text per section). Enforcement is
+    asymmetric by design, matching the objective's own wording: an ERROR if the
+    runbook backs at least one `severity: critical` ("paging") alert, a
+    WARNING if it backs only `warning`-tier (ticket-queue) alerts.
+    Running this against the real repo for the first time found ONE real,
+    isolated bug: `runbooks/TelemetryBackupRestore.md` used
+    `## Detection (retention/compaction health)` instead of the plain
+    `## Detection` every other alert-linked runbook in this domain uses —
+    every other runbook checked (11 of them) already had all 8 sections with
+    real content and passed immediately, which is itself the proof the check
+    is meaningful (it's not vacuously passing) rather than a fabricated gap.
+    Fixed by renaming the heading to plain `## Detection` and moving the
+    qualifier into the section body, rather than loosening the validator to
+    tolerate heading drift — the convention deserves to stay tight since every
+    other runbook already follows it exactly.
+    Also corrected `runbooks/README.md`'s stated convention: it said "one file
+    per alert class, named after the alertname" — literally false for every
+    multi-alert runbook already in this domain (`HttpGoldenSignals.md` covers
+    2 alerts, `SloBurnRateAlerts.md` covers 4, etc.) and was already being
+    ignored in practice since SPEC-OP-020. Rewrote it to describe the real,
+    better convention (one file per incident CLASS, cross-referenced via
+    `rules/CATALOG.md`) instead of leaving a stale rule nobody follows.
+    6 new unit tests (missing-section-on-critical-is-an-error,
+    missing-section-on-warning-only-is-a-warning, leftover-placeholder-fails,
+    fully-filled-passes, `_split_sections` parsing, plus an end-to-end
+    regression stubbing a real runbook's Escalation section and confirming the
+    full script — not just the unit function — catches it) — 82 total,
+    up from 76.
+  lld_mapping:
+    - 01-domain-model
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - paging_alert_without_a_real_escalation_path
+  artifacts:
+    contract:
+      - infrastructure/observability/runbooks/README.md
+    enforcement:
+      - scripts/validate-rule-catalog.py
+    rules_runbook:
+      - infrastructure/observability/runbooks/TelemetryBackupRestore.md
+      - infrastructure/observability/rules/CATALOG.md
+    tooling:
+      - scripts/tests/test_validate_rule_catalog.py
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err/0 warn; validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-collector-pipeline.py 0 err/0 warn; validate-dashboards.py 0 err/0 warn; validate-rule-catalog.py 0 err, 10 expected warnings (unchanged from before this spec — all already-documented naming-convention/orphaned-runbook exceptions)"
+    unit: "scripts/tests — 82 passed (6 new for the runbook-structure check, incl. a real-tree end-to-end regression that stubs HttpGoldenSignals.md's Escalation section and confirms the full script rejects it)"
+    integration: >
+      No new component/config/alert was added by this spec — it is a pure
+      content-structure validator plus one documentation correction, so the
+      real test evidence is the validator itself catching (and this spec
+      fixing) a genuine pre-existing heading inconsistency
+      (`TelemetryBackupRestore.md`), and every one of this domain's other 11
+      alert-linked runbooks passing the new check on the first real run
+      without needing any content changes — proof the check is both
+      meaningful (not vacuous) and not disruptive (the existing convention was
+      already being followed almost everywhere). No docker-compose smoke-test
+      changes were needed or added; SPEC-OP-020/021/022/023's existing smoke
+      assertions are unaffected and continue to cover the alert/rule layer
+      this check builds on top of.
+    result: >
+      Closes phase-05 (`SPEC-OP-020~024`). The runbook catalog's existence-
+      and-header enforcement was already real since SPEC-OP-001/020; this spec
+      closes the one remaining gap — runbook BODY content — and fixes both a
+      real heading inconsistency and a stale, already-ignored README rule
+      found while proving the new check meaningful. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-024-traceability.md
