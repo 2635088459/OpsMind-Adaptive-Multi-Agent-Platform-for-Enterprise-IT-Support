@@ -1,0 +1,22 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-026
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/RuntimeMemoryBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-026-traceability.md
+#
+# SPEC-OP-026 — the first recording rules over agent-runtime-service's real
+# `agent_runtime_*` metrics (SPEC-ARO-034 RuntimeTelemetry) and memory-
+# knowledge-service's real `memory_*`/`knowledge_*` metrics (SPEC-MK-028
+# MemoryTelemetry). Both services already emit these; nothing in this domain
+# had ever queried, recorded, or alerted on them before this spec.
+groups:
+  - name: runtime-memory-business-recording
+    interval: 1m
+    rules:
+      - record: agent_runtime:task_lease_expired:rate5m
+        expr: sum(rate(agent_runtime_task_lease_expired_total[5m]))
+      - record: knowledge:embedding_failure:rate5m
+        expr: sum(rate(knowledge_embedding_failure_total[5m]))

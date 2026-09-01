@@ -39,6 +39,15 @@ metrics_generator:
     remote_write:
       - url: http://prometheus:9090/api/v1/write
         send_exemplars: true
+        # SPEC-OP-030 — Prometheus's own web.yml now gates the whole server
+        # (remote-write receiver included) behind basic auth; without this,
+        # every remote_write here was silently rejected with 401 (confirmed
+        # live via Tempo's own logs: "server returned HTTP status 401
+        # Unauthorized"). Same local-dev-placeholder credentials as
+        # prometheus/overlays/local/web.yml.
+        basic_auth:
+          username: admin
+          password: admin
   traces_storage:
     path: /var/tempo/generator/traces
   processor:

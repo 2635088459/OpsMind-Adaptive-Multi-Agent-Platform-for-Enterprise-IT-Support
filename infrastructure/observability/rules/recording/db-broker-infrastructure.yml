@@ -1,0 +1,22 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-029
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/DatabaseBrokerInfrastructure.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-029-traceability.md
+#
+# SPEC-OP-029 — the infrastructure-level half SPEC-OP-018's own dashboard
+# already named as deferred: postgres_exporter (standard prometheus-community
+# metrics) and RabbitMQ's own built-in rabbitmq_prometheus plugin, both wired
+# via SPEC-OP-012's file_sd discovery (a new target file, no prometheus.yml
+# edit needed — see that spec's own comment on prometheus.yml).
+groups:
+  - name: db-broker-infrastructure-recording
+    interval: 1m
+    rules:
+      - record: postgres:connections:ratio
+        expr: sum(pg_stat_database_numbackends) / sum(pg_settings_max_connections)
+      - record: rabbitmq:queue_depth:sum
+        expr: sum(rabbitmq_queue_messages)

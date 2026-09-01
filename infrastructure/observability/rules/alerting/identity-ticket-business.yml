@@ -1,0 +1,48 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-025
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/IdentityTicketBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-025-traceability.md
+#
+# SPEC-OP-025 — two alerts, one per domain this spec contracts. Both alerts
+# reference the SAME runbook (IdentityTicketBusinessSignals.md) — this spec
+# groups both domains under one incident-class file, mirroring how
+# SloBurnRateAlerts.md already groups 4 related alerts from one spec.
+groups:
+  - name: identity-ticket-business-alerting
+    rules:
+      - alert: HighIdentityAuthorizationDenialRate
+        # A sustained majority-DENY rate is either a real misconfiguration (a
+        # policy/role change locked out a legitimate population) or a scanning/
+        # credential-stuffing pattern — either way, security-relevant.
+        expr: identity:authorization_denial:ratio5m > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "identity authorization DENY rate is {{ $value | humanizePercentage }} over the last 5m"
+          description: "More than half of user-access-authentication-service's authorization decisions have been DENY for 10+ minutes — investigate whether this is a recent policy/role change or a real attack pattern."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/IdentityTicketBusinessSignals.md"
+          dashboard: "Identity & Ticket Business Signals"
+
+      - alert: TicketEventDeadLettered
+        # Any sustained dead-lettering of a ticket business event means real
+        # customer-facing ticket workflow state is stuck — not a platform-
+        # internal concern like collector backpressure, a genuine business
+        # processing failure.
+        expr: opsmind:ticket_event_dlq:rate5m > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "ticket-workflow-service is dead-lettering events at {{ $value | humanize }}/s"
+          description: "opsmind_ticket_event_dlq_total has been increasing for 5+ minutes — ticket business events are failing to process and are stuck in the dead-letter path."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/IdentityTicketBusinessSignals.md"
+          dashboard: "Identity & Ticket Business Signals"

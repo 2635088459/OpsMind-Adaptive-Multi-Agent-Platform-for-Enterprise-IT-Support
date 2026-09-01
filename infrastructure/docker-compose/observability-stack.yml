@@ -38,6 +38,12 @@ volumes:
   # SPEC-OP-011 — WAL for otlp/tempo + otlphttp/loki sending_queue; survives a
   # collector restart/redeploy instead of silently losing whatever was queued.
   otel-collector-queue-data:
+  # SPEC-OP-029 — a dedicated, throwaway Postgres/RabbitMQ pair purely so
+  # postgres_exporter / RabbitMQ's own built-in Prometheus plugin have
+  # something real to scrape and report real (mostly-empty) infra health from.
+  # NOT the shared business-schema instances local-platform.yml runs.
+  obs-postgres-data:
+  obs-rabbitmq-data:
 
 services:
   # --------------------------------------------------------------------------
@@ -135,10 +141,12 @@ services:
     healthcheck:
       # SPEC-OP-030 — basic_auth_users in web.yml applies to EVERY endpoint,
       # /-/healthy included — Prometheus's exporter-toolkit auth middleware
-      # wraps the whole server, no built-in health-endpoint exemption; the
-      # healthcheck itself needs credentials now (verified live in this
-      # spec's own traceability doc).
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--http-user=admin", "--http-password=admin", "--spider", "http://localhost:9090/-/healthy"]
+      # wraps the whole server, no built-in health-endpoint exemption. The
+      # image's wget is BusyBox's minimal build, which has NO
+      # --http-user/--http-password flags (confirmed live: "unrecognized
+      # option") — a manually-built Basic-auth header via --header is the
+      # only way BusyBox wget can authenticate.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--header=Authorization: Basic YWRtaW46YWRtaW4=", "--spider", "http://localhost:9090/-/healthy"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -223,8 +231,13 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # SPEC-OP-030 — anonymous Viewer access disabled; real RBAC now gates
+      # this UI (Grafana's own built-in org-role model: Admin/Editor/Viewer).
+      # A real OIDC identity provider is a deliberately deferred follow-up —
+      # no shared, persistent Keycloak exists anywhere in this repo yet
+      # (every domain's own Keycloak usage today is ephemeral/test-scoped
+      # only) — see runbooks/ObservabilityAccessControl.md.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
@@ -262,13 +275,18 @@ services:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=${ALERTMANAGER_STORAGE_PATH}"
       - "--data.retention=${ALERTMANAGER_RETENTION}"
+      # SPEC-OP-030 — same native basic-auth gate as Prometheus's own.
+      - "--web.config.file=/etc/alertmanager/web.yml"
     volumes:
       - ../observability/alertmanager/base/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../observability/alertmanager/overlays/local/web.yml:/etc/alertmanager/web.yml:ro
       - alertmanager-data:/alertmanager
     ports:
       - "9093:9093"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      # SPEC-OP-030 — needs credentials now, same reason and same BusyBox-wget
+      # workaround as Prometheus's own (see that healthcheck's own comment).
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--header=Authorization: Basic YWRtaW46YWRtaW4=", "--spider", "http://localhost:9093/-/healthy"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -277,5 +295,96 @@ services:
       resources:
         limits: { cpus: "0.5", memory: 256M }
         reservations: { cpus: "0.1", memory: 64M }
+    labels: *obs-labels
+    networks: [observability]
+
+  # --------------------------------------------------------------------------
+  # SPEC-OP-029 — a small, dedicated Postgres purely for postgres_exporter to
+  # scrape. Not the shared business-schema instance (local-platform.yml, a
+  # separate compose project) — this stack stays independent, per this file's
+  # own header comment.
+  # --------------------------------------------------------------------------
+  obs-postgres:
+    image: ${POSTGRES_IMAGE}:${POSTGRES_TAG}@${POSTGRES_DIGEST}
+    container_name: opsmind-obs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: obs_proof
+      POSTGRES_USER: obs_proof
+      POSTGRES_PASSWORD: obs_proof
+    ports:
+      - "5433:5432"
+    volumes:
+      - obs-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U obs_proof -d obs_proof"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+        reservations: { cpus: "0.1", memory: 64M }
+    labels: *obs-labels
+    networks: [observability]
+
+  # --------------------------------------------------------------------------
+  # SPEC-OP-029 — postgres_exporter. No native Prometheus endpoint exists in
+  # Postgres itself (unlike RabbitMQ below), so this is a real, separate
+  # sidecar — the standard prometheus-community pattern.
+  # --------------------------------------------------------------------------
+  postgres-exporter:
+    image: ${POSTGRES_EXPORTER_IMAGE}:${POSTGRES_EXPORTER_TAG}@${POSTGRES_EXPORTER_DIGEST}
+    container_name: opsmind-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://obs_proof:obs_proof@obs-postgres:5432/obs_proof?sslmode=disable"
+    ports:
+      - "9187:9187"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9187/metrics"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { cpus: "0.25", memory: 128M }
+        reservations: { cpus: "0.05", memory: 32M }
+    labels: *obs-labels
+    networks: [observability]
+    depends_on:
+      obs-postgres: { condition: service_healthy }
+
+  # --------------------------------------------------------------------------
+  # SPEC-OP-029 — a small, dedicated RabbitMQ with its own built-in
+  # `rabbitmq_prometheus` plugin enabled at startup (ships with the image
+  # since 3.8+, not enabled by default) — no separate exporter container
+  # needed, unlike Postgres above.
+  # --------------------------------------------------------------------------
+  obs-rabbitmq:
+    image: ${RABBITMQ_IMAGE}:${RABBITMQ_TAG}@${RABBITMQ_DIGEST}
+    container_name: opsmind-obs-rabbitmq
+    restart: unless-stopped
+    command: ["sh", "-c", "rabbitmq-plugins enable --offline rabbitmq_prometheus && rabbitmq-server"]
+    environment:
+      RABBITMQ_DEFAULT_USER: obs_proof
+      RABBITMQ_DEFAULT_PASS: obs_proof
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+      - "15692:15692"   # rabbitmq_prometheus
+    volumes:
+      - obs-rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 384M }
+        reservations: { cpus: "0.1", memory: 96M }
     labels: *obs-labels
     networks: [observability]

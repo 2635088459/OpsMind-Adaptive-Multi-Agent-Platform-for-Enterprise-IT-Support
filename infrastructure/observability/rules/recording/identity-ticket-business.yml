@@ -1,0 +1,25 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-025
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/IdentityTicketBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-025-traceability.md
+#
+# SPEC-OP-025 — the first recording rules over user-access-authentication-service's
+# real `identity_*` metrics (SPEC-UA-030/032) and ticket-workflow-service's real
+# `opsmind_*` metrics (this domain's own `metric-naming.yaml` "opsmind" namespace —
+# see that file's comment on why the namespace isn't called "ticket"). Both
+# services already emit these metrics; nothing in this domain had ever queried,
+# recorded, or alerted on them before this spec.
+groups:
+  - name: identity-ticket-business-recording
+    interval: 1m
+    rules:
+      - record: identity:authorization_denial:ratio5m
+        expr: |
+          sum(rate(identity_authorization_decision_total{effect="DENY"}[5m]))
+          / sum(rate(identity_authorization_decision_total[5m]))
+      - record: opsmind:ticket_event_dlq:rate5m
+        expr: sum(rate(opsmind_ticket_event_dlq_total[5m]))

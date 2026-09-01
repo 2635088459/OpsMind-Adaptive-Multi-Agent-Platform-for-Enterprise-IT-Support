@@ -405,6 +405,136 @@ push_signal() {
         "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
         "attributes":[{"key":"opsmind.smoke_test","value":{"stringValue":"true"}}],
         "status":{"code":1}}]}]}]}'
+
+  echo "→ pushing identity_/opsmind_ metrics (SPEC-OP-025) — real + forbidden-label variants"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"user-access-authentication-service"}},
+      {"key":"service.namespace","value":{"stringValue":"user-access-authentication"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-025-smoke"},"metrics":[
+        {"name":"identity_authorization_decision_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"8","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"effect","value":{"stringValue":"DENY"}}]},
+           {"asInt":"2","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"effect","value":{"stringValue":"ALLOW"}}]}]}},
+        {"name":"identity_step_up_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"1","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"outcome","value":{"stringValue":"VERIFIED"}},
+              {"key":"subject","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}}
+      ]}]}]}'
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"ticket-workflow-service"}},
+      {"key":"service.namespace","value":{"stringValue":"ticket-workflow"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-025-smoke"},"metrics":[
+        {"name":"opsmind_ticket_event_dlq_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"3","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"event_type","value":{"stringValue":"TicketStatusChanged"}},
+              {"key":"ticket_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}},
+        {"name":"opsmind_ticket_created_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"4","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"application_code","value":{"stringValue":"IT_SUPPORT"}},
+              {"key":"source","value":{"stringValue":"USER_PORTAL"}}]}]}}
+      ]}]}]}'
+
+  echo "→ pushing agent_runtime_/memory_/knowledge_ metrics (SPEC-OP-026) — real + forbidden-label variants"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"agent-runtime-service"}},
+      {"key":"service.namespace","value":{"stringValue":"agent-runtime"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-026-smoke"},"metrics":[
+        {"name":"agent_runtime_task_lease_expired_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"6","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"agent_task_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}},
+        {"name":"agent_runtime_workflow_started_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"5","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"workflow_type","value":{"stringValue":"TICKET_TRIAGE"}}]}]}}
+      ]}]}]}'
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"memory-knowledge-service"}},
+      {"key":"service.namespace","value":{"stringValue":"memory-knowledge"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-026-smoke"},"metrics":[
+        {"name":"knowledge_embedding_failure_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"7","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"context","value":{"stringValue":"candidate_extraction"}},
+              {"key":"document_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}},
+        {"name":"memory_candidate_created_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"9","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"memory_type","value":{"stringValue":"PROCEDURAL"}}]}]}}
+      ]}]}]}'
+
+  echo "→ pushing tool_/policy_/governance_/approval_ metrics (SPEC-OP-027) — real + forbidden-label variants"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"tool-integration-gateway"}},
+      {"key":"service.namespace","value":{"stringValue":"tool-integration"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-027-smoke"},"metrics":[
+        {"name":"tool_connector_error_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"5","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"connector","value":{"stringValue":"jira"}},
+              {"key":"execution_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}},
+        {"name":"tool_request_created_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"4","timeUnixNano":"'"$ts"'","attributes":[]}]}}
+      ]}]}]}'
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"policy-approval-governance-service"}},
+      {"key":"service.namespace","value":{"stringValue":"policy-approval-governance"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-027-smoke"},"metrics":[
+        {"name":"governance_policy_degraded_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"3","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"effect","value":{"stringValue":"DENY"}},
+              {"key":"decision_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}},
+        {"name":"approval_decision_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"2","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"decision","value":{"stringValue":"GRANTED"}}]}]}}
+      ]}]}]}'
+
+  echo "→ pushing evaluation_/grader_ metrics (SPEC-OP-028) — real + forbidden-label variants"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"evaluation-improvement-service"}},
+      {"key":"service.namespace","value":{"stringValue":"evaluation-improvement"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-028-smoke"},"metrics":[
+        {"name":"evaluation_gate_fail_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"4","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"gate_policy","value":{"stringValue":"regression_gate"}},
+              {"key":"case_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}},
+        {"name":"grader_error_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"6","timeUnixNano":"'"$ts"'",
+            "attributes":[
+              {"key":"grader_type","value":{"stringValue":"llm_judge"}},
+              {"key":"run_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}}
+      ]}]}]}'
 }
 
 query_back() {
@@ -476,7 +606,7 @@ query_back() {
   fi
 
   echo "→ Prometheus: query op_002_smoke_total"
-  metric_json="$(curl -sf 'http://localhost:9090/api/v1/query?query=op_002_smoke_total' || true)"
+  metric_json="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=op_002_smoke_total' || true)"
   if printf '%s' "$metric_json" | grep -q '"status":"success"' \
      && printf '%s' "$metric_json" | grep -q '"result":\[{'; then
     echo "  ✓ metric queryable in Prometheus"
@@ -491,14 +621,14 @@ query_back() {
   fi
 
   echo "→ Prometheus: recording rule job:up:ratio present"
-  curl -sf "http://localhost:9090/api/v1/query?query=job:up:ratio" | grep -q '"status":"success"' \
+  curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=job:up:ratio" | grep -q '"status":"success"' \
     && echo "  ✓ recording rule evaluated" || { echo "  ✗ recording rule missing"; rc=1; }
 
   echo "→ SPEC-OP-011: collector-resilience recording rules evaluated + real self-metrics present"
-  curl -sf "http://localhost:9090/api/v1/query?query=otelcol:exporter_queue_utilization:ratio" | grep -q '"status":"success"' \
+  curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=otelcol:exporter_queue_utilization:ratio" | grep -q '"status":"success"' \
     && echo "  ✓ otelcol:exporter_queue_utilization:ratio recording rule evaluated" \
     || { echo "  ✗ collector-resilience recording rule missing"; rc=1; }
-  curl -sf "http://localhost:9090/api/v1/query?query=otelcol_exporter_queue_capacity" | grep -q '"result":\[{' \
+  curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=otelcol_exporter_queue_capacity" | grep -q '"result":\[{' \
     && echo "  ✓ otelcol_exporter_queue_capacity self-metric is real and scraped" \
     || { echo "  ✗ otelcol_exporter_queue_capacity not found in Prometheus"; rc=1; }
 
@@ -507,19 +637,19 @@ query_back() {
   # run pushes once, so assert the rule is syntactically valid/wired (query
   # succeeds) and that the RAW counts behind it are correct, not a specific
   # rate()-derived number.
-  http_rate_json="$(curl -sf "http://localhost:9090/api/v1/query?query=http:request:rate5m" || true)"
+  http_rate_json="$(curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=http:request:rate5m" || true)"
   printf '%s' "$http_rate_json" | grep -q '"status":"success"' \
     && echo "  ✓ http:request:rate5m recording rule is wired and query-valid" \
     || { echo "  ✗ http:request:rate5m recording rule missing/invalid"; rc=1; }
-  ok_count_json="$(curl -sf "http://localhost:9090/api/v1/query?query=http_server_request_duration_seconds_count%7Bservice_name%3D%22ticket-workflow-service%22%2Chttp_response_status_code%3D%22200%22%7D" || true)"
-  fail_count_json="$(curl -sf "http://localhost:9090/api/v1/query?query=http_server_request_duration_seconds_count%7Bservice_name%3D%22ticket-workflow-service%22%2Chttp_response_status_code%3D%22500%22%7D" || true)"
+  ok_count_json="$(curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=http_server_request_duration_seconds_count%7Bservice_name%3D%22ticket-workflow-service%22%2Chttp_response_status_code%3D%22200%22%7D" || true)"
+  fail_count_json="$(curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=http_server_request_duration_seconds_count%7Bservice_name%3D%22ticket-workflow-service%22%2Chttp_response_status_code%3D%22500%22%7D" || true)"
   if printf '%s' "$ok_count_json" | grep -q '"value":\[[0-9.]*,"5"\]' \
      && printf '%s' "$fail_count_json" | grep -q '"value":\[[0-9.]*,"1"\]'; then
     echo "  ✓ raw per-status-code counts correct (200: 5, 500: 1) — the exact data http:error_ratio:rate5m computes from"
   else
     echo "  ✗ raw per-status-code counts wrong (200: $ok_count_json / 500: $fail_count_json)"; rc=1
   fi
-  rules_json="$(curl -sf "http://localhost:9090/api/v1/rules?rule_name=HighRequestErrorRate" || true)"
+  rules_json="$(curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=HighRequestErrorRate" || true)"
   if printf '%s' "$rules_json" | grep -q "HighRequestErrorRate"; then
     echo "  ✓ HighRequestErrorRate alert rule loaded and evaluating"
   else
@@ -527,22 +657,22 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-022: SLO error-budget model wired (slo_error_budget_ratio / slo_burn_rate_ratio)"
-  slo_json="$(curl -sf "http://localhost:9090/api/v1/query?query=slo_error_budget_ratio%7Bslo%3D%22http-availability%22%7D" || true)"
+  slo_json="$(curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=slo_error_budget_ratio%7Bslo%3D%22http-availability%22%7D" || true)"
   printf '%s' "$slo_json" | grep -q '"status":"success"' \
     && echo "  ✓ slo_error_budget_ratio{slo=\"http-availability\"} query-valid (rate()-derived; needs 2+ scrapes for a real value, same as SPEC-OP-020's http:error_ratio:rate5m)" \
     || { echo "  ✗ slo_error_budget_ratio query failed"; rc=1; }
-  curl -sf "http://localhost:9090/api/v1/rules?rule_name=SloErrorBudgetLow" | grep -q "SloErrorBudgetLow" \
+  curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=SloErrorBudgetLow" | grep -q "SloErrorBudgetLow" \
     && echo "  ✓ SloErrorBudgetLow alert rule loaded" || { echo "  ✗ SloErrorBudgetLow alert rule not found"; rc=1; }
 
   echo "→ SPEC-OP-023: multi-window burn-rate rules + alerts loaded (all 4 tiers)"
   for w in 5m 30m 2h 6h 1d 3d; do
-    curl -sf "http://localhost:9090/api/v1/query?query=slo_burn_rate_ratio%7Bslo%3D%22http-availability%22%2Cwindow%3D%22$w%22%7D" \
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=slo_burn_rate_ratio%7Bslo%3D%22http-availability%22%2Cwindow%3D%22$w%22%7D" \
       | grep -q '"status":"success"' || { echo "  ✗ slo_burn_rate_ratio window=$w query failed"; rc=1; }
   done
   echo "  ✓ all 6 additional burn-rate windows (5m/30m/2h/6h/1d/3d) query-valid"
   all_loaded=1
   for a in SloFastBurnPage SloSlowBurnPage SloSlowBurnTicket SloSlowBurnTicketLong; do
-    curl -sf "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" || all_loaded=0
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" || all_loaded=0
   done
   if [ "$all_loaded" = "1" ]; then
     echo "  ✓ all 4 burn-rate alert tiers loaded (fast/slow page, 1d/3d ticket)"
@@ -550,13 +680,183 @@ query_back() {
     echo "  ✗ one or more burn-rate alert tiers not found"; rc=1
   fi
 
+  echo "→ SPEC-OP-025: identity_/opsmind_ business metrics contracted, forbidden labels stripped, alerts loaded"
+  deny_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=identity_authorization_decision_total%7Beffect%3D%22DENY%22%7D' \
+    | grep -o '"value":\[[^]]*"8"' || true)"
+  if [ -n "$deny_count" ]; then
+    echo "  ✓ identity_authorization_decision_total{effect=\"DENY\"} raw count is exactly 8"
+  else
+    echo "  ✗ identity_authorization_decision_total{effect=\"DENY\"} count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=identity_step_up_total' | grep -q '"subject"'; then
+    echo "  ✗ forbidden label 'subject' reached Prometheus on identity_step_up_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'subject' stripped from identity_step_up_total by transform/metric-cardinality"
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=opsmind_ticket_event_dlq_total' | grep -q '"ticket_id"'; then
+    echo "  ✗ forbidden label 'ticket_id' reached Prometheus on opsmind_ticket_event_dlq_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'ticket_id' stripped from opsmind_ticket_event_dlq_total by transform/metric-cardinality"
+  fi
+  dlq_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=opsmind_ticket_event_dlq_total' \
+    | grep -o '"value":\[[^]]*"3"' || true)"
+  if [ -n "$dlq_count" ]; then
+    echo "  ✓ opsmind_ticket_event_dlq_total raw count is exactly 3"
+  else
+    echo "  ✗ opsmind_ticket_event_dlq_total count wrong or missing"; rc=1
+  fi
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=identity:authorization_denial:ratio5m' | grep -q '"status":"success"' \
+    && echo "  ✓ identity:authorization_denial:ratio5m recording rule query-valid" \
+    || { echo "  ✗ identity:authorization_denial:ratio5m recording rule failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=opsmind:ticket_event_dlq:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ opsmind:ticket_event_dlq:rate5m recording rule query-valid" \
+    || { echo "  ✗ opsmind:ticket_event_dlq:rate5m recording rule failed"; rc=1; }
+  for a in HighIdentityAuthorizationDenialRate TicketEventDeadLettered; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" \
+      || { echo "  ✗ $a alert rule not found"; rc=1; }
+  done
+  echo "  ✓ both identity-ticket-business alerts loaded"
+
+  echo "→ SPEC-OP-026: agent_runtime_/memory_/knowledge_ business metrics contracted, forbidden labels stripped, alerts loaded"
+  lease_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=agent_runtime_task_lease_expired_total' \
+    | grep -o '"value":\[[^]]*"6"' || true)"
+  if [ -n "$lease_count" ]; then
+    echo "  ✓ agent_runtime_task_lease_expired_total raw count is exactly 6"
+  else
+    echo "  ✗ agent_runtime_task_lease_expired_total count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=agent_runtime_task_lease_expired_total' | grep -q '"agent_task_id"'; then
+    echo "  ✗ forbidden label 'agent_task_id' reached Prometheus on agent_runtime_task_lease_expired_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'agent_task_id' stripped from agent_runtime_task_lease_expired_total by transform/metric-cardinality"
+  fi
+  embed_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=knowledge_embedding_failure_total' \
+    | grep -o '"value":\[[^]]*"7"' || true)"
+  if [ -n "$embed_count" ]; then
+    echo "  ✓ knowledge_embedding_failure_total raw count is exactly 7"
+  else
+    echo "  ✗ knowledge_embedding_failure_total count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=knowledge_embedding_failure_total' | grep -q '"document_id"'; then
+    echo "  ✗ forbidden label 'document_id' reached Prometheus on knowledge_embedding_failure_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'document_id' stripped from knowledge_embedding_failure_total by transform/metric-cardinality"
+  fi
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=agent_runtime:task_lease_expired:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ agent_runtime:task_lease_expired:rate5m recording rule query-valid" \
+    || { echo "  ✗ agent_runtime:task_lease_expired:rate5m recording rule failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=knowledge:embedding_failure:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ knowledge:embedding_failure:rate5m recording rule query-valid" \
+    || { echo "  ✗ knowledge:embedding_failure:rate5m recording rule failed"; rc=1; }
+  for a in AgentRuntimeTaskLeaseExpiredHigh MemoryEmbeddingProviderFailing; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" \
+      || { echo "  ✗ $a alert rule not found"; rc=1; }
+  done
+  echo "  ✓ both runtime-memory-business alerts loaded"
+
+  echo "→ SPEC-OP-027: tool_/policy_/governance_/approval_ business metrics contracted, forbidden labels stripped, alerts loaded"
+  tool_err_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=tool_connector_error_total' \
+    | grep -o '"value":\[[^]]*"5"' || true)"
+  if [ -n "$tool_err_count" ]; then
+    echo "  ✓ tool_connector_error_total raw count is exactly 5"
+  else
+    echo "  ✗ tool_connector_error_total count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=tool_connector_error_total' | grep -q '"execution_id"'; then
+    echo "  ✗ forbidden label 'execution_id' reached Prometheus on tool_connector_error_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'execution_id' stripped from tool_connector_error_total by transform/metric-cardinality"
+  fi
+  degraded_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=governance_policy_degraded_total' \
+    | grep -o '"value":\[[^]]*"3"' || true)"
+  if [ -n "$degraded_count" ]; then
+    echo "  ✓ governance_policy_degraded_total raw count is exactly 3"
+  else
+    echo "  ✗ governance_policy_degraded_total count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=governance_policy_degraded_total' | grep -q '"decision_id"'; then
+    echo "  ✗ forbidden label 'decision_id' reached Prometheus on governance_policy_degraded_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'decision_id' stripped from governance_policy_degraded_total by transform/metric-cardinality"
+  fi
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=tool:connector_error:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ tool:connector_error:rate5m recording rule query-valid" \
+    || { echo "  ✗ tool:connector_error:rate5m recording rule failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=governance:policy_degraded:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ governance:policy_degraded:rate5m recording rule query-valid" \
+    || { echo "  ✗ governance:policy_degraded:rate5m recording rule failed"; rc=1; }
+  for a in ToolConnectorErrorRateHigh GovernancePolicyDegradedSustained; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" \
+      || { echo "  ✗ $a alert rule not found"; rc=1; }
+  done
+  echo "  ✓ both tool-policy-business alerts loaded"
+
+  echo "→ SPEC-OP-028: evaluation_/grader_ business metrics contracted, forbidden labels stripped, alerts loaded"
+  gate_fail_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=evaluation_gate_fail_total' \
+    | grep -o '"value":\[[^]]*"4"' || true)"
+  if [ -n "$gate_fail_count" ]; then
+    echo "  ✓ evaluation_gate_fail_total raw count is exactly 4"
+  else
+    echo "  ✗ evaluation_gate_fail_total count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=evaluation_gate_fail_total' | grep -q '"case_id"'; then
+    echo "  ✗ forbidden label 'case_id' reached Prometheus on evaluation_gate_fail_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'case_id' stripped from evaluation_gate_fail_total by transform/metric-cardinality"
+  fi
+  grader_err_count="$(curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=grader_error_total' \
+    | grep -o '"value":\[[^]]*"6"' || true)"
+  if [ -n "$grader_err_count" ]; then
+    echo "  ✓ grader_error_total raw count is exactly 6"
+  else
+    echo "  ✗ grader_error_total count wrong or missing"; rc=1
+  fi
+  if curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=grader_error_total' | grep -q '"run_id"'; then
+    echo "  ✗ forbidden label 'run_id' reached Prometheus on grader_error_total"; rc=1
+  else
+    echo "  ✓ forbidden label 'run_id' stripped from grader_error_total by transform/metric-cardinality"
+  fi
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=evaluation:gate_fail:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ evaluation:gate_fail:rate5m recording rule query-valid" \
+    || { echo "  ✗ evaluation:gate_fail:rate5m recording rule failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=grader:error:rate5m' | grep -q '"status":"success"' \
+    && echo "  ✓ grader:error:rate5m recording rule query-valid" \
+    || { echo "  ✗ grader:error:rate5m recording rule failed"; rc=1; }
+  for a in EvaluationGateFailureRateHigh GraderErrorRateHigh; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" \
+      || { echo "  ✗ $a alert rule not found"; rc=1; }
+  done
+  echo "  ✓ both evaluation-business alerts loaded"
+
   echo "→ SPEC-OP-012: file_sd discovery is up with correct per-target job labels; TSDB rule evaluated"
-  for j in prometheus otel-collector alertmanager loki tempo grafana; do
-    curl -sf "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22$j%22%7D" | grep -q '"value":\[' \
+  for j in prometheus otel-collector alertmanager loki tempo grafana postgres-exporter rabbitmq; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22$j%22%7D" | grep -q '"value":\[' \
       || { echo "  ✗ job=$j not up via file_sd discovery"; rc=1; }
   done
-  echo "  ✓ all 7 file_sd-discovered + self-scrape targets are up with their own job labels"
-  curl -sf "http://localhost:9090/api/v1/query?query=prometheus:tsdb_wal_corruptions:rate30m" | grep -q '"status":"success"' \
+  echo "  ✓ all 9 file_sd-discovered + self-scrape targets are up with their own job labels"
+
+  echo "→ SPEC-OP-029: postgres_exporter / rabbitmq_prometheus real infra metrics scraped"
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=pg_up' | grep -q '"value":\[.*,"1"\]' \
+    && echo "  ✓ pg_up=1 — postgres_exporter successfully connected to obs-postgres and reports it healthy" \
+    || { echo "  ✗ pg_up missing or not 1"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=pg_settings_max_connections' | grep -q '"status":"success"' \
+    && echo "  ✓ pg_settings_max_connections scraped (real postgres_exporter metric)" \
+    || { echo "  ✗ pg_settings_max_connections query failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=rabbitmq_identity_info' | grep -q '"status":"success"' \
+    && echo "  ✓ rabbitmq_identity_info scraped (real rabbitmq_prometheus metric — confirms the plugin is enabled and live)" \
+    || { echo "  ✗ rabbitmq_identity_info query failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=postgres:connections:ratio' | grep -q '"status":"success"' \
+    && echo "  ✓ postgres:connections:ratio recording rule query-valid" \
+    || { echo "  ✗ postgres:connections:ratio recording rule failed"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=rabbitmq:queue_depth:sum' | grep -q '"status":"success"' \
+    && echo "  ✓ rabbitmq:queue_depth:sum recording rule query-valid" \
+    || { echo "  ✗ rabbitmq:queue_depth:sum recording rule failed"; rc=1; }
+  for a in PostgresConnectionPoolNearSaturation RabbitmqQueueBacklogHigh; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" \
+      || { echo "  ✗ $a alert rule not found"; rc=1; }
+  done
+  echo "  ✓ both db-broker-infrastructure alerts loaded"
+  curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=prometheus:tsdb_wal_corruptions:rate30m" | grep -q '"status":"success"' \
     && echo "  ✓ prometheus-tsdb recording rule evaluated" || { echo "  ✗ prometheus-tsdb recording rule missing"; rc=1; }
 
   echo "→ Loki: query {service_name=\"op-002-smoke\"}"
@@ -653,12 +953,12 @@ query_back() {
   fi
 
   echo "→ Alertmanager: config loaded"
-  curl -sf "http://localhost:9093/api/v2/status" | grep -q '"cluster"' \
+  curl -sf -u admin:admin "http://localhost:9093/api/v2/status" | grep -q '"cluster"' \
     && echo "  ✓ alertmanager up" || { echo "  ✗ alertmanager status failed"; rc=1; }
 
   echo "→ SPEC-OP-021: Alertmanager severity routing, silence, and inhibition — all real API calls"
   am_now="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
-  curl -sf -X POST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[
+  curl -sf -u admin:admin -X POST http://localhost:9093/api/v2/alerts -H 'Content-Type: application/json' -d '[
     {"labels":{"alertname":"RoutingTestCritical","severity":"critical","owner":"platform-observability","namespace":"observability-test"},
      "annotations":{"summary":"routing test critical"},"startsAt":"'"$am_now"'"},
     {"labels":{"alertname":"RoutingTestWarning","severity":"warning","owner":"platform-observability","namespace":"observability-test"},
@@ -669,7 +969,7 @@ query_back() {
      "annotations":{"summary":"downstream noise from the same down target"},"startsAt":"'"$am_now"'"}
   ]' >/dev/null
   sleep 3
-  groups_json="$(curl -sf "http://localhost:9093/api/v2/alerts/groups" || true)"
+  groups_json="$(curl -sf -u admin:admin "http://localhost:9093/api/v2/alerts/groups" || true)"
   if printf '%s' "$groups_json" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
@@ -682,12 +982,12 @@ sys.exit(0 if ok else 1)
     echo "  ✗ severity-based routing did not match the expected receivers"; rc=1
   fi
   am_ends="$(date -u -v+1H +%Y-%m-%dT%H:%M:%S.000Z 2>/dev/null || date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%S.000Z)"
-  curl -sf -X POST http://localhost:9093/api/v2/silences -H 'Content-Type: application/json' -d '{
+  curl -sf -u admin:admin -X POST http://localhost:9093/api/v2/silences -H 'Content-Type: application/json' -d '{
     "matchers":[{"name":"alertname","value":"RoutingTestWarning","isRegex":false}],
     "startsAt":"'"$am_now"'","endsAt":"'"$am_ends"'",
     "createdBy":"smoke-test","comment":"proving the silence API for real"}' >/dev/null
   sleep 2
-  alerts_json="$(curl -sf "http://localhost:9093/api/v2/alerts" || true)"
+  alerts_json="$(curl -sf -u admin:admin "http://localhost:9093/api/v2/alerts" || true)"
   if printf '%s' "$alerts_json" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
@@ -712,7 +1012,7 @@ sys.exit(0 if ok else 1)
   gen_ok=0
   i=0
   while [ "$i" -lt 12 ]; do
-    if curl -sf "http://localhost:9090/api/v1/query?query=traces_spanmetrics_calls_total%7Bservice%3D%22op-014-smoke%22%7D" \
+    if curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=traces_spanmetrics_calls_total%7Bservice%3D%22op-014-smoke%22%7D" \
          | grep -q '"result":\[{'; then
       gen_ok=1
       break
@@ -725,7 +1025,7 @@ sys.exit(0 if ok else 1)
   else
     echo "  ✗ traces_spanmetrics_calls_total never appeared in Prometheus"; rc=1
   fi
-  exemplar_json="$(curl -sf "http://localhost:9090/api/v1/query_exemplars?query=traces_spanmetrics_latency_bucket%7Bservice%3D%22op-014-smoke%22%7D&start=$(( $(date +%s) - 180 ))&end=$(date +%s)" || true)"
+  exemplar_json="$(curl -sf -u admin:admin "http://localhost:9090/api/v1/query_exemplars?query=traces_spanmetrics_latency_bucket%7Bservice%3D%22op-014-smoke%22%7D&start=$(( $(date +%s) - 180 ))&end=$(date +%s)" || true)"
   if printf '%s' "$exemplar_json" | grep -q "$METRICS_GEN_TRACE_ID"; then
     echo "  ✓ exemplar on the latency histogram links back to the exact trace ID pushed"
   else
@@ -733,10 +1033,10 @@ sys.exit(0 if ok else 1)
   fi
 
   echo "→ SPEC-OP-015: retention-evidence recording rules evaluated; Prometheus admin snapshot works"
-  curl -sf "http://localhost:9090/api/v1/query?query=tempo:retention_deleted:rate1h" | grep -q '"status":"success"' \
+  curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=tempo:retention_deleted:rate1h" | grep -q '"status":"success"' \
     && echo "  ✓ tempo:retention_deleted:rate1h recording rule evaluated" \
     || { echo "  ✗ telemetry-retention recording rule missing"; rc=1; }
-  snap_json="$(curl -sf -X POST http://localhost:9090/api/v1/admin/tsdb/snapshot || true)"
+  snap_json="$(curl -sf -u admin:admin -X POST http://localhost:9090/api/v1/admin/tsdb/snapshot || true)"
   if printf '%s' "$snap_json" | grep -q '"status":"success"'; then
     echo "  ✓ Prometheus admin snapshot API works (--web.enable-admin-api)"
   else
@@ -758,6 +1058,59 @@ sys.exit(0 if ok else 1)
     echo "  ✓ gateway reports ready (pipeline exporting)"
   else
     echo "  ✗ gateway readiness check failed: $ready_json"; rc=1
+  fi
+
+  echo "→ SPEC-OP-030: Prometheus/Alertmanager basic-auth + Grafana RBAC are genuinely enforced"
+  prom_unauth="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:9090/api/v1/query?query=up")"
+  if [ "$prom_unauth" = "401" ]; then
+    echo "  ✓ unauthenticated Prometheus query rejected (401)"
+  else
+    echo "  ✗ expected 401 for an unauthenticated Prometheus query, got $prom_unauth"; rc=1
+  fi
+  am_unauth="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:9093/api/v2/status")"
+  if [ "$am_unauth" = "401" ]; then
+    echo "  ✓ unauthenticated Alertmanager query rejected (401)"
+  else
+    echo "  ✗ expected 401 for an unauthenticated Alertmanager query, got $am_unauth"; rc=1
+  fi
+  grafana_anon="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3000/api/search")"
+  if [ "$grafana_anon" = "401" ]; then
+    echo "  ✓ anonymous Grafana access rejected (401) — GF_AUTH_ANONYMOUS_ENABLED is genuinely off"
+  else
+    echo "  ✗ expected 401 for anonymous Grafana access, got $grafana_anon"; rc=1
+  fi
+
+  # Real RBAC proof: create a Viewer-role user via the admin API, confirm it
+  # can read but not write, and that an Admin CAN write — the actual
+  # role-differentiated behavior, not just "auth is now required."
+  curl -s -u admin:admin -X POST http://localhost:3000/api/admin/users \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"obs-viewer","login":"obs-viewer","password":"obs-viewer-pw","OrgId":1}' >/dev/null
+  viewer_role="$(curl -s -u admin:admin http://localhost:3000/api/org/users | grep -o '"login":"obs-viewer","role":"[A-Za-z]*"')"
+  if printf '%s' "$viewer_role" | grep -q '"role":"Viewer"'; then
+    echo "  ✓ real Viewer-role user created via Grafana's own admin API"
+  else
+    echo "  ✗ obs-viewer user was not created with Viewer role"; rc=1
+  fi
+  viewer_read="$(curl -s -o /dev/null -w '%{http_code}' -u obs-viewer:obs-viewer-pw "http://localhost:3000/api/search")"
+  viewer_write="$(curl -s -o /dev/null -w '%{http_code}' -u obs-viewer:obs-viewer-pw -X POST http://localhost:3000/api/dashboards/db \
+    -H 'Content-Type: application/json' -d '{"dashboard":{"title":"obs-viewer-write-test","panels":[]},"overwrite":true}')"
+  admin_write="$(curl -s -u admin:admin -X POST http://localhost:3000/api/dashboards/db \
+    -H 'Content-Type: application/json' -d '{"dashboard":{"title":"opsmind-rbac-proof-temp","panels":[]},"overwrite":true}')"
+  admin_write_status="$(printf '%s' "$admin_write" | grep -c '"status":"success"')"
+  if [ "$viewer_read" = "200" ] && [ "$viewer_write" = "403" ] && [ "$admin_write_status" = "1" ]; then
+    echo "  ✓ real RBAC enforced: Viewer reads (200) but cannot write (403); Admin can write (200)"
+  else
+    echo "  ✗ RBAC not enforced as expected (viewer_read=$viewer_read viewer_write=$viewer_write admin_write=$admin_write)"; rc=1
+  fi
+  # Clean up the proof dashboard so a repeat run stays idempotent.
+  proof_uid="$(curl -s -u admin:admin "http://localhost:3000/api/search?query=opsmind-rbac-proof-temp" | grep -o '"uid":"[^"]*"' | head -1 | cut -d'"' -f4)"
+  [ -n "$proof_uid" ] && curl -s -u admin:admin -X DELETE "http://localhost:3000/api/dashboards/uid/$proof_uid" >/dev/null
+
+  if docker logs opsmind-grafana 2>&1 | grep -q 'uname=obs-viewer'; then
+    echo "  ✓ Grafana's own structured request log captures the querying user's identity (real audit trail)"
+  else
+    echo "  ✗ expected uname=obs-viewer in Grafana's own logs"; rc=1
   fi
 
   return $rc

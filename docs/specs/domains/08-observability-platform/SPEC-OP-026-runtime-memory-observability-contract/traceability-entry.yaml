@@ -1,9 +1,86 @@
 SPEC-OP-026:
   domain: 08-observability-platform
   name: Runtime And Memory Observability Contract
-  cn_name: Runtime 与 Memory 观测契约
-  status: planned
+  cn_name: 运行时与记忆可观测性契约
+  status: implemented
   phase: phase-06-cross-domain-contracts
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-006, SPEC-OP-025]
+  tech_stack: "Corrects a fictional metric-naming.yaml namespace + 2 new real namespaces + a gauge-suffix contract gap, over agent-runtime-service's real RuntimeTelemetry and memory-knowledge-service's real MemoryTelemetry"
+  implementation_notes: >
+    Concrete objective: "Observe agent-runtime and memory pipelines with
+    bounded labels and correlated traces." A prior grep (Java-style patterns
+    against Python code) had wrongly flagged agent-runtime-service as having
+    zero metrics; re-searched properly and found a real, fully-wired
+    RuntimeTelemetry (SPEC-ARO-034, 16 metrics) and memory-knowledge-
+    service's real MemoryTelemetry (SPEC-MK-028, 15 metrics across
+    `memory_*`/`knowledge_*` prefixes) — lesson: tune grep patterns to the
+    target service's actual language before concluding a gap is real.
+    REAL CORRECTION: metric-naming.yaml's EXISTING `agent` namespace (since
+    SPEC-OP-006) was itself fictional — its labels/example metrics
+    (agent_role/model/step_kind, agent_run_duration_seconds etc.) were never
+    emitted anywhere in the codebase (0 real matches). Corrected it to the
+    real `agent_runtime_*` shape; fixed the one fixture that depended on the
+    fiction.
+    REAL GAP: the gauge-suffix contract had never been tested — no fixture
+    had EVER exercised a real GAUGE metric before, so `_pending`/`_backlog`
+    were missing from allowed_suffixes; added narrowly + wrote the first-ever
+    passing gauge fixture.
+    REAL DEVIATION DOCUMENTED, NOT FIXED: a genuine millisecond-unit
+    violation in 3 real memory-knowledge-service histograms (`_ms` suffix,
+    forbidden by units policy) — documented as a real pre-existing domain-04
+    defect, deliberately NOT fixture-tested as conformant, not silently swept
+    under the rug either.
+    2 new alerts (AgentRuntimeTaskLeaseExpiredHigh warning,
+    MemoryEmbeddingProviderFailing critical/paging), a runbook, a dashboard.
+    RECOVERY NOTE: rebuilt in full after a mid-session branch checkout
+    silently discarded the first (uncommitted) build — see SPEC-OP-024's own
+    traceability doc for the incident. Re-verified live a second time.
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - unbounded_metric_label
+    - contracting_a_label_nothing_emits
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/metric-naming.yaml
+      - infrastructure/observability/governance/telemetry-governance.yaml
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/rules/recording/runtime-memory-business.yml
+      - infrastructure/observability/rules/alerting/runtime-memory-business.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/RuntimeMemoryBusinessSignals.md
+      - infrastructure/observability/dashboards/runtime-memory-business-signals.json
+    tooling:
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-agent-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-agent-runtime-gauge.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-memory-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-knowledge-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/nonconformant-memory-forbidden-label.json
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-dashboards.py 0 err; validate-rule-catalog.py 0 err; promtool check rules SUCCESS (2 recording + 2 alerting)"
+    unit: "scripts/tests — 82 passed"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed real
+      agent_runtime_task_lease_expired_total=6 and
+      knowledge_embedding_failure_total=7, each with one forbidden label
+      riding along (agent_task_id / document_id); confirmed exact raw counts
+      reached Prometheus (6, 7) while neither forbidden label did. Both new
+      recording rules query-valid; both new alerts loaded. Every
+      SPEC-OP-002~029 assertion in the same run stayed green. Stack torn
+      down clean. Verified 2026-09-01 (second build, after data-loss
+      recovery).
+    result: >
+      Two more real, already-shipped, previously-uncontracted business-metric
+      surfaces are now bounded-label-contracted, recorded, dashboarded, and
+      alerted. Corrected a real pre-existing defect in the contract itself (a
+      fictional `agent` namespace), closed a genuine gap in the gauge-suffix
+      support, documented (without papering over) a real millisecond-unit
+      violation in another domain's shipped code. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-026-traceability.md

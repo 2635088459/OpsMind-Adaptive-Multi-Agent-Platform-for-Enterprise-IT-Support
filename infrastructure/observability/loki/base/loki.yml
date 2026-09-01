@@ -87,7 +87,11 @@ ruler:
   rule_path: /loki/rules-temp
   enable_api: true
   enable_alertmanager_v2: true
-  alertmanager_url: http://alertmanager:9093
+  # SPEC-OP-030 — Alertmanager's own web.yml now gates its whole server
+  # behind basic auth; userinfo-in-URL is the simplest supported way to
+  # authenticate the ruler's own alertmanager notifier (Go's http.Client
+  # translates URL userinfo into a Basic Authorization header automatically).
+  alertmanager_url: http://admin:admin@alertmanager:9093
 
 analytics:
   reporting_enabled: false

@@ -38,6 +38,12 @@ alerting:
   alertmanagers:
     - static_configs:
         - targets: ["alertmanager:9093"]
+      # SPEC-OP-030 — Alertmanager's own web.yml now gates its whole server
+      # behind basic auth; without this, every alert notification here was
+      # silently rejected with 401.
+      basic_auth:
+        username: admin
+        password: admin
 
 scrape_configs:
   # Self-scrape stays static — Prometheus scraping itself never benefits from

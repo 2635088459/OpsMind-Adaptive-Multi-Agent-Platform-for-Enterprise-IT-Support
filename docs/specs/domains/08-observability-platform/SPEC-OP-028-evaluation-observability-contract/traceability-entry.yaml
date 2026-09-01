@@ -1,9 +1,84 @@
 SPEC-OP-028:
   domain: 08-observability-platform
   name: Evaluation Observability Contract
-  cn_name: Evaluation 观测契约
-  status: planned
+  cn_name: 评估可观测性契约
+  status: implemented
   phase: phase-06-cross-domain-contracts
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-006, SPEC-OP-027]
+  tech_stack: "Corrects a second fictional metric-naming.yaml namespace (evaluation) + 5 new real namespaces + a new allowed_suffix, over evaluation-improvement-service's real EvaluationTelemetry"
+  implementation_notes: >
+    Concrete objective: "Contract evaluation/grading/regression/canary
+    signals." The EXISTING `evaluation` namespace (since SPEC-OP-006) had the
+    SAME defect SPEC-OP-026 already found in "agent" — allowed_labels/
+    example_metrics never matched anything real (grep confirmed zero usage).
+    evaluation-improvement-service's real EvaluationTelemetry (SPEC-EI-033)
+    emits 13 real metrics across SIX distinct first-underscore-segment
+    prefixes from the SAME class: evaluation_*, improvement_*, canary_*,
+    grader_*, judge_*, online_*.
+    Corrected `evaluation` to its real shape and added 5 new namespaces
+    (improvement, canary, grader, judge, online — this metric's own literal
+    prefix, online_sample_quality_score, SPEC-EI-028's delayed production-
+    traffic quality-trend signal).
+    Added naming.allowed_suffixes entry `_score`: EvaluationTelemetry's own
+    LLD (SPEC-EI-033) names its per-dimension score histogram literally
+    `evaluation_score` — bare, no unit suffix, real and LLD-mandated (the
+    class's own docstring cites the exact LLD section), distinguished
+    explicitly from the millisecond-unit case SPEC-OP-026 documented as a
+    genuine violation.
+    New rules/recording+alerting/evaluation-business.yml.
+    EvaluationGateFailureRateHigh is WARNING (a failing gate is the safety
+    mechanism working as designed); GraderErrorRateHigh is CRITICAL (a broken
+    grader blocks the WHOLE pipeline) — same safety-net-working vs.
+    infrastructure-broken distinction SPEC-OP-026 already applied.
+    RECOVERY NOTE: rebuilt in full after a mid-session branch checkout
+    silently discarded the first (uncommitted) build. Re-verified live a
+    second time.
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - unbounded_metric_label
+    - alerting_on_a_safety_net_working_as_designed
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/metric-naming.yaml
+      - infrastructure/observability/governance/telemetry-governance.yaml
+    enforcement:
+      - infrastructure/observability/rules/recording/evaluation-business.yml
+      - infrastructure/observability/rules/alerting/evaluation-business.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/EvaluationBusinessSignals.md
+      - infrastructure/observability/dashboards/evaluation-business-signals.json
+    tooling:
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-evaluation-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-evaluation-score-histogram.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-improvement-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-canary-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-grader-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-judge-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-online-histogram.json
+      - infrastructure/observability/signals/fixtures/metric-naming/nonconformant-evaluation-forbidden-label.json
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-dashboards.py 0 err; validate-rule-catalog.py 0 err; promtool check rules SUCCESS (2 recording + 2 alerting)"
+    unit: "scripts/tests — 82 passed"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed real
+      evaluation_gate_fail_total=4 and grader_error_total=6, each with one
+      forbidden label riding along (case_id / run_id); confirmed exact raw
+      counts reached Prometheus (4, 6) while neither forbidden label did.
+      Both new recording rules query-valid; both new alerts loaded. Every
+      SPEC-OP-002~029 assertion in the same run stayed green. Verified
+      2026-09-01 (second build, after data-loss recovery).
+    result: >
+      A second fictional metric-naming namespace found and corrected. Six
+      real namespaces (5 new + 1 corrected) now cover evaluation-
+      improvement-service's entire 13-metric surface. A real LLD-mandated
+      bare metric name needed a new suffix. Alert severity assigned with
+      explicit, recorded reasoning consistent with this domain's established
+      pattern. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-028-traceability.md

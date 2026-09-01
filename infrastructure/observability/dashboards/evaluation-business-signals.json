@@ -1,0 +1,70 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-OP-028",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/EvaluationBusinessSignals.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-028-traceability.md"
+  },
+  "uid": "opsmind-evaluation-business-signals",
+  "title": "Evaluation Business Signals",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-OP-028"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "annotations": { "list": [] },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Evaluation runs & gates (evaluation-improvement-service)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "timeseries", "title": "Runs and cases", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "SPEC-EI-033's real EvaluationTelemetry, contracted here for the first time (SPEC-OP-028).",
+      "targets": [
+        { "refId": "A", "legendFormat": "runs", "expr": "sum(rate(evaluation_run_total[5m]))" },
+        { "refId": "B", "legendFormat": "cases", "expr": "sum(rate(evaluation_case_total[5m]))" }
+      ] },
+
+    { "id": 3, "type": "timeseries", "title": "Gate pass vs fail", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backs the EvaluationGateFailureRateHigh alert (fail rate > 0 for 10m).",
+      "targets": [
+        { "refId": "A", "legendFormat": "pass", "expr": "sum(rate(evaluation_gate_pass_total[5m]))" },
+        { "refId": "B", "legendFormat": "fail", "expr": "evaluation:gate_fail:rate5m" }
+      ] },
+
+    { "id": 4, "type": "timeseries", "title": "Regressions and candidates", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "regressions", "expr": "sum(rate(evaluation_regression_total[5m]))" },
+        { "refId": "B", "legendFormat": "improvement candidates", "expr": "sum(rate(improvement_candidate_total[5m]))" },
+        { "refId": "C", "legendFormat": "canary rollbacks", "expr": "sum(rate(canary_rollback_total[1h]))" }
+      ] },
+
+    { "id": 5, "type": "row", "title": "Grading & online quality", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 } },
+
+    { "id": 6, "type": "timeseries", "title": "Grader error / judge calibration drift", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backs the (critical, paging) GraderErrorRateHigh alert (error rate > 0 for 5m).",
+      "targets": [
+        { "refId": "A", "legendFormat": "grader error", "expr": "grader:error:rate5m" },
+        { "refId": "B", "legendFormat": "judge drift", "expr": "sum(rate(judge_calibration_drift_total[5m]))" }
+      ] },
+
+    { "id": 7, "type": "timeseries", "title": "Online sample quality score (p50)", "unit": "short",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "SPEC-EI-028 — a delayed quality trend signal on real production traffic samples, never a release gate.",
+      "targets": [{ "refId": "A",
+        "expr": "histogram_quantile(0.5, sum by (le) (rate(online_sample_quality_score_bucket[15m])))" }] }
+  ]
+}

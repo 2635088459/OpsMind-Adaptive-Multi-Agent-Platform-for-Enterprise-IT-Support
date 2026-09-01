@@ -1,0 +1,48 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-028
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/EvaluationBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-028-traceability.md
+#
+# SPEC-OP-028 — two alerts. EvaluationGateFailureRateHigh is a WARNING because
+# a failing release gate is the safety mechanism working as designed (it
+# blocked a bad release), not a business outage; GraderErrorRateHigh is
+# CRITICAL because a broken grader blocks the WHOLE evaluation/improvement
+# pipeline from judging any candidate at all — infrastructure-broken, not
+# safety-net-working. Both reference the same runbook
+# (EvaluationBusinessSignals.md), same grouping convention as this domain's
+# other business-signal runbooks.
+groups:
+  - name: evaluation-business-alerting
+    rules:
+      - alert: EvaluationGateFailureRateHigh
+        expr: evaluation:gate_fail:rate5m > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "evaluation-improvement-service release-gate failure rate is {{ $value | humanize }}/s"
+          description: "evaluation_gate_fail_total has been increasing for 10+ minutes — release gates are correctly blocking candidates, but a sustained rate is worth investigating for a real regression."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/EvaluationBusinessSignals.md"
+          dashboard: "Evaluation Business Signals"
+
+      - alert: GraderErrorRateHigh
+        # A sustained grader-error rate means the evaluation harness itself
+        # cannot judge candidates — every downstream gate/regression/candidate
+        # decision depends on the grader actually running.
+        expr: grader:error:rate5m > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "evaluation-improvement-service grader error rate is {{ $value | humanize }}/s"
+          description: "grader_error_total has been increasing for 5+ minutes — the evaluation harness itself is failing to judge candidates, blocking the whole evaluation/improvement pipeline."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/EvaluationBusinessSignals.md"
+          dashboard: "Evaluation Business Signals"

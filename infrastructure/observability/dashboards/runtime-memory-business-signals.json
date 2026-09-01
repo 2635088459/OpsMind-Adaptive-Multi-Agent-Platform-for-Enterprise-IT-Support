@@ -1,0 +1,89 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-OP-026",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/RuntimeMemoryBusinessSignals.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-026-traceability.md"
+  },
+  "uid": "opsmind-runtime-memory-business-signals",
+  "title": "Runtime & Memory Business Signals",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-OP-026"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "annotations": { "list": [] },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Agent Runtime (agent-runtime-service)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "timeseries", "title": "Workflow lifecycle", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "SPEC-ARO-034's real RuntimeTelemetry, contracted here for the first time (SPEC-OP-026).",
+      "targets": [
+        { "refId": "A", "legendFormat": "started", "expr": "sum(rate(agent_runtime_workflow_started_total[5m]))" },
+        { "refId": "B", "legendFormat": "completed", "expr": "sum(rate(agent_runtime_workflow_completed_total[5m]))" },
+        { "refId": "C", "legendFormat": "failed", "expr": "sum(rate(agent_runtime_workflow_failed_total[5m]))" }
+      ] },
+
+    { "id": 3, "type": "timeseries", "title": "Task claimed vs completed vs lease-expired", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backs the AgentRuntimeTaskLeaseExpiredHigh alert (lease-expired > 0 for 10m).",
+      "targets": [
+        { "refId": "A", "legendFormat": "claimed", "expr": "sum(rate(agent_runtime_task_claimed_total[5m]))" },
+        { "refId": "B", "legendFormat": "completed", "expr": "sum(rate(agent_runtime_task_completed_total[5m]))" },
+        { "refId": "C", "legendFormat": "lease expired", "expr": "agent_runtime:task_lease_expired:rate5m" }
+      ] },
+
+    { "id": 4, "type": "timeseries", "title": "Outbox pending / publish failures", "unit": "short",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "pending (gauge)", "expr": "agent_runtime_outbox_pending" },
+        { "refId": "B", "legendFormat": "publish failed/s", "expr": "rate(agent_runtime_outbox_publish_failed_total[5m])" }
+      ] },
+
+    { "id": 5, "type": "row", "title": "Memory & Knowledge (memory-knowledge-service)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 } },
+
+    { "id": 6, "type": "timeseries", "title": "Search requests, degraded and empty", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "SPEC-MK-028's real MemoryTelemetry, contracted here for the first time (SPEC-OP-026).",
+      "targets": [
+        { "refId": "A", "legendFormat": "requests", "expr": "sum(rate(memory_search_requests_total[5m]))" },
+        { "refId": "B", "legendFormat": "degraded", "expr": "sum(rate(memory_search_degraded_total[5m]))" },
+        { "refId": "C", "legendFormat": "empty result", "expr": "sum(rate(memory_retrieval_empty_total[5m]))" }
+      ] },
+
+    { "id": 7, "type": "timeseries", "title": "Candidate lifecycle", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "created", "expr": "sum(rate(memory_candidate_created_total[5m]))" },
+        { "refId": "B", "legendFormat": "approved", "expr": "sum(rate(memory_candidate_approved_total[5m]))" },
+        { "refId": "C", "legendFormat": "rejected", "expr": "sum(rate(memory_candidate_rejected_total[5m]))" },
+        { "refId": "D", "legendFormat": "conflict detected", "expr": "sum(rate(memory_conflict_detected_total[5m]))" }
+      ] },
+
+    { "id": 8, "type": "timeseries", "title": "Knowledge graph growth", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "nodes created", "expr": "sum(rate(memory_graph_nodes_total[5m]))" },
+        { "refId": "B", "legendFormat": "edges created", "expr": "sum(rate(memory_graph_edges_total[5m]))" }
+      ] },
+
+    { "id": 9, "type": "timeseries", "title": "Embedding failure rate", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backs the (critical, paging) MemoryEmbeddingProviderFailing alert (> 0 for 5m).",
+      "targets": [{ "refId": "A", "expr": "knowledge:embedding_failure:rate5m" }] }
+  ]
+}

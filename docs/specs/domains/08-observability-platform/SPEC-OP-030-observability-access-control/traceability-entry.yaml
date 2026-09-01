@@ -1,9 +1,114 @@
 SPEC-OP-030:
   domain: 08-observability-platform
   name: Observability Access Control
-  cn_name: 可观测平台访问控制
-  status: planned
+  cn_name: 可观测性访问控制
+  status: implemented
   phase: phase-07-security-privacy-config-governance
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-002, SPEC-OP-018]
+  tech_stack: "Prometheus/Alertmanager native --web.config.file basic-auth + Grafana's own built-in org-role RBAC — a user-confirmed lighter scope, not a new shared OIDC identity provider"
+  implementation_notes: >
+    Concrete objective: "Apply OIDC/RBAC roles to UI/endpoints and audit
+    queries/exports." Investigating first found this exact scope decision
+    already anticipated in prometheus.yml's own comment (SPEC-OP-012):
+    "Authentication: query-API/web access control is explicitly SPEC-OP-030
+    ... job." Also found: no shared, persistent Keycloak instance exists
+    anywhere in this repository — infrastructure/keycloak/ is an empty
+    placeholder (.gitkeep only), and every domain's own Keycloak usage today
+    (including user-access-authentication-service's real, tested
+    integration) is ephemeral/test-scoped only.
+    Given the scale difference between standing up a new shared identity
+    provider (a genuinely large, cross-domain-affecting undertaking
+    comparable to what domain 01 spent many specs building) vs. a lighter,
+    real mechanism already native to this stack's own tools, asked the user
+    rather than picking unilaterally. User chose the lighter scope.
+    Implemented: Prometheus's and Alertmanager's own native
+    `--web.config.file` basic-auth gate (exporter-toolkit, no external IdP
+    needed) — real AUTHENTICATION, explicitly documented as NOT role-
+    differentiated (neither tool has a permissions model of its own). Real
+    ROLE-DIFFERENTIATED RBAC lives at the Grafana layer instead: anonymous
+    Viewer access disabled (GF_AUTH_ANONYMOUS_ENABLED: "false"), Grafana's
+    own built-in org-role model (Admin/Editor/Viewer) proven live — created a
+    real Viewer-role user via Grafana's own admin API and confirmed it can
+    read (200) but not write/create (403), while Admin can (200). Audit:
+    Grafana's own default structured request logging already captures every
+    query with the caller's identity (userId/uname/method/path/status) — no
+    new config needed, just confirmed live and documented as this domain's
+    real query-audit trail.
+    Deliberately deferred and documented, not silently dropped: real OIDC
+    against a shared identity provider (needs a shared platform Keycloak no
+    domain has stood up yet); Prometheus/Loki/Tempo's own native query-level
+    audit logging (neither has one in its OSS build — Grafana is the
+    enforced human access point, direct API access bypasses its audit
+    trail).
+    REAL CASCADING FINDING caught via live verification, not static review:
+    enabling Prometheus's/Alertmanager's auth broke 3 internal integrations
+    that push data to them (Tempo's metrics_generator remote_write,
+    Prometheus's own alertmanagers notifier, Loki's ruler alertmanager_url)
+    — all silently rejected with 401 until fixed. Also found the
+    Prometheus/Alertmanager images ship BusyBox's minimal wget, which has no
+    --http-user/--http-password flags at all, requiring a manually-built
+    Basic-auth header for the healthchecks instead — see SPEC-OP-029's own
+    traceability doc for the full account of both bugs (found while
+    verifying SPEC-OP-029's own exporters in the same recovery pass; the
+    root cause is this spec's own auth change).
+    New runbooks/ObservabilityAccessControl.md — an operational guide (not
+    alert-linked, same category as AlertRoutingAndSilencing.md), documenting
+    the scope decision, the deferred-OIDC reasoning, and the 3 cascading
+    fixes in full.
+    RECOVERY NOTE: this spec's investigation and the user's scope decision
+    happened before a mid-session branch checkout silently discarded
+    substantial uncommitted work across SPEC-OP-024~029; this spec's own
+    implementation continued and completed AFTER that recovery, in the same
+    session, so it was never itself lost — but its live verification
+    (auth/RBAC proof) was performed together with SPEC-OP-029's own recovery
+    verification, sharing the same docker-compose smoke-test run.
+  lld_mapping:
+    - 01-domain-model
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - standing_up_a_new_shared_identity_provider_unilaterally
+    - fabricating_oidc_without_a_real_idp
+  artifacts:
+    contract:
+      - infrastructure/observability/prometheus/overlays/local/web.yml
+      - infrastructure/observability/alertmanager/overlays/local/web.yml
+    enforcement:
+      - infrastructure/docker-compose/observability-stack.yml
+      - infrastructure/observability/grafana/base/provisioning/datasources/datasources.yml
+      - infrastructure/observability/prometheus/base/prometheus.yml
+      - infrastructure/observability/loki/base/loki.yml
+      - infrastructure/observability/tempo/base/tempo.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/ObservabilityAccessControl.md
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-collector-pipeline.py 0 err/0 warn; validate-dashboards.py 0 err; validate-rule-catalog.py 0 err (1 new expected orphaned-runbook warning for ObservabilityAccessControl.md, same category as AlertRoutingAndSilencing.md); compose config render OK"
+    unit: "scripts/tests — 82 passed, unaffected (no validator logic touched)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS, including 6 new
+      dedicated assertions: unauthenticated Prometheus query rejected (401);
+      unauthenticated Alertmanager query rejected (401); anonymous Grafana
+      access rejected (401); a real Viewer-role user created via Grafana's
+      admin API; real RBAC proven (Viewer reads 200/writes 403, Admin writes
+      200); Grafana's own structured log captures the querying user's
+      identity (grep-confirmed uname=obs-viewer in real container logs).
+      Re-ran the full smoke suite a second time to confirm idempotency (the
+      Viewer-user creation and RBAC proof both repeat cleanly). Every
+      SPEC-OP-002~030 assertion in the same run stayed green. Stack torn
+      down clean. Verified 2026-09-01.
+    result: >
+      Real authentication now gates Prometheus's and Alertmanager's query
+      APIs; real role-differentiated RBAC (not just authentication) gates
+      Grafana, proven live with a genuine Viewer-vs-Admin contrast; a real,
+      already-existing audit trail was confirmed and documented rather than
+      built redundantly. A deliberately narrower scope than full OIDC was
+      chosen with the user's explicit sign-off rather than assumed
+      unilaterally, given the real absence of any shared identity provider
+      in this repository. Two real bugs (BusyBox wget incompatibility; a
+      3-way cascading auth break across internal integrations) were found
+      via live verification and fixed with the root cause understood. Full
+      evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-030-traceability.md

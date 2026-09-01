@@ -1,0 +1,47 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-026
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/RuntimeMemoryBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-026-traceability.md
+#
+# SPEC-OP-026 — two alerts, one per domain this spec contracts. Both alerts
+# reference the SAME runbook (RuntimeMemoryBusinessSignals.md), same grouping
+# convention as SPEC-OP-025's IdentityTicketBusinessSignals.md.
+groups:
+  - name: runtime-memory-business-alerting
+    rules:
+      - alert: AgentRuntimeTaskLeaseExpiredHigh
+        # A sustained lease-expiry rate means Agent Tasks are being claimed but
+        # the claiming worker is dying, hanging, or crashing before completion
+        # — every expiry here is a task that had to be recovered instead of
+        # completing normally.
+        expr: agent_runtime:task_lease_expired:rate5m > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "agent-runtime-service task lease expiry rate is {{ $value | humanize }}/s"
+          description: "agent_runtime_task_lease_expired_total has been increasing for 10+ minutes — workers are failing to complete claimed Agent Tasks before their lease expires."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/RuntimeMemoryBusinessSignals.md"
+          dashboard: "Runtime & Memory Business Signals"
+
+      - alert: MemoryEmbeddingProviderFailing
+        # The embedding provider is on the critical path for turning a Memory
+        # Candidate into a real, searchable memory — a sustained failure rate
+        # blocks the whole candidate-to-memory pipeline, not just one request.
+        expr: knowledge:embedding_failure:rate5m > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "memory-knowledge-service embedding failures at {{ $value | humanize }}/s"
+          description: "knowledge_embedding_failure_total has been increasing for 5+ minutes — the embedding provider is failing, blocking the Memory Candidate pipeline."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/RuntimeMemoryBusinessSignals.md"
+          dashboard: "Runtime & Memory Business Signals"

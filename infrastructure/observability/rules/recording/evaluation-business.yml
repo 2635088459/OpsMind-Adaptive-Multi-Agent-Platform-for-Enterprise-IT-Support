@@ -1,0 +1,21 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-028
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/EvaluationBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-028-traceability.md
+#
+# SPEC-OP-028 — the first recording rules over evaluation-improvement-
+# service's real EvaluationTelemetry metrics (SPEC-EI-033, 12-observability
+# §Metrics). Already emitted; nothing in this domain had ever queried,
+# recorded, or alerted on them before this spec.
+groups:
+  - name: evaluation-business-recording
+    interval: 1m
+    rules:
+      - record: evaluation:gate_fail:rate5m
+        expr: sum(rate(evaluation_gate_fail_total[5m]))
+      - record: grader:error:rate5m
+        expr: sum(rate(grader_error_total[5m]))

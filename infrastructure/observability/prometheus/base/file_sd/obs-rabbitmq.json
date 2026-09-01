@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["obs-rabbitmq:15692"],
+    "labels": { "job": "rabbitmq" }
+  }
+]

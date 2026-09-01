@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["postgres-exporter:9187"],
+    "labels": { "job": "postgres-exporter" }
+  }
+]

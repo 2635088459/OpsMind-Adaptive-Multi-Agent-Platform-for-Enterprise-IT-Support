@@ -1,0 +1,22 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-027
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/ToolPolicyBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-027-traceability.md
+#
+# SPEC-OP-027 — the first recording rules over tool-integration-gateway's real
+# `tool_*` metrics (SPEC-TG-026 ToolGatewayTelemetry) and policy-approval-
+# governance-service's real `policy_*`/`governance_*`/`approval_*` metrics
+# (MicrometerGovernanceMetrics). Both services already emit these; nothing in
+# this domain had ever queried, recorded, or alerted on them before this spec.
+groups:
+  - name: tool-policy-business-recording
+    interval: 1m
+    rules:
+      - record: tool:connector_error:rate5m
+        expr: sum(rate(tool_connector_error_total[5m]))
+      - record: governance:policy_degraded:rate5m
+        expr: sum(rate(governance_policy_degraded_total[5m]))

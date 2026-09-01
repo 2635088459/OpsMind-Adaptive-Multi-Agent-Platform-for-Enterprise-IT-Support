@@ -1,0 +1,40 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-029
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/DatabaseBrokerInfrastructure.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-029-traceability.md
+#
+# SPEC-OP-029 — two infra-level alerts, both warning: early-warning capacity
+# signals, not an outright outage. Both reference the SAME runbook
+# (DatabaseBrokerInfrastructure.md, updated this spec — no longer "deferred").
+groups:
+  - name: db-broker-infrastructure-alerting
+    rules:
+      - alert: PostgresConnectionPoolNearSaturation
+        expr: postgres:connections:ratio > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Postgres connection pool is {{ $value | humanizePercentage }} full"
+          description: "postgres:connections:ratio has been above 80% for 10+ minutes — the connection pool is approaching pg_settings_max_connections."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/DatabaseBrokerInfrastructure.md"
+          dashboard: "Database, Broker & Infrastructure"
+
+      - alert: RabbitmqQueueBacklogHigh
+        expr: rabbitmq:queue_depth:sum > 1000
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "RabbitMQ total queue depth is {{ $value | humanize }} messages"
+          description: "rabbitmq:queue_depth:sum has been above 1000 messages for 15+ minutes — consumers are falling behind producers."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/DatabaseBrokerInfrastructure.md"
+          dashboard: "Database, Broker & Infrastructure"

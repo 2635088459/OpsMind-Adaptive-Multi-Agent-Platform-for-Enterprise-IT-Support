@@ -1,9 +1,84 @@
 SPEC-OP-027:
   domain: 08-observability-platform
   name: Tool And Policy Observability Contract
-  cn_name: Tool 与 Policy 观测契约
-  status: planned
+  cn_name: 工具与策略可观测性契约
+  status: implemented
   phase: phase-06-cross-domain-contracts
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-006, SPEC-OP-026]
+  tech_stack: "4 new metric-naming.yaml namespaces (tool, policy, governance, approval) + a third _count gauge shape confirmed, over tool-integration-gateway's real ToolGatewayTelemetry and policy-approval-governance-service's real MicrometerGovernanceMetrics"
+  implementation_notes: >
+    Concrete objective: "Contract tool/connector and policy/approval/override/
+    audit signals." Found tool-integration-gateway's real ToolGatewayTelemetry
+    (SPEC-TG-026, 12 metrics) and policy-approval-governance-service's real
+    MicrometerGovernanceMetrics (9 metrics), never contracted.
+    REAL FINDING: MicrometerGovernanceMetrics is ONE class emitting THREE
+    distinct metric-name prefixes — policy_*, governance_*, approval_* —
+    confirmed by reading every registry.counter/.timer/Gauge.builder call.
+    Three separate namespaces added, not one.
+    REAL FINDING: this class's tag KEYS are camelCase Java literals
+    ("riskLevel", "approvalType", "sourceDomain") relying on Micrometer's
+    PrometheusMeterRegistry naming convention to convert them to snake_case
+    before Prometheus exposition — unlike ticket-workflow-service's
+    TicketTelemetry.java, which hand-writes snake_case tag keys directly. The
+    contract lists the POST-CONVERSION snake_case form since that is what
+    actually reaches the Collector/Prometheus.
+    Confirmed the residual `_count` gauge-suffix note from SPEC-OP-026: THREE
+    real services now use this exact gauge-naming shape (identity, tool,
+    governance) — added the first conformant fixtures for both new ones.
+    New `tool`, `policy`, `governance`, `approval` namespaces. New
+    rules/recording+alerting/tool-policy-business.yml
+    (ToolConnectorErrorRateHigh warning; GovernancePolicyDegradedSustained
+    critical/paging — checked against SPEC-PG-032's own javadoc before
+    picking severity) + runbook + dashboard.
+    RECOVERY NOTE: rebuilt in full after a mid-session branch checkout
+    silently discarded the first (uncommitted) build. Re-verified live a
+    second time.
+  lld_mapping:
+    - 01-domain-model
+    - 07-data-model
+    - 11-security
+  forbidden:
+    - business_state_mutation
+    - unbounded_metric_label
+    - contracting_the_pre_conversion_tag_literal_instead_of_the_real_wire_form
+  artifacts:
+    contract:
+      - infrastructure/observability/signals/metric-naming.yaml
+      - infrastructure/observability/governance/telemetry-governance.yaml
+    enforcement:
+      - infrastructure/observability/collector/base/config.yaml
+      - infrastructure/observability/rules/recording/tool-policy-business.yml
+      - infrastructure/observability/rules/alerting/tool-policy-business.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/ToolPolicyBusinessSignals.md
+      - infrastructure/observability/dashboards/tool-policy-business-signals.json
+    tooling:
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-tool-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-tool-gauge.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-policy-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-governance-gauge.json
+      - infrastructure/observability/signals/fixtures/metric-naming/conformant-approval-counter.json
+      - infrastructure/observability/signals/fixtures/metric-naming/nonconformant-tool-forbidden-label.json
+      - scripts/observability-stack.sh
+      - .github/workflows/observability-platform-ci.yml
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err; validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-dashboards.py 0 err; validate-rule-catalog.py 0 err; promtool check rules SUCCESS (2 recording + 2 alerting)"
+    unit: "scripts/tests — 82 passed"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS. Pushed real
+      tool_connector_error_total=5 and governance_policy_degraded_total=3,
+      each with one forbidden label riding along (execution_id / decision_id);
+      confirmed exact raw counts reached Prometheus (5, 3) while neither
+      forbidden label did. Both new recording rules query-valid; both new
+      alerts loaded. Every SPEC-OP-002~029 assertion in the same run stayed
+      green. Verified 2026-09-01 (second build, after data-loss recovery).
+    result: >
+      Two more real, already-shipped business-metric surfaces (tool-
+      integration-gateway: 12 metrics; policy-approval-governance-service: 9
+      metrics across 3 prefixes) now contracted, recorded, dashboarded, and
+      alerted. Confirmed a recurring `_count` gauge-naming shape across a
+      third independent domain. Documented a real Micrometer naming-
+      convention detail that would otherwise have silently broken every
+      query against the new namespaces. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-027-traceability.md

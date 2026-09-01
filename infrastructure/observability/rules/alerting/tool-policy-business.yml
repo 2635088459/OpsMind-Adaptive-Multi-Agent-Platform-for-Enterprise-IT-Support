@@ -1,0 +1,49 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-OP-027
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/ToolPolicyBusinessSignals.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-027-traceability.md
+#
+# SPEC-OP-027 — two alerts, one per domain this spec contracts. Both alerts
+# reference the SAME runbook (ToolPolicyBusinessSignals.md), same grouping
+# convention as SPEC-OP-025/026's own business-signal runbooks.
+groups:
+  - name: tool-policy-business-alerting
+    rules:
+      - alert: ToolConnectorErrorRateHigh
+        # A sustained connector-error rate means real tool executions are
+        # failing at the connector boundary — distinct from the gateway's own
+        # already-built degraded-fallback path (SPEC-TG-0xx), which handles a
+        # SINGLE unavailable connector; a sustained platform-wide error rate
+        # is a broader signal worth surfacing on its own.
+        expr: tool:connector_error:rate5m > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "tool-integration-gateway connector error rate is {{ $value | humanize }}/s"
+          description: "tool_connector_error_total has been increasing for 10+ minutes — real tool executions are failing at the connector boundary."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/ToolPolicyBusinessSignals.md"
+          dashboard: "Tool & Policy Business Signals"
+
+      - alert: GovernancePolicyDegradedSustained
+        # SPEC-PG-032's own "Degraded Policy Mode" — the evaluator is running
+        # on a reduced-confidence fallback path for real decisions, not just a
+        # transient evaluation failure. Sustained degraded-mode governance
+        # decisions are a real security/operational risk, not routine noise.
+        expr: governance:policy_degraded:rate5m > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "policy-approval-governance-service is producing degraded-mode decisions at {{ $value | humanize }}/s"
+          description: "governance_policy_degraded_total has been increasing for 5+ minutes — real policy decisions are being made in SPEC-PG-032's Degraded Policy Mode, not the normal evaluation path."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/ToolPolicyBusinessSignals.md"
+          dashboard: "Tool & Policy Business Signals"

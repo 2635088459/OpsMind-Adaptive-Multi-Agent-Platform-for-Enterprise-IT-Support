@@ -1,0 +1,88 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-OP-025",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/IdentityTicketBusinessSignals.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/traceability/domains/08-observability-platform/SPEC-OP-025-traceability.md"
+  },
+  "uid": "opsmind-identity-ticket-business-signals",
+  "title": "Identity & Ticket Business Signals",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-OP-025"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "annotations": { "list": [] },
+  "panels": [
+    { "id": 1, "type": "row", "title": "Identity (user-access-authentication-service)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "timeseries", "title": "Authorization decisions by effect", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "SPEC-UA-030's real IdentityMetricsPort, contracted here for the first time (SPEC-OP-025). effect is DecisionEffect {ALLOW, DENY, REQUIRE_STEP_UP}.",
+      "targets": [{ "refId": "A",
+        "expr": "sum by (effect) (rate(identity_authorization_decision_total[5m]))",
+        "legendFormat": "{{effect}}" }] },
+
+    { "id": 3, "type": "timeseries", "title": "Authorization DENY ratio (5m)", "unit": "percentunit",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backs the HighIdentityAuthorizationDenialRate alert (> 0.5 for 10m).",
+      "targets": [{ "refId": "A", "expr": "identity:authorization_denial:ratio5m" }] },
+
+    { "id": 4, "type": "timeseries", "title": "Session lifecycle / step-up outcomes", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "session/{{action}}",
+          "expr": "sum by (action) (rate(identity_session_total[5m]))" },
+        { "refId": "B", "legendFormat": "step-up/{{outcome}}",
+          "expr": "sum by (outcome) (rate(identity_step_up_total[5m]))" }
+      ] },
+
+    { "id": 5, "type": "timeseries", "title": "JWKS degraded-fallback rate", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "SPEC-UA-032 — Nimbus falling back to a previously-cached JWKS key set because a live fetch failed. Should normally be 0.",
+      "targets": [{ "refId": "A", "expr": "rate(identity_jwks_degraded_fallback_total[5m])" }] },
+
+    { "id": 6, "type": "row", "title": "Ticket (ticket-workflow-service)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 } },
+
+    { "id": 7, "type": "timeseries", "title": "Tickets created, by source", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "ticket-workflow-service's real TicketTelemetry, contracted here for the first time (SPEC-OP-025). Namespace is `opsmind` — see metric-naming.yaml's own comment on why.",
+      "targets": [{ "refId": "A",
+        "expr": "sum by (source) (rate(opsmind_ticket_created_total[5m]))",
+        "legendFormat": "{{source}}" }] },
+
+    { "id": 8, "type": "timeseries", "title": "Status transitions vs authorization denials", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "legendFormat": "status transitions",
+          "expr": "sum(rate(opsmind_ticket_status_transition_commands_total[5m]))" },
+        { "refId": "B", "legendFormat": "authorization denied",
+          "expr": "sum(rate(opsmind_ticket_authorization_denied_total[5m]))" }
+      ] },
+
+    { "id": 9, "type": "timeseries", "title": "Event dead-letter rate", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Backs the (critical, paging) TicketEventDeadLettered alert (> 0 for 5m).",
+      "targets": [{ "refId": "A", "expr": "opsmind:ticket_event_dlq:rate5m" }] },
+
+    { "id": 10, "type": "timeseries", "title": "Support-queue authorization decisions", "unit": "ops",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 23 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A",
+        "expr": "sum by (decision_code) (rate(opsmind_support_queue_authorization_decisions_total[5m]))",
+        "legendFormat": "{{decision_code}}" }] }
+  ]
+}
