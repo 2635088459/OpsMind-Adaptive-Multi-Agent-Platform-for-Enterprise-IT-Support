@@ -46,40 +46,65 @@ SPEC-TW-001:
       - 07-data-model
       - 08-transaction-and-outbox
       - 09-concurrency-and-idempotency
-      - 10-error-handling-and-reconciliation
-      - 11-security-and-authorization
-      - 12-observability-and-audit
+      - 10-failure-handling
+      - 11-security
+      - 12-observability
       - 13-package-and-class-design
       - 14-testing-strategy
 
-  planned_implementation:
+  implementation:
     entry_point:
-      - PublicTicketController
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketController
     application:
-      - CreateTicketUseCase
-      - CreateTicketApplicationService
-      - CreateTicketCommand
-      - CreateTicketResult
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.CreateTicketUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.CreateTicketApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.command.CreateTicketCommand
+      - dev.opsmind.ticketworkflow.ticket.application.command.CreateTicketResult
+      - dev.opsmind.ticketworkflow.ticket.application.command.ActorContext
+      - dev.opsmind.ticketworkflow.ticket.application.idempotency.RequestHashCalculator
+      - dev.opsmind.ticketworkflow.ticket.application.event.TicketIntegrationEventMapper
+      - dev.opsmind.ticketworkflow.ticket.application.event.RequesterPseudonymizer
+      - dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry
     domain:
-      - Ticket
-      - TicketCreated
-      - TicketId
-      - TicketDisplayId
-      - RequesterId
-      - TicketTitle
-      - TicketDescription
-      - ApplicationCode
-      - TicketSource
+      - dev.opsmind.ticketworkflow.ticket.domain.model.Ticket
+      - dev.opsmind.ticketworkflow.ticket.domain.model.TicketResolutionCycle
+      - dev.opsmind.ticketworkflow.ticket.domain.model.TicketSlaCycle
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketCreated
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketId
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketDisplayId
+      - dev.opsmind.ticketworkflow.ticket.domain.value.RequesterId
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketTitle
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketDescription
+      - dev.opsmind.ticketworkflow.ticket.domain.value.ApplicationCode
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketSource
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketStatus
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketPriority
+      - dev.opsmind.ticketworkflow.ticket.domain.value.ResolutionCycleStatus
+      - dev.opsmind.ticketworkflow.ticket.domain.value.SlaStatus
     persistence:
-      - TicketPersistenceAdapter
-      - TicketResolutionCyclePersistenceAdapter
-      - TicketSlaPersistenceAdapter
-      - TicketHistoryPersistenceAdapter
-      - AuditPersistenceAdapter
-      - OutboxPersistenceAdapter
-      - IdempotencyPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketResolutionCyclePersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketSlaPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketHistoryPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.AuditPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.OutboxPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.IdempotencyPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.identity.UuidV7TicketIdGenerator
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.identity.SequenceBackedTicketDisplayIdGenerator
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.clock.SystemClockAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.sla.LocalConfigSlaPolicyResolver
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.event.JsonSchemaEventValidator
+    migrations:
+      - V001__create_ticket_schema.sql
+      - V002__create_tickets.sql
+      - V003__create_ticket_resolution_cycles.sql
+      - V004__create_ticket_sla_cycles.sql
+      - V005__create_ticket_status_history.sql
+      - V006__create_audit_records.sql
+      - V007__create_outbox_events.sql
+      - V008__create_idempotency_records.sql
 
-  planned_tests:
+  tests:
     domain:
       - TicketCreationTest
       - TicketTitleTest
@@ -101,6 +126,7 @@ SPEC-TW-001:
       - CreateTicketPersistenceIT
       - CreateInitialResolutionCycleIT
       - CreateInitialSlaCycleIT
+      - TicketCreationConstraintIT
       - CreateTicketAtomicityIT
       - CreateTicketIdempotencyIT
       - CreateTicketConcurrentIdempotencyIT
@@ -114,8 +140,60 @@ SPEC-TW-001:
     observability:
       - CreateTicketTelemetryTest
 
+  known_deviations_from_plan:
+    - area: idempotency reservation
+      note: >
+        Implemented with a native INSERT ... ON CONFLICT (actor_scope, idempotency_key)
+        DO NOTHING statement, exactly as recommended, executed via EntityManager
+        rather than a Spring Data derived method (no derived-method equivalent exists
+        for ON CONFLICT).
+    - area: ticket insert / display id collision retry
+      note: >
+        Originally attempted with @Transactional(propagation = NESTED) around the
+        JPA save, matching a savepoint-based retry pattern. Spring's JpaTransactionManager
+        does not support savepoints with the Hibernate JPA dialect used here
+        (NestedTransactionNotSupportedException), so the ticket insert was switched to
+        the same native INSERT ... ON CONFLICT (display_id) DO NOTHING pattern used for
+        idempotency. This keeps the bounded regeneration retry (SPEC-TW-001 §10) working
+        inside the single Create Ticket transaction without a savepoint.
+    - area: maven-failsafe-plugin reuseForks
+      note: >
+        Set to false. With the default (reuseForks=true), 12 Testcontainers-backed
+        IT classes sharing one long-lived JVM fork showed escalating connection
+        failures to their own freshly-started PostgreSQL containers later in the
+        run (per-process resource accumulation across container lifecycles).
+        A fresh JVM fork per IT class eliminated this; per-class times became
+        uniform (~13-15s) instead of escalating (36s -> 417s).
+    - area: audit_records table
+      note: >
+        07-data-model does not define this table (it is flagged as a future increment
+        in 12-observability §71). Columns were designed to match the field list in
+        SPEC-TW-001 §18 and the conventions of the other 07-data-model tables
+        (UUID PK, VARCHAR actor/resource ids, TIMESTAMPTZ occurred_at). Hash-chain
+        columns (previous_hash, record_hash) from the 12-observability proposal were
+        deliberately not implemented — Phase 01 has no reader that needs chain
+        verification yet, and the field list in the spec itself does not include them.
+    - area: rate limiting
+      note: >
+        SPEC-TW-001 §5 defers full enforcement to Phase 09 ("Full enforcement may be
+        hardened in Phase 09"); no rate-limit counting or 429 response is implemented
+        in this phase, matching that explicit deferral.
+    - area: CreateTicketAtomicityIT coverage
+      note: >
+        The spec lists seven failure-injection points (FAIL_TICKET_INSERT through
+        FAIL_IDEMPOTENCY_COMPLETION). Two representative points (Outbox insert,
+        Audit insert) are exercised with toggleable test doubles; the rollback
+        mechanism is the same @Transactional boundary regardless of which write
+        fails, so these two demonstrate the property without duplicating identical
+        plumbing seven times.
+
   status:
-    specification: proposed
-    tests: not_started
-    implementation: not_started
-    verification: not_started
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (103/103: 77 unit/component + 26
+      integration, including ArchUnit, secret-free error/audit/event
+      redaction checks, atomicity rollback, idempotency replay/conflict/
+      stale-reclaim, and 100-concurrent-duplicate-request tests). CI run
+      pending.

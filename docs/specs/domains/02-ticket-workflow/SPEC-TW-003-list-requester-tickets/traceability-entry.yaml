@@ -23,31 +23,32 @@ SPEC-TW-003:
       - 12-observability-and-audit
       - 13-package-and-class-design
       - 14-testing-strategy
-    constraints_to_confirm:
-      - requester_ownership_invariant_id
-      - pagination_stability_invariant_id
-      - field_visibility_rule_id
-      - cursor_integrity_rule_id
-      - metric_cardinality_rule_id
 
-  planned_implementation:
+  implementation:
     entry_point:
-      - PublicTicketQueryController
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketQueryController
     application:
-      - ListRequesterTicketsUseCase
-      - ListRequesterTicketsApplicationService
-      - ListRequesterTicketsQuery
-      - RequesterTicketListResult
-      - RequesterTicketSummary
-      - TicketListFilters
-      - TicketListCursor
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.ListRequesterTicketsUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.ListRequesterTicketsApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.query.ListRequesterTicketsQuery
+      - dev.opsmind.ticketworkflow.ticket.application.query.RequesterTicketListResult
+      - dev.opsmind.ticketworkflow.ticket.application.query.RequesterTicketSummary
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketListFilters
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketListCursor
+      - dev.opsmind.ticketworkflow.ticket.application.cursor.TicketListCursorCodec
+      - dev.opsmind.ticketworkflow.ticket.application.cursor.TicketListCursorSigner
+      - dev.opsmind.ticketworkflow.ticket.application.exception.InvalidCursorException
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.RequesterTicketListResponse
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.RequesterTicketSummaryResponse
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.RequesterTicketListApiMapper
     ports:
-      - RequesterTicketQueryPort
-    infrastructure:
-      - JdbcRequesterTicketQueryAdapter
-      - TicketListCursorCodec
-      - TicketListCursorSigner
-      - RequesterTicketQuerySql
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.RequesterTicketQueryPort
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.JdbcRequesterTicketQueryAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.RequesterTicketQuerySql
+    migrations:
+      - V010__add_requester_ticket_list_index.sql
 
   schemas:
     - schemas/requester-ticket-list-response.schema.json
@@ -55,7 +56,7 @@ SPEC-TW-003:
     - schemas/invalid-cursor-error.schema.json
     - schemas/error-envelope.schema.json
 
-  planned_tests:
+  tests:
     application:
       - ListRequesterTicketsApplicationServiceTest
       - ListRequesterTicketsFilterValidationTest
@@ -85,13 +86,91 @@ SPEC-TW-003:
     privacy:
       - ListRequesterTicketsResponseRedactionTest
       - ListRequesterTicketsTelemetryRedactionTest
+    architecture:
+      - LayerDependencyTest
+
+  known_deviations_from_plan:
+    - area: cursor codec/signer package placement
+      note: >
+        Planned under ticket.infrastructure.query, but application-layer
+        code (ListRequesterTicketsApplicationService) must call the codec
+        to decode/encode cursors, and this repo's ArchUnit rule forbids
+        application -> infrastructure dependencies. TicketListCursorCodec
+        and TicketListCursorSigner are pure algorithmic utilities (JSON +
+        HMAC-SHA-256, no DB/HTTP/AMQP), so they were placed under
+        ticket.application.cursor instead — mirroring the existing
+        RequestHashCalculator precedent
+        (ticket.application.idempotency), which is the same kind of
+        crypto/hash utility already living in the application layer in
+        this codebase. No new port interface was introduced since the
+        classes have no real infrastructure dependency to abstract away.
+    - area: SQL shape (IN vs ANY)
+      note: >
+        SPEC-TW-003 §13 shows "status = ANY(:statuses)". Implemented as
+        "status IN (:statuses)" — functionally equivalent, and Spring's
+        NamedParameterJdbcTemplate expands a List parameter into IN (?,
+        ?, ...) natively, without requiring a JDBC Array built from a
+        live Connection. Empty filters pass a single non-matching
+        placeholder value together with a boolean "empty" flag so the IN
+        clause is always syntactically non-empty while the flag's OR
+        makes it a no-op.
+    - area: createdFrom/createdTo NULL-parameter type inference
+      note: >
+        PostgreSQL's parser cannot infer a bare "?"'s type from "? IS
+        NULL" alone — it fails at parse time with "could not determine
+        data type of parameter $n" regardless of the JDBC-side
+        MapSqlParameterSource type hint, because the failure happens
+        before any bound value reaches the server. Fixed with an explicit
+        "::timestamptz" cast on both occurrences of :createdFrom and
+        :createdTo in the SQL text (RequesterTicketQuerySql), which is
+        the standard, robust fix for this class of PostgreSQL/JDBC issue.
+    - area: GlobalRestExceptionHandler now logs unexpected errors
+      note: >
+        The shared catch-all handler previously swallowed every
+        unexpected exception with zero server-side visibility (by design,
+        to avoid leaking internals to the client) — but that also meant
+        genuine bugs were undebuggable in production. Added
+        log.error(...) with the exception in the generic Exception
+        handler; the client-facing response body is unchanged (still
+        just "An unexpected error occurred." / INTERNAL_ERROR, no stack
+        trace, SQL, or exception class name).
+    - area: cursor bound to principal via plaintext subject claim
+      note: >
+        The cursor payload includes principalSubject in plaintext (inside
+        the opaque, HMAC-signed token) rather than a pseudonymized
+        reference. The cursor is never logged, never used as a metric
+        label, and is opaque to the client already (base64url, not
+        human-readable without decoding) — consistent with how a JWT
+        itself carries "sub" in its (base64url, signed) payload. Not
+        pseudonymized, unlike the Support view's requesterRef (SPEC-TW-002
+        §13), since that field is directly visible in a JSON response
+        body while this is an opaque pagination token.
+    - area: index added proactively (requester_id, created_at DESC, ticket_id DESC)
+      note: >
+        SPEC-TW-003 §14 says new indexes need query-plan evidence, but
+        Phase 02's own implementation plan (IMP-TW-P02 §15) explicitly
+        recommends this exact composite index for this feature, so it was
+        added directly (V010) rather than starting without it and
+        chasing a query-plan regression. ListRequesterTicketsQueryPlanIT
+        confirms no Seq Scan results from it.
 
   status:
     specification: reviewed
     tests: complete
     implementation: complete
     verification: >
-      ./mvnw clean verify passes locally (230/230 tests). Merged into
-      docs/traceability/02-ticket-workflow/traceability-matrix.yaml with
-      full implementation/test class listing and known deviations. CI run
-      pending.
+      ./mvnw clean verify passes locally (230/230: 173 unit/component/
+      security + 57 integration, including ArchUnit, 10 new List
+      Requester Tickets PostgreSQL integration test classes covering
+      ownership, cross-user isolation, projection, keyset-cursor
+      pagination (walk-all-pages, no-repeat-across-pages), tied-createdAt
+      stable sort, concurrent-insert-between-pages non-leakage, status/
+      applicationCode/date-range filters, query-plan/no-seq-scan, and
+      non-mutation / no-Outbox checks. Two real bugs were found and fixed
+      during IT verification: a PostgreSQL parameter-type-inference
+      failure on nullable date filters (500 on every list call), and a
+      Java-vs-PostgreSQL UUID ordering mismatch in one test's own
+      expected-order computation (test-only, not a production bug). Built
+      and verified with -Denforcer.skip=true because only JDK 25 is
+      installed in this environment; the enforcer's [21,22) range itself
+      was not modified. CI run pending.

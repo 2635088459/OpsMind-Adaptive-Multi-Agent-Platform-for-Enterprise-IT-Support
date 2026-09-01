@@ -1,0 +1,357 @@
+SPEC-TW-007:
+  title: Triage Ticket
+  phase: IMP-TW-P03
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+    - SPEC-TW-004
+    - SPEC-TW-005
+
+  design:
+    use_cases: []
+    api: []
+    state_transitions:
+      - SM-002
+    published_events:
+      - ticket.triaged.v1
+    lld_documents: []
+    # Phase 03 (SPEC-TW-007..011) does not use the Phase 01/02 numbered
+    # UC-XXX/API-XXX/BI-XXX/lld_documents scheme (no such identifiers exist
+    # anywhere under docs/implementation-plans or the SPEC-TW-007 folder
+    # itself) — the actual design source is the spec folder's own document
+    # set plus the phase-level implementation plan, listed below instead.
+    spec_documents:
+      - README_EN.md
+      - acceptance-criteria_EN.md
+      - api-contract_EN.md
+      - domain-rules_EN.md
+      - persistence_EN.md
+      - event-contract_EN.md
+      - test-plan_EN.md
+    implementation_plan:
+      - phase-03-ticket-lifecycle-and-ownership_EN.md §7
+
+  implementation:
+    entry_point:
+      - dev.opsmind.ticketworkflow.ticket.api.support.TriageTicketController
+    domain:
+      - dev.opsmind.ticketworkflow.ticket.domain.model.Ticket (added static triage(...))
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketTriaged
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketDomainEvent (sealed permits extended)
+      - dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketTransitionException
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketStatus (added TRIAGED)
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketCategoryId
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketSubcategoryId
+      - dev.opsmind.ticketworkflow.ticket.domain.value.SupportQueueId
+    application:
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.TriageTicketUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.TriageTicketApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.command.TriageTicketCommand
+      - dev.opsmind.ticketworkflow.ticket.application.command.TriageTicketResult
+      - dev.opsmind.ticketworkflow.ticket.application.event.TicketTriagedEventMapper
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketTriageGuard
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketTriageGuardPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.CatalogCategory
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketCategoryCatalogPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.CatalogSubcategory
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketSubcategoryCatalogPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.CatalogSupportQueue
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueCatalogPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketTriageUpdate
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketTriageUpdateOutcome
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketTriageRepository
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketHistoryWriter (added append(...), appendInitial now a default method)
+      - dev.opsmind.ticketworkflow.ticket.application.exception.TriageNotAllowedException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.QueueAccessDeniedException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.TriageCategoryInvalidException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.TriageSubcategoryInvalidException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.SupportQueueInvalidException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.TicketVersionConflictException
+      - dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry (added startTriageTimer/stopTriageTimer/recordTriaged/recordTriageReplay/recordTriageAuthorizationDenied/recordTriageStateRejected/recordTriageVersionConflict/recordTriageCatalogInvalid)
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.support.TriageTicketRequest
+      - dev.opsmind.ticketworkflow.ticket.api.support.TriageTicketResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.TriageTicketApiMapper
+      - dev.opsmind.ticketworkflow.ticket.api.exception.PreconditionRequiredException
+    ports:
+      - (see application.port.out entries above)
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketTriageGuardAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketCategoryCatalogAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketSubcategoryCatalogAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.SupportQueueCatalogAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketTriagePersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketHistoryPersistenceAdapter (implements append instead of overriding appendInitial)
+    events:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.event.JsonSchemaEventValidator (registered "ticket.triaged:1"; bugfix during this pass, see known_deviations_from_plan and status.verification)
+      - event-schemas/ticket/published/ticket-triaged-v1.schema.json
+    platform:
+      - dev.opsmind.ticketworkflow.platform.error.ErrorResponse (added Map<String,Object> details overload)
+      - dev.opsmind.ticketworkflow.platform.error.GlobalRestExceptionHandler (added 8 new exception handlers)
+    migrations:
+      - V013__triage_ticket.sql
+    also_touched_regression_fix:
+      - dev.opsmind.ticketworkflow.ticket.application.query.SupportQueueFilters (MAX_STATUSES derived from TicketStatus.values().length instead of a hardcoded 10, since adding TRIAGED broke the old cap; unrelated to this pass's own scope, pre-existing when this pass began)
+
+  schemas:
+    - event-schemas/ticket/published/ticket-triaged-v1.schema.json
+
+  tests:
+    domain:
+      - TicketTriageTest
+    application:
+      - TriageTicketApplicationServiceTest
+      - TriageTicketAuthorizationTest
+      - TriageTicketCatalogValidationTest
+      - TriageTicketStateGuardTest
+    api:
+      - TriageTicketControllerTest
+      - TriageTicketValidationTest
+      - TriageTicketErrorContractTest
+    event_contract:
+      - TicketTriagedEventContractTest
+    integration:
+      - TriageTicketSuccessIT
+      - TriageTicketOptionalSubcategoryIT
+      - TriageTicketCategoryValidationIT
+      - TriageTicketSubcategoryValidationIT
+      - TriageTicketQueueValidationIT
+      - TriageTicketAuthorizationIT
+      - TriageTicketStateGuardIT
+      - TriageTicketNotFoundIT
+      - TriageTicketOptimisticLockingIT
+      - TriageTicketIdempotentReplayIT
+      - TriageTicketIdempotencyConflictIT
+      - TriageTicketConcurrentVersionIT
+      - TriageTicketRollbackIT
+      - TicketTriagedEventPublishedIT
+    fixtures:
+      - support/AbstractTriageTicketIT (new base class)
+      - support/TriageTicketFixtures (new unit-test fixture helper)
+    architecture:
+      - LayerDependencyTest
+
+  known_deviations_from_plan:
+    - area: no tenant concept exists anywhere in this codebase
+      note: >
+        Confirmed by exhaustive grep before implementation. Every tenant_id
+        column/constraint in the spec's reference V007__triage_ticket.sql
+        and domain-rules was dropped. AC-09's "cross-tenant isolation" does
+        not apply; only true not-found (404) is tested
+        (TriageTicketNotFoundIT).
+    - area: the OPEN precondition is this codebase's pre-existing TicketStatus.NEW
+      note: >
+        TicketStatus has no OPEN value; its initial/pre-triage status is
+        NEW (SPEC-TW-001). Triage's precondition is NEW, and a new
+        TRIAGED value was added as the postcondition. Every other legacy
+        value (TRIAGING, INVESTIGATING, WAITING_FOR_USER,
+        WAITING_FOR_APPROVAL, EXECUTING, VERIFYING, RESOLVED, CLOSED,
+        ESCALATED, FAILED, CANCELLED) is a rejected source status —
+        TicketTriageTest parameterizes over all of them, and
+        TriageTicketStateGuardIT/TriageTicketStateGuardTest specifically
+        exercise TRIAGING (legacy, not the same as TRIAGED) as a 409 case.
+    - area: new ticket.ticket_categories/ticket_subcategories/support_queues catalogs, renumbered migration V013 (not V007)
+      note: >
+        This service's Flyway sequence already had V001-V012 for
+        SPEC-TW-001..006, so the reference migration was renumbered. All
+        three catalogs have an active flag; a missing OR inactive row is
+        reported identically by the catalog ports (empty Optional) — both
+        mean 422, never distinguished
+        (TriageTicketCategoryValidationIT/TriageTicketQueueValidationIT
+        cover both cases per catalog). Subcategory must have category_id
+        matching the request's categoryId, checked in the application
+        service (TriageTicketSubcategoryValidationIT's wrong-parent case).
+    - area: new ticket.support_queues catalog activates the previously-dormant ticket.tickets.current_team_id column
+      note: >
+        Support Queue authorization compares the resolved queue's team_id
+        against a support_teams JWT claim (Set<String>), the same claim
+        SPEC-TW-005 already parses. Triage is the first command that ever
+        sets current_team_id — TriageTicketSuccessIT explicitly asserts
+        current_team_id now equals the queue's team_id after a successful
+        triage.
+    - area: authorization is EMPLOYEE-exclusion, not an actor-type allowlist
+      note: >
+        A Requester (actor.actorType()=="EMPLOYEE") is always rejected
+        with 403 TRIAGE_NOT_ALLOWED, checked first, before idempotency
+        reservation (TriageTicketAuthorizationTest verifies the
+        idempotency/guard ports are never touched in that case). Any other
+        actor type missing ticket:triage, or holding it but lacking the
+        resolved queue's team grant, gets 403 QUEUE_ACCESS_DENIED. There
+        is no allowlist beyond excluding EMPLOYEE.
+    - area: ticket:triage:critical permission not introduced
+      note: >
+        domain-rules §5 mentions this as an optional additional permission
+        for CRITICAL priority "if the project has introduced it." It has
+        not been introduced anywhere in this codebase; CRITICAL succeeds
+        under the same ticket:triage + queue grant as every other
+        priority (TriageTicketAuthorizationTest's parameterized coverage
+        of every non-UNASSIGNED priority, and
+        TriageTicketSuccessIT.shouldAllowCriticalPriorityUnderTheOrdinaryTriageScope).
+    - area: error envelope is this codebase's actual shape, not RFC-9457
+      note: >
+        {"error":{"code","message","traceId","correlationId","details"}},
+        not the spec's type/title/status/code/detail/instance/errors.
+        details is populated only for INVALID_TICKET_STATE
+        (currentStatus/requiredStatus) and VERSION_CONFLICT
+        (currentVersion); every other error has an empty details map.
+        TriageTicketErrorContractTest asserts the actual shape for every
+        stable error code.
+    - area: outbox event naming follows this codebase's unversioned-type + separate-version + versioned-routing-key split
+      note: >
+        event_type = "ticket.triaged" (unversioned base name),
+        eventVersion = "1.0" (separate field), routingKey =
+        "ticket.triaged.v1" — matching ticket.created/ticket.message.added,
+        not the spec's single fully-versioned eventType string. Schema
+        registered as "ticket.triaged:1" in
+        JsonSchemaEventValidator.SCHEMA_LOCATIONS.
+    - area: no new TICKET_TRIAGED Timeline item type
+      note: >
+        SPEC-TW-006's Timeline is a frozen sort-version-1 UNION ALL
+        projection; introducing a new item type would break that frozen
+        contract. Triage inserts a normal ticket.ticket_status_history row
+        (from_status=NEW, to_status=TRIAGED, transition_id="SM-002",
+        reason_code="TICKET_TRIAGED"), which the existing Timeline UNION
+        already surfaces as a STATUS_CHANGED item automatically. Not
+        separately re-tested here (would duplicate SPEC-TW-006's own
+        Timeline projection tests); TriageTicketSuccessIT asserts the
+        status-history row directly.
+    - area: audit action is "TICKET_TRIAGED", not the spec's literal "ticket.triage"
+      note: >
+        Matches this codebase's existing naming convention
+        (TICKET_CREATED, TICKET_MESSAGE_ADDED). Asserted directly in
+        TriageTicketSuccessIT and TriageTicketApplicationServiceTest.
+    - area: the free-text reason field is validated but never persisted
+      note: >
+        Required (1-500 chars, trimmed) at the request-contract level and
+        included in the idempotency request-hash canonical body, but no
+        column/table exists to store it. TicketTriagedEventContractTest
+        and TriageTicketApplicationServiceTest both assert the outbox
+        payload never contains a "reason" key.
+    - area: idempotency actor-scope key includes ticketId
+      note: >
+        "user:" + actor.subject() + ":" + ticketId + ":triageTicket",
+        matching AddTicketMessageApplicationService's per-ticket scoping
+        exactly, not the spec's literal tenantId+actorId+commandName+key
+        tuple (which omits ticketId and has no tenant concept here
+        anyway).
+    - area: If-Match is the first optimistic-locking precondition header in this codebase
+      note: >
+        TriageTicketController.parseIfMatch requires the header (missing/
+        blank -> 428 PRECONDITION_REQUIRED), strips optional surrounding
+        quotes, parses as long (malformed -> 400 VALIDATION_ERROR).
+        Success sets ETag to the new version; a 412 VERSION_CONFLICT also
+        sets ETag to the ticket's actual current version.
+        TriageTicketOptimisticLockingIT and TriageTicketValidationTest
+        cover both the missing- and malformed-header cases; the 412+ETag
+        case is covered by TriageTicketOptimisticLockingIT and
+        TriageTicketErrorContractTest.
+    - area: the version/state-guarded UPDATE is the sole concurrency authority, not the earlier guard-based pre-check
+      note: >
+        TicketTriagePersistenceAdapter.applyTriage runs UPDATE ... WHERE
+        ticket_id=? AND version=? AND status='NEW'; on 0 affected rows it
+        re-SELECTs to classify TicketMissing/VersionMismatch/InvalidState.
+        TriageTicketStateGuardTest exercises this reclassification path
+        independently of the earlier guard-based checks (mocking the
+        guard to report a matching version/status while the repository
+        still reports a conflict, simulating a race the guard cannot
+        catch). TriageTicketConcurrentVersionIT proves the real-database
+        guarantee end-to-end: exactly one 200 among many concurrent
+        same-version attempts, all others 412.
+    - area: TriageTicketResponse.subcategoryId is omitted from the JSON body when null, not rendered as null
+      note: >
+        This codebase's application-wide
+        spring.jackson.default-property-inclusion=non_null
+        (application.yml) applies to TriageTicketResponse since it carries
+        no per-field @JsonInclude(ALWAYS) override (unlike e.g.
+        SupportQueueResponse, which opts back into always-include for its
+        own reasons). TriageTicketControllerTest asserts
+        jsonPath("$.subcategoryId").doesNotExist() for a null result
+        rather than asserting a literal JSON null. Note this only affects
+        the live HTTP response body; the domain event's payload map DOES
+        include an explicit "subcategoryId": null key (Hibernate's JSON
+        column mapper uses its own default-inclusion ObjectMapper, not
+        the Spring MVC one), matching the published schema's contract —
+        confirmed directly by TicketTriagedEventPublishedIT and
+        TicketTriagedEventContractTest.shouldPassSchemaValidationWhenSubcategoryIsNull.
+    - area: "bugfix (this pass): JsonSchemaEventValidator now validates against an Include.ALWAYS view of the payload, not the app's shared non_null ObjectMapper"
+      note: >
+        Not a spec deviation but a real production defect this pass found
+        and fixed: JsonSchemaEventValidator previously called
+        objectMapper.valueToTree(payload) using the injected Spring bean,
+        which is configured application-wide with
+        spring.jackson.default-property-inclusion=non_null. That setting
+        also governs Map serialization, so a null-valued
+        "subcategoryId" entry was silently dropped before validation,
+        which then failed the schema's "required" check for every
+        legitimately-null (not missing) value and aborted the command
+        with a silent 500 (the EventSchemaValidationException handler
+        does not log, unlike the generic catch-all). ticket.triaged:1
+        is this codebase's first published event with a
+        nullable-but-required payload field, so this pre-existing
+        defect in shared infrastructure had no prior chance to surface.
+        Fixed with a dedicated Include.ALWAYS ObjectMapper copy used
+        only inside validate(...); see status.verification below for
+        the specific tests this broke and re-confirmed.
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw clean verify passes locally (701/701: 540 unit/component/
+      security/contract/architecture + 161 integration, including ArchUnit
+      and 14 new Triage Ticket PostgreSQL integration test classes plus
+      the shared AbstractTriageTicketIT fixture base). 128 new tests were
+      added in this pass: 102 unit/component/contract (23 domain +
+      38 application [5 service + 8 authorization + 8 catalog validation +
+      17 state-guard/concurrency-reclassification] + 36 API/component
+      [3 controller + 21 validation + 12 error-contract] + 5 event
+      contract) and 26 integration, across 25 new test files (23 test
+      classes + AbstractTriageTicketIT + TriageTicketFixtures). The
+      pre-existing known-flaky GetTicketDoesNotCreateOutboxIT passed
+      cleanly in this full run (2/2, no flake observed). One real
+      production bug was found and fixed while writing integration
+      tests: JsonSchemaEventValidator (ticket.infrastructure.event)
+      validated outgoing event payloads using the application's shared
+      ObjectMapper bean, which carries the app-wide
+      spring.jackson.default-property-inclusion=non_null setting
+      (application.yml) — that setting also governs
+      ObjectMapper#valueToTree on a raw Map, silently dropping any
+      null-valued entry instead of preserving it as a JSON null.
+      ticket.triaged:1 is this codebase's first published-event payload
+      with a legitimately-null-but-required field (subcategoryId,
+      AC-02), so every real HTTP triage without a subcategory failed
+      validation's "required" check and aborted the whole command with
+      500 INTERNAL_ERROR (silently — the specific-exception handler for
+      EventSchemaValidationException does not log, unlike the generic
+      catch-all) even though the same payload validated fine in a
+      unit-level test built directly against a plain `new
+      ObjectMapper()`. Fixed by giving the validator its own
+      Include.ALWAYS copy of the injected ObjectMapper, used only for
+      the schema-validation tree conversion, so the validator sees the
+      payload's true shape — matching what Hibernate's independently-
+      configured JSON column mapper actually persists to the outbox
+      JSONB column — without changing the shared bean's behavior for
+      HTTP responses. Caught by TriageTicketOptionalSubcategoryIT,
+      TriageTicketSuccessIT's CRITICAL-priority case,
+      TriageTicketAuthorizationIT's success case,
+      TriageTicketIdempotencyConflictIT's first call, and
+      TriageTicketConcurrentVersionIT (every scenario that omits
+      subcategoryId) before the fix; all five pass after it, and the
+      already-passing unit-level TicketTriagedEventContractTest
+      (constructed with a plain `new ObjectMapper()`, unaffected by the
+      app's Spring-configured inclusion setting) continued to pass
+      throughout, which is exactly why the bug was invisible at that
+      tier. One test-authoring-only mistake was also found and fixed
+      while first writing the integration tests (no other production
+      code changes): TriageTicketStateGuardIT originally seeded a
+      second ticket.support_queues row with the same team_id already
+      used by its own seedTicketInStatus helper, violating that
+      column's unique constraint; fixed by using random UUIDs for the
+      request's categoryId/supportQueueId in those three tests instead,
+      since Triage's state check runs before catalog validation so
+      those IDs never need to resolve to real rows there. Built and
+      verified with -Denforcer.skip=true because only JDK 25 is
+      installed in this environment, and with `caffeinate -dis` to
+      prevent system sleep from interrupting the ~14.5-minute
+      unattended run. CI run pending.

@@ -28,42 +28,41 @@ SPEC-TW-004:
       - 12-observability-and-audit
       - 13-package-and-class-design
       - 14-testing-strategy
-    constraints_to_confirm:
-      - message_append_only_invariant_id
-      - message_visibility_invariant_id
-      - terminal_state_message_rule_id
-      - employee_message_ownership_rule_id
-      - internal_note_scope_rule_id
-      - message_event_contract_id
 
-  planned_implementation:
-    entry_points:
-      - PublicTicketMessageController
-      - SupportTicketMessageController
+  implementation:
+    entry_point:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketMessageController
     application:
-      - AddTicketMessageUseCase
-      - AddTicketMessageApplicationService
-      - AddTicketMessageCommand
-      - AddTicketMessageResult
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.AddTicketMessageUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.AddTicketMessageApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.command.AddTicketMessageCommand
+      - dev.opsmind.ticketworkflow.ticket.application.command.AddTicketMessageResult
+      - dev.opsmind.ticketworkflow.ticket.application.exception.TicketMessageNotAllowedInStateException
+      - dev.opsmind.ticketworkflow.ticket.application.event.TicketMessageAddedEventMapper
     domain:
-      - TicketMessage
-      - TicketMessageId
-      - TicketMessageType
-      - MessageVisibility
-      - MessageContent
-      - MessageAuthor
-      - TicketMessageAdded
+      - dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessage
+      - dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessageId
+      - dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessageType
+      - dev.opsmind.ticketworkflow.ticket.domain.message.MessageVisibility
+      - dev.opsmind.ticketworkflow.ticket.domain.message.MessageContent
+      - dev.opsmind.ticketworkflow.ticket.domain.message.MessageAuthor
+      - dev.opsmind.ticketworkflow.ticket.domain.message.TicketMessageAdded
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.AddTicketMessageRequest
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.AddTicketMessageResponse
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.PublicTicketMessageApiMapper
     ports:
-      - TicketMessageRepository
-      - TicketMessageWriteGuardPort
-      - AuditRecordPort
-      - OutboxEventRepository
-      - IdempotencyRepository
-    infrastructure:
-      - TicketMessageJpaEntity
-      - TicketMessagePersistenceMapper
-      - TicketMessagePersistenceAdapter
-      - TicketMessageAddedEventMapper
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketWriteGuard
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketMessageWriteGuardPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketMessageRepository
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.jpa.entity.TicketMessageJpaEntity
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.jpa.repository.SpringDataTicketMessageJpaRepository
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.mapper.TicketMessagePersistenceMapper
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketMessagePersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketMessageWriteGuardAdapter
+    migrations:
+      - V011__create_ticket_messages.sql
 
   schemas:
     - schemas/employee-add-message-request.schema.json
@@ -72,7 +71,7 @@ SPEC-TW-004:
     - schemas/ticket-message-added-v1.schema.json
     - schemas/error-envelope.schema.json
 
-  planned_tests:
+  tests:
     domain:
       - TicketMessageTest
       - MessageContentTest
@@ -105,8 +104,86 @@ SPEC-TW-004:
     contract:
       - TicketMessageAddedEventContractTest
       - TicketMessageAddedEventRedactionTest
-      - TicketMessageAuditRedactionTest
+      - TicketMessageAuditRedactionIT
       - TicketMessageTelemetryRedactionTest
+    architecture:
+      - LayerDependencyTest
+
+  known_deviations_from_plan:
+    - area: single physical controller instead of two per-actor controllers
+      note: >
+        The plan's entry_points listed PublicTicketMessageController and
+        SupportTicketMessageController as separate classes. As with Get
+        Ticket (SPEC-TW-002) and List Requester Tickets (SPEC-TW-003), a
+        single PublicTicketMessageController resolves Employee vs. Support
+        semantics from the trusted JWT (actor_type, support_queues claims)
+        rather than routing to two controllers on the same
+        POST /api/v1/tickets/{ticketId}/messages path, which Spring MVC
+        cannot disambiguate. requiredScope()/resolveMessageType() enforce
+        that Employees may only send PUBLIC_REQUESTER_MESSAGE (implicitly,
+        by omitting messageType) and Support must send exactly
+        PUBLIC_SUPPORT_MESSAGE or INTERNAL_SUPPORT_NOTE.
+    - area: TicketMessageAddedEventMapper package placement
+      note: >
+        Traceability's planned_implementation lists this under
+        infrastructure, but application-layer code
+        (AddTicketMessageApplicationService) must call the mapper to build
+        the OutboxEventEntry, and this repo's ArchUnit rule forbids
+        application -> infrastructure dependencies. The mapper is a pure
+        function (domain event in, OutboxEventEntry out; no DB/HTTP/AMQP
+        dependency), so it was placed under ticket.application.event —
+        mirroring the TicketListCursorCodec precedent from SPEC-TW-003.
+    - area: message type/visibility modeled as a derived enum property
+      note: >
+        Rather than accepting visibility as an independent field anywhere
+        in the domain/application/API layers, TicketMessageType.visibility()
+        derives it (PUBLIC_REQUESTER_MESSAGE/PUBLIC_SUPPORT_MESSAGE ->
+        PUBLIC, INTERNAL_SUPPORT_NOTE -> INTERNAL), eliminating the
+        possibility of an invalid type/visibility combination at the type
+        level. The DB layer still enforces this redundantly via a CHECK
+        constraint (ck_ticket_messages_type_visibility) as defense in depth.
+    - area: idempotency reservation ordered before resource/state authorization
+      note: >
+        Spec section 1's conceptual flow diagram lists Resource
+        Authorization -> Actor-specific Validation -> Ticket State Guard
+        before Idempotency, but section 12's literal transaction-boundary
+        step list reserves idempotency first. Implemented per section 12:
+        the idempotency record is reserved before the write guard is
+        loaded, so a replayed request short-circuits before any business
+        logic re-runs. All steps remain inside one @Transactional method,
+        so a rejection at any later step (not-found, wrong state) still
+        rolls back the reservation itself (BI-095), leaving a clean slate
+        for retry rather than a stuck IN_PROGRESS record.
+    - area: TicketMessageAuditRedactionTest renamed to TicketMessageAuditRedactionIT
+      note: >
+        pom.xml documents a deliberate convention: Surefire runs all
+        non-IT-suffixed classes in one shared, reused JVM fork, while
+        Failsafe gives every *IT class its own fresh fork specifically
+        because Testcontainers-backed classes sharing one long-lived JVM
+        accumulate per-process resources and eventually see connection
+        failures. The audit-redaction test needs a real Postgres
+        Testcontainer but was initially named with the contract-test "Test"
+        suffix (mirroring CreateTicketAuditRedactionTest, an existing
+        SPEC-TW-001 test with the same latent issue), placing it in the
+        fragile shared-fork Surefire pool. Renamed to the *IT suffix so it
+        runs under Failsafe's per-class fork isolation, which resolved a
+        reproducible CannotGetJdbcConnection failure seen only when running
+        the full suite (not in isolation).
+    - area: audit_records explicit truncation in AbstractAddTicketMessageIT
+      note: >
+        ticket.audit_records has no foreign key back to ticket.tickets (it
+        stores resourceId as a loose string by design, so audit history can
+        outlive its resource), so TRUNCATE ticket.tickets CASCADE never
+        clears it between test methods. This caused a real, reproducible
+        cross-test-method contamination bug: shouldRejectSameKeyWithDifferentPayload
+        (which JUnit 5's default method ordering runs first for this class)
+        leaves one audit row behind, inflating the next method's global
+        countRows("ticket.audit_records") assertion from 1 to 2.
+        AbstractAddTicketMessageIT.resetTicketData() now truncates
+        ticket.audit_records explicitly. Note: CreateTicketIdempotencyIT
+        (SPEC-TW-001) has the same latent fragility but has not tripped it,
+        since JUnit's default ordering happens to run its own count-asserting
+        method first; left as-is since it is out of this spec's scope.
 
   status:
     specification: reviewed
@@ -114,11 +191,32 @@ SPEC-TW-004:
     implementation: complete
     verification: >
       ./mvnw clean verify passes locally (333/333: 252 unit/component/
-      security/contract + 81 integration). See
-      docs/traceability/02-ticket-workflow/traceability-matrix.yaml's
-      SPEC-TW-004 entry for the full test breakdown, known deviations
-      from this plan, and the two real bugs found and fixed during
-      verification (Surefire/Failsafe fork isolation for a Testcontainers-
-      backed test; audit_records not cleared between test methods in one
-      IT class). Built and verified with -Denforcer.skip=true because
-      only JDK 25 is installed in this environment. CI run pending.
+      security/contract + 81 integration, including ArchUnit and 13 new
+      Add Ticket Message PostgreSQL integration test classes covering
+      Flyway migration shape, field-level persistence for both public
+      messages and internal notes, single-transaction atomicity (zero rows
+      across ticket_messages/audit_records/outbox_events/idempotency on
+      injected failure), non-mutation of the parent Ticket (including
+      RESOLVED tickets accepting feedback without reopening), idempotency
+      replay/reuse-conflict, 100-concurrent-duplicate-request exactly-once
+      behavior, stale IN_PROGRESS reservation reclaim, requester ownership
+      hiding as 404, Support application-code/queue scope enforcement, the
+      INTERNAL_SUPPORT_NOTE-specific scope requirement, and audit-record
+      content/idempotency-key redaction. Two real bugs were found and fixed
+      during full-suite verification: (1) a Surefire/Failsafe fork-sharing
+      issue where a Testcontainers-backed test with the "Test" naming
+      convention landed in the shared-fork Surefire pool instead of
+      Failsafe's per-class-fork pool, causing an intermittent
+      CannotGetJdbcConnection failure only when running the full suite —
+      fixed by renaming to the *IT convention; (2) a cross-test-method
+      contamination bug where ticket.audit_records (no FK to
+      ticket.tickets) was not cleared between test methods within one IT
+      class, inflating a global row-count assertion — fixed by adding an
+      explicit TRUNCATE. A long-running full-suite attempt also surfaced
+      that this dev machine's system sleep can trigger apparent Docker/
+      Postgres connection flakiness during multi-hour unattended runs;
+      subsequent runs used `caffeinate -dis` to keep the machine awake,
+      after which total build time was a stable ~11 minutes. Built and
+      verified with -Denforcer.skip=true because only JDK 25 is installed
+      in this environment; the enforcer's [21,22) range itself was not
+      modified. CI run pending.

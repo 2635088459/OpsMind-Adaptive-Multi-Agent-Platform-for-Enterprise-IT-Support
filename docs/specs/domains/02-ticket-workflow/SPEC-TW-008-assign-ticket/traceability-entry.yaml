@@ -1,0 +1,385 @@
+SPEC-TW-008:
+  title: Assign Ticket
+  phase: IMP-TW-P03
+  dependencies:
+    - SPEC-TW-001
+    - SPEC-TW-002
+    - SPEC-TW-004
+    - SPEC-TW-005
+    - SPEC-TW-007
+
+  design:
+    use_cases: []
+    api: []
+    state_transitions:
+      - SM-003
+      - SM-004
+    published_events:
+      - ticket.assigned.v1
+      - ticket.reassigned.v1
+      - ticket.unassigned.v1
+    lld_documents: []
+    # Same reasoning as SPEC-TW-007: Phase 03 does not use the Phase 01/02
+    # numbered UC-XXX/API-XXX/BI-XXX/lld_documents scheme. The actual
+    # design source is the spec folder's own document set plus the
+    # phase-level implementation plan, listed below instead.
+    spec_documents:
+      - README_EN.md
+      - acceptance-criteria_EN.md
+      - api-contract_EN.md
+      - domain-rules_EN.md
+      - persistence_EN.md
+      - event-contract_EN.md
+      - test-plan_EN.md
+    implementation_plan:
+      - phase-03-ticket-lifecycle-and-ownership_EN.md §8
+
+  reconciliation:
+    - area: superseding notice added to the frozen 03-state-machine low-level-design document
+      note: >
+        docs/low-level-design/domains/02-ticket-workflow/03-state-machine/README_EN.md
+        and README_CN.md both now carry a "Superseded for Phase 03
+        (2026-07-31)" notice at the top, added during this pass after the
+        user confirmed the actually-implemented direction. That older
+        document froze a completely different, AI-agent-automation-driven
+        workflow model (NEW -> TRIAGING -> INVESTIGATING -> EXECUTING ->
+        VERIFYING -> RESOLVED -> CLOSED, driven by activeWorkflowId, a
+        Triage Agent, a Tool Gateway, and independent Verification) that
+        was never actually implemented anywhere in this codebase: no
+        SPEC-TW-001..008 code path ever populates activeWorkflowId, and no
+        Triage Agent/Tool Gateway/Policy/Approval/Verification component
+        exists. The human-support-ownership model this pass (and
+        SPEC-TW-007 before it) actually implements — introducing
+        TicketStatus.TRIAGED and TicketStatus.ASSIGNED as real persisted
+        statuses, human Support Agents/Leads owning tickets via
+        current_support_user_id — is the confirmed current direction per
+        phase-03-ticket-lifecycle-and-ownership_EN.md, not something to
+        second-guess going forward.
+
+  implementation:
+    entry_point:
+      - dev.opsmind.ticketworkflow.ticket.api.support.TicketAssignmentController
+    domain:
+      - dev.opsmind.ticketworkflow.ticket.domain.model.Ticket (added static assign(...)/reassign(...)/unassign(...), REASSIGNABLE_STATUSES)
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketAssigned
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketReassigned
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketUnassigned
+      - dev.opsmind.ticketworkflow.ticket.domain.event.TicketDomainEvent (sealed permits extended)
+      - dev.opsmind.ticketworkflow.ticket.domain.exception.TicketAlreadyAssignedException
+      - dev.opsmind.ticketworkflow.ticket.domain.exception.TicketNotAssignedException
+      - dev.opsmind.ticketworkflow.ticket.domain.exception.InvalidTicketStateException
+      - dev.opsmind.ticketworkflow.ticket.domain.exception.ReassignmentRequiresDifferentAssigneeException
+      - dev.opsmind.ticketworkflow.ticket.domain.value.TicketStatus (added ASSIGNED)
+    application:
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.AssignTicketUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.ReassignTicketUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.UnassignTicketUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.TicketAssignmentApplicationService (implements all 3 use cases)
+      - dev.opsmind.ticketworkflow.ticket.application.command.AssignTicketCommand
+      - dev.opsmind.ticketworkflow.ticket.application.command.ReassignTicketCommand
+      - dev.opsmind.ticketworkflow.ticket.application.command.UnassignTicketCommand
+      - dev.opsmind.ticketworkflow.ticket.application.command.TicketAssignmentResult (shared result shape)
+      - dev.opsmind.ticketworkflow.ticket.application.event.TicketAssignmentEventMapper
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketAssignmentGuard
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketAssignmentGuardPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SupportAgentRecord
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SupportAgentDirectoryPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SupportQueueMembershipPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketAssignmentUpdate
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketAssignmentUpdateOutcome
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketAssignmentRepository
+      - dev.opsmind.ticketworkflow.ticket.application.model.TicketAssignmentHistoryEntry
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketAssignmentHistoryWriter
+      - dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotFoundException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeInactiveException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotSupportAgentException
+      - dev.opsmind.ticketworkflow.ticket.application.exception.AssigneeNotInQueueException
+      - dev.opsmind.ticketworkflow.ticket.application.observability.TicketTelemetry (added startAssignmentTimer/stopAssignmentTimer/recordAssignmentCommand/recordAssignmentAuthorizationDenied/recordAssignmentConflict/recordAssignmentEligibilityDenied)
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.support.AssignTicketRequest (shared by assign+reassign)
+      - dev.opsmind.ticketworkflow.ticket.api.support.UnassignTicketRequest
+      - dev.opsmind.ticketworkflow.ticket.api.support.TicketAssignmentResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.TicketAssignmentApiMapper
+    ports:
+      - (see application.port.out entries above)
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketAssignmentGuardAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.SupportAgentDirectoryAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.SupportQueueMembershipAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketAssignmentPersistenceAdapter (NamedParameterJdbcTemplate, variable-length IN (:requiredStatuses))
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.adapter.TicketAssignmentHistoryPersistenceAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.jpa.entity.TicketAssignmentHistoryJpaEntity
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.jpa.repository.SpringDataTicketAssignmentHistoryJpaRepository
+    events:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.event.JsonSchemaEventValidator (registered "ticket.assigned:1"/"ticket.reassigned:1"/"ticket.unassigned:1")
+      - event-schemas/ticket/published/ticket-assigned-v1.schema.json
+      - event-schemas/ticket/published/ticket-reassigned-v1.schema.json
+      - event-schemas/ticket/published/ticket-unassigned-v1.schema.json
+    platform:
+      - dev.opsmind.ticketworkflow.platform.error.GlobalRestExceptionHandler (added 8 new exception handlers: InvalidTicketStateException, TicketAlreadyAssignedException, TicketNotAssignedException, AssigneeNotFoundException, AssigneeInactiveException, AssigneeNotSupportAgentException, AssigneeNotInQueueException, ReassignmentRequiresDifferentAssigneeException; reuses TicketAuthorizationException/QueueAccessDeniedException/TicketVersionConflictException/PreconditionRequiredException/TicketNotFoundException/IdempotencyKeyReusedException/RequestInProgressException as-is)
+    migrations:
+      - V014__assign_ticket.sql
+    also_touched_regression_fix: []
+
+  schemas:
+    - event-schemas/ticket/published/ticket-assigned-v1.schema.json
+    - event-schemas/ticket/published/ticket-reassigned-v1.schema.json
+    - event-schemas/ticket/published/ticket-unassigned-v1.schema.json
+
+  tests:
+    domain:
+      - TicketAssignmentTest (Assign/Reassign/Unassign @Nested groups; 67 test methods)
+    application:
+      - TicketAssignmentApplicationServiceTest (AssignSuccess/ReassignSuccess/UnassignSuccess @Nested groups)
+      - TicketAssignmentAuthorizationTest (Assign/Reassign/Unassign @Nested groups)
+      - TicketAssignmentEligibilityTest (Assign/Reassign @Nested groups)
+      - TicketAssignmentStateGuardTest (Assign/Reassign/Unassign @Nested groups)
+    api:
+      - TicketAssignmentControllerTest
+      - TicketAssignmentValidationTest
+      - TicketAssignmentErrorContractTest
+    event_contract:
+      - TicketAssignedEventContractTest
+      - TicketReassignedEventContractTest
+      - TicketUnassignedEventContractTest
+    integration:
+      - TicketAssignmentSuccessIT
+      - TicketAssignmentEligibilityIT
+      - TicketAssignmentAuthorizationIT
+      - TicketAssignmentStateGuardIT
+      - TicketAssignmentNotFoundIT
+      - TicketAssignmentOptimisticLockingIT
+      - TicketAssignmentIdempotentReplayIT
+      - TicketAssignmentIdempotencyConflictIT
+      - TicketAssignmentConcurrentVersionIT
+      - TicketAssignmentRollbackIT
+    fixtures:
+      - support/AbstractTicketAssignmentIT (new base class)
+      - support/TicketAssignmentFixtures (new unit-test fixture helper)
+    architecture:
+      - LayerDependencyTest (unchanged, no new violations)
+
+  known_deviations_from_plan:
+    - area: no tenant concept exists anywhere in this codebase
+      note: >
+        Same deviation as SPEC-TW-007. Every tenant_id column/constraint in
+        the spec's reference V008__assign_ticket.sql and domain-rules was
+        dropped. Only true not-found (404) is tested
+        (TicketAssignmentNotFoundIT).
+    - area: assigneeId is a plain identity string, not a UUID
+      note: >
+        This codebase represents every actor/subject identity (requester,
+        triager, support user) as an opaque string matching a JWT sub
+        claim, never a UUID type — a deliberate deviation from the spec's
+        UUID-formatted examples. AssignTicketRequest.assigneeId is
+        @NotBlank String, and support_agents.agent_id/
+        ticket.tickets.current_support_user_id are VARCHAR(128).
+    - area: no new assignee_id column; reuses the dormant current_support_user_id column
+      note: >
+        The reference migration's assignee_id UUID column was NOT
+        created; instead this reuses ticket.tickets.current_support_user_id
+        (VARCHAR(128), existing since SPEC-TW-002's V002__create_tickets.sql
+        with its own ck_tickets_support_user_requires_team constraint) but
+        never populated by any code path until now — the same
+        "activate a dormant column" pattern SPEC-TW-007 used for
+        current_team_id. TicketAssignmentSuccessIT asserts
+        current_support_user_id directly.
+    - area: local support-agent directory and queue-membership catalog substitute for "identity ownership may live in another service"
+      note: >
+        No external identity/directory service exists anywhere in this
+        codebase, so V014__assign_ticket.sql adds two new tables:
+        ticket.support_agents (agent_id PK, display_name, role CHECK IN
+        ('IT_SUPPORT','IT_ADMIN','IT_MANAGER'), active) and
+        ticket.support_queue_memberships (agent_id, support_queue_id
+        composite PK, FKs to both support_agents and SPEC-TW-007's
+        ticket.support_queues). SupportAgentRecord.displayName feeds the
+        API response's assignee.displayName.
+    - area: assignee eligibility is a 4-step check with an asymmetric HTTP status (404 for not-found, 409 for the other three)
+      note: >
+        TicketAssignmentApplicationService.resolveEligibleAssignee:
+        SupportAgentDirectoryPort.findById empty -> AssigneeNotFoundException
+        (404 ASSIGNEE_NOT_FOUND); found but !active -> AssigneeInactiveException
+        (409 ASSIGNEE_INACTIVE); found+active but role not in
+        {IT_SUPPORT,IT_ADMIN,IT_MANAGER} -> AssigneeNotSupportAgentException
+        (409 ASSIGNEE_NOT_SUPPORT_AGENT — defensive; the DB CHECK
+        constraint on support_agents.role makes this realistically
+        unreachable via the directory table alone, exercised only by
+        TicketAssignmentEligibilityTest's mocked port, matching the API
+        contract's own status-mapping table exactly ("ticket or assignee
+        not found -> 404"; "state, version, eligibility, or idempotency
+        conflict -> 409"). TicketAssignmentEligibilityIT covers the three
+        DB-reachable cases end-to-end; the not-support-agent branch is
+        unit-only (TicketAssignmentEligibilityTest).
+    - area: IN_PROGRESS is now introduced by SPEC-TW-009 and included in Reassign's allowed-source-status set
+      note: >
+        SPEC-TW-008 originally deferred "starting work" to SPEC-TW-009 and
+        kept Ticket.REASSIGNABLE_STATUSES as an explicit extension point.
+        SPEC-TW-009 has now added TicketStatus.IN_PROGRESS and expanded
+        Ticket.REASSIGNABLE_STATUSES to {ASSIGNED, IN_PROGRESS,
+        WAITING_FOR_USER, WAITING_FOR_APPROVAL}. TicketAssignmentTest and
+        TicketReassignedEventContractTest were updated so the assignment
+        contract follows this new Phase 03 lifecycle state.
+    - area: a single shared scope ticket:assign gates all three operations
+      note: >
+        Not three separate scope strings — the domain-rules text doesn't
+        name exact scope strings, and treating ownership management as one
+        permission avoids inventing ungrounded granularity.
+        TicketAssignmentAuthorizationTest/IT exercise assign/reassign/
+        unassign identically under this one scope.
+    - area: actor authorization reuses two already-existing exception types, no new SPEC-TW-008-specific "not allowed" exception
+      note: >
+        Contrast with SPEC-TW-007, which introduced TriageNotAllowedException.
+        Missing ticket:assign entirely (covers Requester/EMPLOYEE actors
+        too, since Employees never hold this scope) -> TicketAuthorizationException
+        -> 403 FORBIDDEN (SPEC-TW-004's original pattern); actor has the
+        scope but the ticket's queue-team (read directly off
+        ticket.tickets.current_team_id/support_queue_id, set once at
+        Triage time — no second catalog lookup) isn't in the actor's
+        support_teams JWT-claim-derived allowedTeamIds -> QueueAccessDeniedException
+        (reused from SPEC-TW-007) -> 403 QUEUE_ACCESS_DENIED. Matches
+        SPEC-TW-008's own stable-code list, which only has generic
+        FORBIDDEN (not an operation-specific code like SPEC-TW-007's
+        TRIAGE_NOT_ALLOWED).
+    - area: version-conflict and missing-If-Match reuse SPEC-TW-007's 412/428 mechanism exactly, not SPEC-TW-008's own literal text
+      note: >
+        A deliberate, user-discussed decision: SPEC-TW-007's and
+        SPEC-TW-008's own spec text disagree with each other (and with the
+        Phase 03 doc's own "412 VERSION_MISMATCH" language) about the same
+        underlying optimistic-locking mechanism, so this implementation
+        keeps ONE consistent contract per service (If-Match required ->
+        428 if missing/blank, 412 + ETag header + details.currentVersion
+        if stale) rather than fragmenting HTTP semantics per spec author's
+        individual wording. TicketAssignmentController.parseIfMatch
+        mirrors TriageTicketController's exactly.
+    - area: event naming follows this codebase's unversioned-type + separate-version + versioned-routing-key split
+      note: >
+        eventType = "ticket.assigned"/"ticket.reassigned"/"ticket.unassigned"
+        (unversioned base names), eventVersion = "1.0" (separate field),
+        routingKey = "ticket.assigned.v1"/"ticket.reassigned.v1"/
+        "ticket.unassigned.v1" — matching ticket.created/
+        ticket.message.added/ticket.triaged, not the spec's single
+        fully-versioned eventType string. Schemas registered as
+        "ticket.assigned:1"/"ticket.reassigned:1"/"ticket.unassigned:1" in
+        JsonSchemaEventValidator.SCHEMA_LOCATIONS. Unlike SPEC-TW-007's
+        Triage event (which never persists its free-text reason), these
+        three payloads DO include "reason" per event-contract §3-5 —
+        TicketAssignedEventContractTest/TicketReassignedEventContractTest/
+        TicketUnassignedEventContractTest all assert payload.containsKey("reason").
+    - area: audit action values are "TICKET_ASSIGNED"/"TICKET_REASSIGNED"/"TICKET_UNASSIGNED", not the spec's literal dotted style
+      note: >
+        Matches this codebase's existing naming convention
+        (TICKET_CREATED, TICKET_TRIAGED). Asserted directly in
+        TicketAssignmentSuccessIT and TicketAssignmentApplicationServiceTest.
+    - area: reassignment does not write a ticket_status_history row, so a Reassign never appears in the SPEC-TW-006 Timeline
+      note: >
+        persistence_EN.md §3: "Reassignment does not add a status-history
+        row because status is unchanged" — only a
+        ticket.ticket_assignment_history row is written. Because
+        SPEC-TW-006's Timeline is a UNION ALL over ticket.tickets/
+        ticket_status_history/ticket_messages only (it does NOT union
+        ticket_assignment_history), a Reassign leaves zero new
+        Timeline-relevant rows, while Assign/Unassign DO appear as
+        STATUS_CHANGED items (since those DO write status history) —
+        mirrors SPEC-TW-007's own "no new Timeline item type" deviation.
+        TicketAssignmentApplicationServiceTest asserts statusHistoryWriter
+        is never invoked for reassign; TicketAssignmentSuccessIT asserts
+        the status-history table stays empty across a reassign at the
+        database level. A live Timeline HTTP call was judged
+        disproportionate effort for confirming a consequence already
+        proven at the persistence layer, so it was not separately wired
+        into an integration test — noted here rather than guessed at.
+    - area: transitionId/reasonCode for the status-history rows Assign/Unassign do write
+      note: >
+        Assign uses "SM-003"/"TICKET_ASSIGNED", Unassign uses
+        "SM-004"/"TICKET_UNASSIGNED" (SPEC-TW-007's Triage used
+        "SM-002"/"TICKET_TRIAGED", Create Ticket used "SM-001"/
+        "TICKET_CREATED" — sequential labels in this codebase, unrelated
+        to the frozen/superseded 03-state-machine document's own SM-xxx
+        numbering). Asserted in TicketAssignmentApplicationServiceTest and
+        TicketAssignmentSuccessIT.
+    - area: TicketAssignmentResponse uses @JsonInclude(ALWAYS) so unassign's null fields render as literal JSON null, not absent keys
+      note: >
+        Opposite deviation from SPEC-TW-007's TriageTicketResponse (which
+        omits a null subcategoryId under the app-wide non_null default).
+        TicketAssignmentResponse and its nullable assignee/assignedAt
+        fields carry an explicit @JsonInclude(Include.ALWAYS) override
+        because API contract §5 explicitly requires "assignee and
+        assignedAt are null" (not absent) on a successful unassign.
+        TicketAssignmentControllerTest.shouldReturn200WithNullAssigneeAndAssignedAtLiteralsForUnassign
+        parses the raw response body into a JsonNode tree and asserts
+        both keys are present with an actual JSON null node — a naive
+        jsonPath(...).doesNotExist()/exists() check cannot distinguish
+        "present but null" from "absent" the way a tree-node check can.
+    - area: TicketAssignmentTelemetry's duration timer carries no {operation} tag, unlike test-plan §6's literal metric name
+      note: >
+        opsmind_ticket_assignment_duration_seconds is untagged, matching
+        this codebase's existing opsmind_ticket_message_add_duration_seconds
+        convention (one histogram per command family, not one per
+        operation variant) rather than test-plan §6's literal
+        ticket_assignment_duration_seconds{operation} name. A minor,
+        already-implemented (not test-introduced) deviation, noted here
+        for completeness since it wasn't called out in the original 13.
+    - area: TICKET_ALREADY_ASSIGNED is real but was not integration-tested end-to-end
+      note: >
+        TicketAlreadyAssignedException's guard ("TRIAGED status but a
+        current assignee is already set") is unreachable through this
+        integration harness without violating the DB CHECK constraint
+        ck_tickets_triaged_no_assignee, which forbids a TRIAGED row from
+        ever carrying current_support_user_id. Full coverage exists at
+        the domain-unit tier (TicketAssignmentTest) and the
+        application-unit tier via the guard-based pre-check
+        (TicketAssignmentStateGuardTest), just not via a real-database HTTP
+        round trip — documented in TicketAssignmentStateGuardIT's class
+        Javadoc rather than forcing an artificial (schema-violating) seed.
+    - area: reassigning a literally-TRIAGED ticket surfaces TICKET_NOT_ASSIGNED, not INVALID_TICKET_STATE
+      note: >
+        A consequence of the same TRIAGED-means-no-assignee invariant:
+        Ticket.reassign checks "has a current assignee" before it checks
+        the allowed-status set, so a genuinely TRIAGED ticket (which the
+        schema guarantees has no assignee) always fails the earlier check
+        first. The multi-status INVALID_TICKET_STATE shape for Reassign is
+        instead reached, and tested, from a RESOLVED ticket that still
+        carries an assignee (a status/assignee combination the schema
+        does not forbid) — see
+        TicketAssignmentStateGuardIT.shouldReturn409InvalidTicketStateWithAllowedStatusesWhenReassigningAResolvedTicketWithAnAssignee.
+        Not anticipated by the original 13 deviations; discovered while
+        writing the integration test and is a direct, correct consequence
+        of the domain aggregate's own check ordering, not a bug.
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      ./mvnw -o -Denforcer.skip=true clean verify passes locally
+      (972/972: 769 unit/component/contract/security/architecture + 203
+      integration, zero regressions in SPEC-TW-001 through SPEC-TW-007).
+      268 new SPEC-TW-008 test methods were added in this pass across 18
+      new test files (67 domain [TicketAssignmentTest] + 83 application
+      [9 service-success + 10 authorization + 8 eligibility + 56
+      state-guard/concurrency-reclassification, all organized into
+      Assign/Reassign/Unassign @Nested groups] + 63 API/component [4
+      controller + 41 validation + 18 error-contract] + 13 event contract
+      [4 assigned + 5 reassigned + 4 unassigned] + 42 integration, plus
+      the shared AbstractTicketAssignmentIT fixture base and
+      TicketAssignmentFixtures unit-test helper). The module's total
+      test-run count grew from 701 to 972 (+271); the extra 3 beyond this
+      pass's own 268 come from three pre-existing SPEC-TW-006/007
+      @EnumSource(TicketStatus.class)-parameterized tests
+      (TriageTicketStateGuardTest, AddTicketMessageStateGuardTest,
+      TicketTriageTest) automatically gaining one additional case each now
+      that TicketStatus has grown to 14 values — not new SPEC-TW-008 test
+      code, just an automatic side effect of adding the ASSIGNED enum
+      constant, the same kind of effect SPEC-TW-007's own pass noted for
+      SupportQueueFilters.MAX_STATUSES. No production bugs were found:
+      all pre-written SPEC-TW-008 production code (already complete and
+      compiling clean before this pass began) passed every test written
+      against it on the first full run, including the concurrency
+      (TicketAssignmentConcurrentVersionIT: exactly one 200 among 20
+      simultaneous same-version Assign attempts, the rest 412) and
+      rollback (TicketAssignmentRollbackIT: injected audit/outbox
+      failures roll back the ticket UPDATE, both history tables, and the
+      idempotency reservation together) scenarios. Built and verified
+      with -Denforcer.skip=true because only JDK 25 is installed in this
+      environment, and with `caffeinate -dis` to prevent system sleep
+      from interrupting the ~15-minute unattended run. CI run pending.

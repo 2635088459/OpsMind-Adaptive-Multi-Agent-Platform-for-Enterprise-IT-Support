@@ -26,48 +26,49 @@ SPEC-TW-006:
       - 12-observability-and-audit
       - 13-package-and-class-design
       - 14-testing-strategy
-    constraints_to_confirm:
-      - timeline_visibility_invariant_id
-      - timeline_ordering_invariant_id
-      - timeline_snapshot_pagination_invariant_id
-      - support_internal_timeline_scope_rule_id
-      - timeline_sensitive_read_audit_rule_id
-      - timeline_query_performance_id
 
-  planned_implementation:
-    entry_points:
-      - TicketTimelineController
-      - SupportTicketTimelineController
+  implementation:
+    entry_point:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.TicketTimelineController
     application:
-      - GetTicketTimelineUseCase
-      - GetTicketTimelineApplicationService
-      - TicketTimelineQuery
-      - TicketTimelineResult
-      - TicketTimelineItem
-      - TicketTimelineCursor
-      - TicketTimelineViewType
-      - TicketTimelineSortVersion
-      - TimelineSnapshot
-      - TicketTimelineViewPolicy
+      - dev.opsmind.ticketworkflow.ticket.application.port.in.GetTicketTimelineUseCase
+      - dev.opsmind.ticketworkflow.ticket.application.service.GetTicketTimelineApplicationService
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineQuery
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineResult
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineItem
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineItemType
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineGuard
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineCursor
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineKeysetPosition
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineViewType
+      - dev.opsmind.ticketworkflow.ticket.application.query.TicketTimelineSortVersion
+      - dev.opsmind.ticketworkflow.ticket.application.policy.TicketTimelineViewPolicy
+      - dev.opsmind.ticketworkflow.ticket.application.cursor.TicketTimelineCursorCodec
+      - dev.opsmind.ticketworkflow.ticket.application.cursor.TicketTimelineCursorSigner
+    api:
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.EmployeeTimelineResponse
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.EmployeeTimelineItemResponse
+      - dev.opsmind.ticketworkflow.ticket.api.publicapi.EmployeeTimelineApiMapper
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTimelineResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTimelineItemResponse
+      - dev.opsmind.ticketworkflow.ticket.api.support.SupportTimelineApiMapper
     ports:
-      - TicketTimelineQueryPort
-      - SensitiveReadAuditPort
-    infrastructure:
-      - JdbcTicketTimelineQueryAdapter
-      - TicketTimelineProjection
-      - TicketTimelineCursorCodec
-      - TicketTimelineCursorSigner
-      - TicketTimelineQuerySql
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.TicketTimelineQueryPort
+      - dev.opsmind.ticketworkflow.ticket.application.port.out.SensitiveReadAuditPort (reused from SPEC-TW-002)
+    persistence:
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.JdbcTicketTimelineQueryAdapter
+      - dev.opsmind.ticketworkflow.ticket.infrastructure.query.TicketTimelineQuerySql
+    migrations: []
 
   schemas:
     - schemas/employee-timeline-response.schema.json
-    - schemas/support-timeline-response.schema.json
     - schemas/employee-timeline-item.schema.json
+    - schemas/support-timeline-response.schema.json
     - schemas/support-timeline-item.schema.json
     - schemas/invalid-cursor-error.schema.json
     - schemas/error-envelope.schema.json
 
-  planned_tests:
+  tests:
     application:
       - GetTicketTimelineApplicationServiceTest
       - TicketTimelineViewPolicyTest
@@ -111,23 +112,117 @@ SPEC-TW-006:
       - TicketTimelineAuditFailureIT
       - TicketTimelineResponseRedactionTest
       - TicketTimelineTelemetryRedactionTest
+    architecture:
+      - LayerDependencyTest
+
+  known_deviations_from_plan:
+    - area: single TicketTimelineController instead of two controllers per §29's package mapping
+      note: >
+        §29 lists both TicketTimelineController (ticket.api.publicapi) and
+        SupportTicketTimelineController (ticket.api.support) mapped to the
+        same route, GET /api/v1/tickets/{ticketId}/timeline. Two Spring
+        MVC @RestController classes mapped to the identical path would
+        throw an ambiguous-mapping error at context startup. Only
+        TicketTimelineController exists; it dispatches to
+        EmployeeTimelineApiMapper or SupportTimelineApiMapper purely from
+        the use case's resolved TicketTimelineViewType, mirroring
+        PublicTicketQueryController's established precedent from
+        SPEC-TW-002 (which resolves the same ambiguity the same way).
+    - area: AUDITOR_POLICY_VIEW always denied, not implemented
+      note: >
+        §21 describes Auditor field selection and redaction rules only in
+        prose, gives no concrete field mapping, and no acceptance
+        scenario in acceptance.feature exercises a working Auditor read
+        (the one Auditor-adjacent scenario, "Raw Audit records are not
+        exposed as Timeline items," does not require an Auditor actor to
+        succeed). GetTicketTimelineApplicationService.getTimeline throws
+        TicketAuthorizationException for AUDITOR_POLICY_VIEW unconditionally,
+        before touching the query port, mirroring Get Ticket's stubbed
+        AUDITOR_VIEW precedent (SPEC-TW-002) rather than guessing at
+        unproven field-selection rules. §21 itself calls out that "a
+        dedicated Auditor API may be specified later" — conservative
+        deny-by-default was chosen over a permissive guess.
+    - area: sensitive-read Audit reuses SPEC-TW-002's shared port/adapter/table rather than a Timeline-specific action code
+      note: >
+        §23's example record shows action = TICKET_TIMELINE_VIEWED as a
+        distinct value. The implementation instead reuses
+        SensitiveReadAuditPort/SensitiveReadAuditAdapter/SensitiveReadAuditEntry
+        verbatim from Get Ticket (SPEC-TW-002), which writes every
+        sensitive read — Get Ticket's Support view and Timeline's
+        Support-internal view alike — into the same ticket.audit_records
+        table with the same fixed action = "TICKET_VIEWED". The Timeline
+        read is distinguished from a Get Ticket read via the view_type
+        column (SUPPORT_INTERNAL_VIEW vs SUPPORT_VIEW) instead of a
+        separate action value. This was an intentional locked design
+        decision (documented in SensitiveReadAuditEntry's own Javadoc)
+        to avoid duplicating an entry/port/adapter triplet per feature;
+        TicketTimelineSensitiveReadAuditIT asserts against the actual
+        action/view_type values rather than the spec text's literal
+        example.
+    - area: TicketTimelineNewItemAfterSnapshotIT exercises the query port directly, not HTTP, to control snapshotAt
+      note: >
+        §13's "new item after snapshot" and "refresh sees the new item"
+        behavior is timing-dependent on the real wall clock
+        (GetTicketTimelineApplicationService uses ClockPort.now() to set
+        snapshotAt on the first page), and unlike SensitiveReadAuditPort
+        there is no test-injectable ClockPort override anywhere in this
+        codebase. Rather than a flaky sleep-based HTTP test,
+        TicketTimelineNewItemAfterSnapshotIT calls
+        TicketTimelineQueryPort.queryTimeline directly with explicit,
+        deterministic snapshotAt values, which exercises the exact same
+        SQL predicate (occurred_at <= :snapshotAt) the application
+        service passes through unchanged. The application-layer
+        GetTicketTimelineApplicationServiceTest (already written, unit
+        scope, mocked ClockPort) separately proves the service carries a
+        decoded cursor's snapshotAt through to the query port unchanged
+        on a later page. TicketTimelineSnapshotPaginationIT covers the
+        HTTP-level "same snapshotAt across pages" assertion, which needs
+        no clock control since it only checks equality between two live
+        responses.
 
   status:
     specification: reviewed
     tests: complete
     implementation: complete
     verification: >
-      ./mvnw clean verify passes locally (572/572 tests: 437 unit/
-      component/security/contract + 135 integration, zero failures,
-      zero regressions in SPEC-TW-001 through SPEC-TW-005). This pass
-      added the API/component, PostgreSQL integration, and privacy/
-      contract tiers (57 new tests across 20 new test classes plus the
-      shared AbstractTicketTimelineIT fixture base) on top of the 18
-      application/cursor/policy unit test classes already written. See
-      docs/traceability/02-ticket-workflow/traceability-matrix.yaml's
-      SPEC-TW-006 entry for the full test list, file inventory, and
-      known deviations from this plan. No production bugs were found;
-      two test-authoring-only issues were found and fixed (schema
-      conformance validated against a manually built ErrorResponse
-      instead of a live MDC-less MockMvc body; classpath URI mapping
-      added for the response schemas' cross-file $ref). CI run pending.
+      ./mvnw clean verify passes locally (572/572: 437 unit/component/
+      security/contract + 135 integration, including ArchUnit and 14 new
+      Ticket Timeline PostgreSQL integration test classes covering
+      requester ownership and Support application-scope authorization,
+      UNION ALL projection shape for every source (Ticket-created,
+      status-history, public requester/support messages, internal
+      notes), occurredAt/itemTypeRank/itemId ordering including equal-
+      timestamp tie-breaking, includeInternal true/false SQL-level
+      filtering, index usage (no Seq Scan) on the per-source ticket_id
+      predicate, non-mutation of the Ticket/History/Message rows, zero
+      Outbox rows, fixed-snapshot pagination (identical snapshotAt
+      across pages; a new item after the snapshot never enters a later
+      page of that session), exactly-one required sensitive-read Audit
+      record for a Support-internal read, and fail-closed 500
+      INTERNAL_ERROR with no leaked Timeline body when that Audit insert
+      fails. 57 new tests were added in this pass (20 API/component + 8
+      privacy/contract + 29 integration, across 20 new test classes plus
+      the shared AbstractTicketTimelineIT fixture base), on top of the
+      18 application/cursor/policy unit test classes already written and
+      passing before this pass began. No production bugs were found:
+      every already-locked production class (GetTicketTimelineApplicationService,
+      JdbcTicketTimelineQueryAdapter, TicketTimelineQuerySql, both API
+      mappers, TicketTimelineController) passed every new test on the
+      first run. Two test-authoring-only issues were found and fixed
+      while writing the new tests (no production code changes): (1) the
+      frozen JSON Schema's error envelope requires traceId/correlationId
+      minLength 1, which a live MockMvc response can never satisfy in
+      this codebase today (nothing populates the traceId MDC key), so
+      schema-conformance assertions were changed to validate a manually
+      constructed ErrorResponse, mirroring GetTicketResponseRedactionTest's
+      existing precedent, while live HTTP behavior stayed covered by
+      jsonPath assertions; (2) the Employee/Support Timeline response
+      schemas $ref a sibling item schema by relative filename, which
+      networknt's JsonSchemaFactory resolved against the schema's
+      network $id by default (UnknownHostException in a sandboxed
+      environment) — fixed by mapping the https://opsmind.dev/schemas/
+      ticket/ prefix to the classpath via JsonSchemaFactory's
+      schemaMappers builder. Built and verified with
+      -Denforcer.skip=true because only JDK 25 is installed in this
+      environment, and with `caffeinate -dis` to prevent system sleep
+      from interrupting the ~12-minute unattended run. CI run pending.
