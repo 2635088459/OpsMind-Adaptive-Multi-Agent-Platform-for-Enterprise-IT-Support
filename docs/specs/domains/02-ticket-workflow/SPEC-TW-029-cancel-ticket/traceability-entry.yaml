@@ -1,0 +1,65 @@
+SPEC-TW-029:
+  title: Cancel Ticket
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-001
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-029-cancel-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - CancelTicketApiMapper
+      - CancelTicketController
+      - CancelTicketRequest
+      - CancelTicketResponse
+      - CancelTicketCommand
+      - CancelTicketResult
+      - CancelTicketUseCase
+      - CancelTicketApplicationService
+
+  test_classes:
+      - CancelTicketValidationTest
+      - CancelTicketApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 2 test classes,
+      27 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.

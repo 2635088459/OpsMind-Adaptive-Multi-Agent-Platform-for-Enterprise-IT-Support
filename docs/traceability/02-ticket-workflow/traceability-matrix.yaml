@@ -2002,3 +2002,2340 @@ SPEC-TW-008:
       with -Denforcer.skip=true because only JDK 25 is installed in this
       environment, and with `caffeinate -dis` to prevent system sleep
       from interrupting the ~15-minute unattended run. CI run pending.
+
+SPEC-TW-009:
+  title: Transition Ticket Status
+  phase: IMP-TW-P03
+  dependencies:
+    - SPEC-TW-008
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-009-transition-ticket-status/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - TransitionTicketStatusApiMapper
+      - TransitionTicketStatusController
+      - TransitionTicketStatusRequest
+      - TransitionTicketStatusResponse
+      - TransitionTicketStatusCommand
+      - TransitionTicketStatusResult
+      - TicketStatusTransitionEventMapper
+      - TransitionTicketStatusUseCase
+      - TicketStatusTransitionGuard
+      - TicketStatusTransitionGuardPort
+      - TicketStatusTransitionRepository
+      - TicketStatusTransitionUpdate
+      - TicketStatusTransitionUpdateOutcome
+      - TransitionTicketStatusApplicationService
+      - InvalidStatusTransitionException
+      - TicketStatusTransitionGuardAdapter
+      - TicketStatusTransitionPersistenceAdapter
+
+  test_classes:
+      - TicketStatusTransitionTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (17 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      14 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-010:
+  title: Resolve Ticket
+  phase: IMP-TW-P03
+  dependencies:
+    - SPEC-TW-009
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-010-resolve-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ResolveTicketApiMapper
+      - ResolveTicketController
+      - ResolveTicketRequest
+      - ResolveTicketResponse
+      - ResolveTicketCommand
+      - ResolveTicketResult
+      - ResolveTicketUseCase
+      - ResolveTicketApplicationService
+
+  test_classes:
+      - ResolveTicketErrorContractTest
+      - ResolveTicketValidationTest
+      - ResolveTicketApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      36 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-011:
+  title: Close And Reopen Ticket
+  phase: IMP-TW-P03
+  dependencies:
+    - SPEC-TW-010
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-011-close-and-reopen-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - AutoCloseTicketApiMapper
+      - AutoCloseTicketController
+      - AutoCloseTicketRequest
+      - AutoCloseTicketResponse
+      - RequesterReopenTicketApiMapper
+      - RequesterReopenTicketController
+      - RequesterReopenTicketRequest
+      - RequesterReopenTicketResponse
+      - CloseTicketApiMapper
+      - CloseTicketController
+      - CloseTicketRequest
+      - CloseTicketResponse
+      - ReopenTicketApiMapper
+      - ReopenTicketController
+      - ReopenTicketRequest
+      - ReopenTicketResponse
+      - AutoCloseTicketCommand
+      - AutoCloseTicketResult
+      - CloseTicketCommand
+      - CloseTicketResult
+      - ReopenTicketCommand
+      - ReopenTicketResult
+      - RequesterReopenTicketCommand
+      - AutoCloseTicketUseCase
+      - CloseTicketUseCase
+      - ReopenTicketUseCase
+      - RequesterReopenTicketUseCase
+      - AutoCloseTicketApplicationService
+      - CloseTicketApplicationService
+      - ReopenTicketApplicationService
+      - RequesterReopenTicketApplicationService
+
+  test_classes:
+      - AutoCloseTicketValidationTest
+      - CloseTicketErrorContractTest
+      - CloseTicketValidationTest
+      - ReopenTicketErrorContractTest
+      - ReopenTicketValidationTest
+      - RequesterReopenTicketValidationTest
+      - AutoCloseTicketApplicationServiceTest
+      - CloseTicketApplicationServiceTest
+      - ReopenTicketApplicationServiceTest
+      - RequesterReopenTicketApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (31 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 10 test classes,
+      117 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-012:
+  title: Request User Input
+  phase: IMP-TW-P04
+  dependencies:
+    - SPEC-TW-011
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-012-request-user-input/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - RequestUserInputApiMapper
+      - RequestUserInputController
+      - RequestUserInputRequest
+      - RequestUserInputResponse
+      - RequestUserInputCommand
+      - RequestUserInputResult
+      - RequestUserInputUseCase
+      - RequestUserInputApplicationService
+
+  test_classes:
+      - RequestUserInputErrorContractTest
+      - RequestUserInputValidationTest
+      - RequestUserInputApplicationServiceTest
+      - TicketRequestUserInputTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 4 test classes,
+      57 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-013:
+  title: User Reply And Resume
+  phase: IMP-TW-P04
+  dependencies:
+    - SPEC-TW-012
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-013-user-reply-and-resume/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - UserReplyApiMapper
+      - UserReplyController
+      - UserReplyRequest
+      - UserReplyResponse
+      - UserReplyAndResumeCommand
+      - UserReplyAndResumeResult
+      - UserReplyAndResumeUseCase
+      - TicketUserReplyGuard
+      - TicketUserReplyGuardPort
+      - TicketUserReplyRepository
+      - TicketUserReplyResumeUpdate
+      - TicketUserReplyResumeUpdateOutcome
+      - UserReplyAndResumeApplicationService
+      - TicketUserReplyGuardAdapter
+      - TicketUserReplyPersistenceAdapter
+
+  test_classes:
+      - UserReplyErrorContractTest
+      - UserReplyValidationTest
+      - UserReplyAndResumeApplicationServiceTest
+      - TicketUserReplyResumeTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (15 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 4 test classes,
+      48 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-014:
+  title: Request Approval
+  phase: IMP-TW-P05
+  dependencies:
+    - SPEC-TW-011
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-014-request-approval/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - RequestApprovalApiMapper
+      - RequestApprovalController
+      - RequestApprovalRequest
+      - RequestApprovalResponse
+      - RequestApprovalCommand
+      - RequestApprovalResult
+      - RequestApprovalUseCase
+      - RequestApprovalApplicationService
+
+  test_classes:
+      - RequestApprovalErrorContractTest
+      - RequestApprovalValidationTest
+      - RequestApprovalApplicationServiceTest
+      - TicketRequestApprovalTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 4 test classes,
+      60 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-015:
+  title: Apply Approval Granted
+  phase: IMP-TW-P05
+  dependencies:
+    - SPEC-TW-014
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-015-apply-approval-granted/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyApprovalGrantedCommand
+      - ApplyApprovalGrantedOutcome
+      - ApplyApprovalGrantedResult
+      - ApplyApprovalGrantedUseCase
+      - ApplyApprovalGrantedApplicationService
+      - ApprovalGrantedEventConsumer
+      - ApprovalGrantedEventPayload
+      - ApprovalGrantedEventMapper
+
+  test_classes:
+      - ApplyApprovalGrantedApplicationServiceTest
+      - TicketApplyApprovalGrantedTest
+      - ApprovalGrantedEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      36 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-016:
+  title: Apply Approval Rejected
+  phase: IMP-TW-P05
+  dependencies:
+    - SPEC-TW-014
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-016-apply-approval-rejected/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyApprovalRejectedCommand
+      - ApplyApprovalRejectedOutcome
+      - ApplyApprovalRejectedResult
+      - ApplyApprovalRejectedUseCase
+      - ApplyApprovalRejectedApplicationService
+      - ApprovalRejectedEventConsumer
+      - ApprovalRejectedEventPayload
+      - ApprovalRejectedEventMapper
+
+  test_classes:
+      - ApplyApprovalRejectedApplicationServiceTest
+      - TicketApplyApprovalRejectedTest
+      - ApprovalRejectedEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      35 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-017:
+  title: Apply Approval Expired
+  phase: IMP-TW-P05
+  dependencies:
+    - SPEC-TW-014
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-017-apply-approval-expired/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyApprovalExpiredCommand
+      - ApplyApprovalExpiredOutcome
+      - ApplyApprovalExpiredResult
+      - ApplyApprovalExpiredUseCase
+      - ApplyApprovalExpiredApplicationService
+      - ApprovalExpiredEventConsumer
+      - ApprovalExpiredEventPayload
+      - ApprovalExpiredEventMapper
+
+  test_classes:
+      - ApplyApprovalExpiredApplicationServiceTest
+      - TicketApplyApprovalExpiredTest
+      - ApprovalExpiredEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      35 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-018:
+  title: Apply Auto-Approved Policy
+  phase: IMP-TW-P05
+  dependencies:
+    - SPEC-TW-014
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-018-apply-auto-approved-policy/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyAutoApprovedPolicyCommand
+      - ApplyAutoApprovedPolicyOutcome
+      - ApplyAutoApprovedPolicyResult
+      - ApplyAutoApprovedPolicyUseCase
+      - ApplyAutoApprovedPolicyApplicationService
+      - PolicyActionAutoApprovedEventConsumer
+      - PolicyActionAutoApprovedEventPayload
+      - PolicyActionAutoApprovedEventMapper
+
+  test_classes:
+      - ApplyAutoApprovedPolicyApplicationServiceTest
+      - TicketApplyAutoApprovedPolicyTest
+      - PolicyActionAutoApprovedEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      45 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-019:
+  title: Tool Execution Completed
+  phase: IMP-TW-P06
+  dependencies:
+    - SPEC-TW-018
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-019-tool-execution-completed/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyToolExecutionCompletedCommand
+      - ApplyToolExecutionCompletedOutcome
+      - ApplyToolExecutionCompletedResult
+      - ApplyToolExecutionCompletedUseCase
+      - ApplyToolExecutionCompletedApplicationService
+      - ToolExecutionCompletedEventConsumer
+      - ToolExecutionCompletedEventPayload
+      - ToolExecutionCompletedEventMapper
+
+  test_classes:
+      - ApplyToolExecutionCompletedApplicationServiceTest
+      - TicketApplyToolExecutionCompletedTest
+      - ToolExecutionCompletedEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      30 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-020:
+  title: Tool Execution Failed
+  phase: IMP-TW-P06
+  dependencies:
+    - SPEC-TW-019
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-020-tool-execution-failed/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyToolExecutionFailedCommand
+      - ApplyToolExecutionFailedOutcome
+      - ApplyToolExecutionFailedResult
+      - ApplyToolExecutionFailedUseCase
+      - ApplyToolExecutionFailedApplicationService
+      - ToolExecutionFailedEventConsumer
+      - ToolExecutionFailedEventPayload
+      - ToolExecutionFailedEventMapper
+
+  test_classes:
+      - ApplyToolExecutionFailedApplicationServiceTest
+      - TicketApplyToolExecutionFailedTest
+      - ToolExecutionFailedEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      50 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-021:
+  title: Tool Result Unknown
+  phase: IMP-TW-P06
+  dependencies:
+    - SPEC-TW-019
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-021-tool-result-unknown/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyToolResultUnknownCommand
+      - ApplyToolResultUnknownOutcome
+      - ApplyToolResultUnknownResult
+      - ApplyToolResultUnknownUseCase
+      - ApplyToolResultUnknownApplicationService
+      - ToolResultUnknownEventConsumer
+      - ToolResultUnknownEventPayload
+      - ToolResultUnknownEventMapper
+
+  test_classes:
+      - ApplyToolResultUnknownApplicationServiceTest
+      - TicketApplyToolResultUnknownTest
+      - ToolResultUnknownEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      33 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-022:
+  title: Start Verification
+  phase: IMP-TW-P07
+  dependencies:
+    - SPEC-TW-010
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-022-start-verification/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - StartVerificationApiMapper
+      - StartVerificationController
+      - StartVerificationRequest
+      - StartVerificationResponse
+      - StartVerificationCommand
+      - StartVerificationResult
+      - StartVerificationUseCase
+      - StartVerificationApplicationService
+
+  test_classes:
+      - StartVerificationValidationTest
+      - StartVerificationApplicationServiceTest
+      - TicketStartVerificationTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      40 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-023:
+  title: Verification Success
+  phase: IMP-TW-P07
+  dependencies:
+    - SPEC-TW-022
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-023-verification-success/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyVerificationSuccessCommand
+      - ApplyVerificationSuccessOutcome
+      - ApplyVerificationSuccessResult
+      - ApplyVerificationSuccessUseCase
+      - ApplyVerificationSuccessApplicationService
+      - VerificationSuccessEventConsumer
+      - VerificationSuccessEventPayload
+      - VerificationSuccessEventMapper
+
+  test_classes:
+      - ApplyVerificationSuccessApplicationServiceTest
+      - TicketApplyVerificationSuccessTest
+      - VerificationSuccessEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      37 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-024:
+  title: Verification Failure
+  phase: IMP-TW-P07
+  dependencies:
+    - SPEC-TW-022
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-024-verification-failure/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyVerificationFailureCommand
+      - ApplyVerificationFailureOutcome
+      - ApplyVerificationFailureResult
+      - ApplyVerificationFailureUseCase
+      - ApplyVerificationFailureApplicationService
+      - VerificationFailureEventConsumer
+      - VerificationFailureEventPayload
+      - VerificationFailureEventMapper
+
+  test_classes:
+      - ApplyVerificationFailureApplicationServiceTest
+      - TicketApplyVerificationFailureTest
+      - VerificationFailureEventConsumerTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      43 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-025:
+  title: Resolve Ticket With Verification
+  phase: IMP-TW-P07
+  dependencies:
+    - SPEC-TW-023
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-025-resolve-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ResolveTicketWithVerificationApiMapper
+      - ResolveTicketWithVerificationController
+      - ResolveTicketWithVerificationRequest
+      - ResolveTicketWithVerificationResponse
+      - ResolveTicketWithVerificationCommand
+      - ResolveTicketWithVerificationResult
+      - ResolveTicketWithVerificationUseCase
+      - ResolveTicketWithVerificationApplicationService
+
+  test_classes:
+      - ResolveTicketWithVerificationValidationTest
+      - ResolveTicketWithVerificationApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 2 test classes,
+      25 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-026:
+  title: Confirm Resolution
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-010
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-026-confirm-resolution/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ConfirmResolutionApiMapper
+      - ConfirmResolutionController
+      - ConfirmResolutionRequest
+      - ConfirmResolutionResponse
+      - ConfirmResolutionCommand
+      - ConfirmResolutionResult
+      - ConfirmResolutionUseCase
+      - ConfirmResolutionApplicationService
+
+  test_classes:
+      - ConfirmResolutionValidationTest
+      - ConfirmResolutionApplicationServiceTest
+      - TicketConfirmResolutionTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      50 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-027:
+  title: Auto-Close
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-026
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-027-auto-close/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - AutoCloseTicketApiMapper
+      - AutoCloseTicketController
+      - AutoCloseTicketRequest
+      - AutoCloseTicketResponse
+      - AutoCloseTicketCommand
+      - AutoCloseTicketResult
+      - TicketAutoClosedEventMapper
+      - AutoCloseTicketUseCase
+      - TicketAutoCloseGuard
+      - TicketAutoCloseGuardPort
+      - TicketAutoCloseRepository
+      - TicketAutoCloseUpdate
+      - TicketAutoCloseUpdateOutcome
+      - AutoCloseTicketApplicationService
+      - TicketAutoClosed
+      - AutoCloseNotYetDueException
+      - TicketAutoClosePersistenceAdapter
+
+  test_classes:
+      - AutoCloseTicketValidationTest
+      - AutoCloseTicketApplicationServiceTest
+      - TicketAutoCloseTest
+      - TicketAutoClosedEventContractTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (17 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 4 test classes,
+      56 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-028:
+  title: Reopen Ticket (requester-initiated)
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-011
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-028-reopen-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - RequesterReopenTicketApiMapper
+      - RequesterReopenTicketController
+      - RequesterReopenTicketRequest
+      - RequesterReopenTicketResponse
+      - RequesterReopenTicketCommand
+      - RequesterReopenTicketUseCase
+      - RequesterReopenTicketApplicationService
+
+  test_classes:
+      - RequesterReopenTicketValidationTest
+      - RequesterReopenTicketApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (7 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 2 test classes,
+      26 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-029:
+  title: Cancel Ticket
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-001
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-029-cancel-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - CancelTicketApiMapper
+      - CancelTicketController
+      - CancelTicketRequest
+      - CancelTicketResponse
+      - CancelTicketCommand
+      - CancelTicketResult
+      - CancelTicketUseCase
+      - CancelTicketApplicationService
+
+  test_classes:
+      - CancelTicketValidationTest
+      - CancelTicketApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 2 test classes,
+      27 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-030:
+  title: Assign Ticket (reassignment)
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-008
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-030-assign-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - UpdateTicketAssignmentApiMapper
+      - UpdateTicketAssignmentController
+      - UpdateTicketAssignmentRequest
+      - UpdateTicketAssignmentResponse
+      - UpdateTicketAssignmentCommand
+      - UpdateTicketAssignmentResult
+      - UpdateTicketAssignmentUseCase
+      - UpdateTicketAssignmentApplicationService
+
+  test_classes:
+      - UpdateTicketAssignmentValidationTest
+      - UpdateTicketAssignmentApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (8 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 2 test classes,
+      28 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-031:
+  title: Escalate Ticket
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-008
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-031-escalate-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - EscalateTicketApiMapper
+      - EscalateTicketController
+      - EscalateTicketRequest
+      - EscalateTicketResponse
+      - EscalateTicketCommand
+      - EscalateTicketResult
+      - TicketEscalatedEventMapper
+      - EscalateTicketUseCase
+      - EscalateTicketApplicationService
+      - TicketEscalated
+
+  test_classes:
+      - EscalateTicketValidationTest
+      - EscalateTicketApplicationServiceTest
+      - TicketEscalatedEventContractTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (10 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      33 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-032:
+  title: Resume Escalated Ticket
+  phase: IMP-TW-P08
+  dependencies:
+    - SPEC-TW-031
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-032-resume-escalated-ticket/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ResumeEscalatedTicketApiMapper
+      - ResumeEscalatedTicketController
+      - ResumeEscalatedTicketRequest
+      - ResumeEscalatedTicketResponse
+      - ResumeEscalatedTicketCommand
+      - ResumeEscalatedTicketResult
+      - TicketEscalationResumedEventMapper
+      - ResumeEscalatedTicketUseCase
+      - ResumeEscalatedTicketApplicationService
+      - TicketEscalationResumed
+
+  test_classes:
+      - ResumeEscalatedTicketValidationTest
+      - ResumeEscalatedTicketApplicationServiceTest
+      - TicketEscalationResumedEventContractTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (10 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      30 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-033:
+  title: Support Queue Authorization
+  phase: IMP-TW-P09
+  dependencies:
+    - SPEC-TW-005
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-033-support-queue-authorization/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - SupportQueueAuthorizationController
+      - SupportQueueAuthorizationEvaluateApiMapper
+      - SupportQueueAuthorizationEvaluateRequest
+      - SupportQueueAuthorizationEvaluateResponse
+      - EvaluateSupportQueueAuthorizationCommand
+      - EvaluateSupportQueueAuthorizationResult
+      - SupportQueueAuthorizationConflictException
+      - SupportQueueAuthorizationDeniedException
+      - SupportQueueAuthorizationFailClosedException
+      - SupportQueueAuthorizationDecisionEntry
+      - SupportQueueAuthorizationAuditRecorder
+      - SupportQueueAuthorizationDecisionCode
+      - SupportQueueAuthorizationPolicy
+      - EvaluateSupportQueueAuthorizationUseCase
+      - SupportQueueAuthorizationDecisionPort
+      - SupportQueueAuthorizationApplicationService
+      - SupportQueueAuthorizationDecisionPersistenceAdapter
+      - SupportQueueAuthorizationDecisionJpaEntity
+      - SpringDataSupportQueueAuthorizationDecisionJpaRepository
+
+  test_classes:
+      - SupportQueueAuthorizationApplicationServiceTest
+      - SupportQueueRoleTest
+      - SupportQueueUnassignedAuthorizationTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (19 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 3 test classes,
+      19 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-034:
+  title: Sensitive-Read Audit
+  phase: IMP-TW-P09
+  dependencies:
+    - SPEC-TW-006
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-034-sensitive-read-audit/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - SensitiveReadAuditPolicyController
+      - SensitiveReadAuditPolicyEvaluateApiMapper
+      - SensitiveReadAuditPolicyEvaluateRequest
+      - SensitiveReadAuditPolicyEvaluateResponse
+      - EvaluateSensitiveReadAuditCommand
+      - EvaluateSensitiveReadAuditResult
+      - SensitiveReadAuditFailureException
+      - SensitiveReadAuditPolicyConflictException
+      - SensitiveReadAuditPolicyDeniedException
+      - SensitiveReadAuditDecisionEntry
+      - SensitiveReadAuditEntry
+      - SensitiveReadAuditDecisionCode
+      - SensitiveReadAuditDecisionRecorder
+      - SensitiveReadAuditPolicy
+      - EvaluateSensitiveReadAuditUseCase
+      - SensitiveReadAuditDecisionPort
+      - SensitiveReadAuditPort
+      - SensitiveReadAuditPolicyApplicationService
+      - SensitiveReadAuditAdapter
+      - SensitiveReadAuditDecisionPersistenceAdapter
+      - SensitiveReadAuditDecisionJpaEntity
+      - SpringDataSensitiveReadAuditDecisionJpaRepository
+
+  test_classes:
+      - SensitiveReadAuditPolicyApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (22 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      7 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-035:
+  title: Secret Detection
+  phase: IMP-TW-P09
+  dependencies:
+    - SPEC-TW-004
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-035-secret-detection/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - SecretDetectionController
+      - SecretDetectionEvaluateApiMapper
+      - SecretDetectionEvaluateRequest
+      - SecretDetectionEvaluateResponse
+      - EvaluateSecretDetectionCommand
+      - EvaluateSecretDetectionResult
+      - SecretDetectionFailClosedException
+      - SecretDetectionPolicyConflictException
+      - SecretDetectionPolicyDeniedException
+      - SecretDetectionDecisionEntry
+      - SecretDetectionAuditRecorder
+      - SecretDetectionDecisionCode
+      - SecretDetectionPolicy
+      - EvaluateSecretDetectionUseCase
+      - SecretDetectionDecisionPort
+      - SecretDetectionPolicyApplicationService
+      - SecretDetectionDecisionPersistenceAdapter
+      - SecretDetectionDecisionJpaEntity
+      - SpringDataSecretDetectionDecisionJpaRepository
+
+  test_classes:
+      - SecretDetectionPolicyApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (19 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      9 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-036:
+  title: Step-Up Authentication
+  phase: IMP-TW-P09
+  dependencies:
+    - SPEC-TW-031
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-036-step-up-authentication/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - StepUpAuthenticationController
+      - StepUpAuthenticationEvaluateApiMapper
+      - StepUpAuthenticationEvaluateRequest
+      - StepUpAuthenticationEvaluateResponse
+      - EvaluateStepUpAuthenticationCommand
+      - EvaluateStepUpAuthenticationResult
+      - StepUpAuthenticationFailClosedException
+      - StepUpAuthenticationPolicyConflictException
+      - StepUpAuthenticationRequiredException
+      - StepUpAuthenticationDecisionEntry
+      - StepUpAuthenticationAuditRecorder
+      - StepUpAuthenticationDecisionCode
+      - StepUpAuthenticationPolicy
+      - EvaluateStepUpAuthenticationUseCase
+      - StepUpAuthenticationDecisionPort
+      - StepUpAuthenticationPolicyApplicationService
+      - StepUpAuthenticationDecisionPersistenceAdapter
+      - StepUpAuthenticationDecisionJpaEntity
+      - SpringDataStepUpAuthenticationDecisionJpaRepository
+
+  test_classes:
+      - StepUpAuthenticationPolicyApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (19 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      8 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-037:
+  title: Open Reconciliation Case
+  phase: IMP-TW-P10
+  dependencies:
+    - SPEC-TW-001
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-037-open-reconciliation-case/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - OpenReconciliationCaseApiMapper
+      - OpenReconciliationCaseController
+      - OpenReconciliationCaseRequest
+      - OpenReconciliationCaseResponse
+      - OpenReconciliationCaseCommand
+      - OpenReconciliationCaseResult
+      - ReconciliationCaseOpenedEventMapper
+      - ReconciliationCaseConflictException
+      - ReconciliationCaseRecord
+      - OpenReconciliationCaseUseCase
+      - ReconciliationCaseAttemptSummary
+      - ReconciliationCaseRepository
+      - OpenReconciliationCaseApplicationService
+      - ReconciliationCasePersistenceAdapter
+
+  test_classes:
+      - OpenReconciliationCaseApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (14 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      7 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-038:
+  title: Replay Event
+  phase: IMP-TW-P10
+  dependencies:
+    - SPEC-TW-037
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-038-replay-event/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ReplayEventApiMapper
+      - ReplayEventController
+      - ReplayEventRequest
+      - ReplayEventResponse
+      - ReplayEventCommand
+      - ReplayEventResult
+      - ReplayEventConflictException
+      - ReplayEventRecord
+      - ReplayEventUseCase
+      - ReplayEventAttemptSummary
+      - ReplayEventGuard
+      - ReplayEventGuardPort
+      - ReplayEventRepository
+      - ReplayEventApplicationService
+      - ReplayEventPersistenceAdapter
+
+  test_classes:
+      - ReplayEventApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (15 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      7 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-039:
+  title: Correction Event
+  phase: IMP-TW-P10
+  dependencies:
+    - SPEC-TW-037
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-039-correction-event/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - PublishCorrectionEventApiMapper
+      - PublishCorrectionEventController
+      - PublishCorrectionEventRequest
+      - PublishCorrectionEventResponse
+      - PublishCorrectionEventCommand
+      - PublishCorrectionEventResult
+      - CorrectionEventPublishedEventMapper
+      - CorrectionEventConflictException
+      - CorrectionEventRecord
+      - PublishCorrectionEventUseCase
+      - CorrectionEventAttemptSummary
+      - CorrectionEventRepository
+      - TicketCorrectionEventGuard
+      - TicketCorrectionEventGuardPort
+      - PublishCorrectionEventApplicationService
+      - CorrectionEventPersistenceAdapter
+
+  test_classes:
+      - PublishCorrectionEventApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (16 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      7 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-040:
+  title: Compensation
+  phase: IMP-TW-P10
+  dependencies:
+    - SPEC-TW-037
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-040-compensation/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ExecuteCompensationApiMapper
+      - ExecuteCompensationController
+      - ExecuteCompensationRequest
+      - ExecuteCompensationResponse
+      - ExecuteCompensationCommand
+      - ExecuteCompensationResult
+      - CompensationExecutedEventMapper
+      - CompensationConflictException
+      - CompensationRecord
+      - ExecuteCompensationUseCase
+      - CompensationAttemptSummary
+      - CompensationRepository
+      - TicketCompensationGuard
+      - TicketCompensationGuardPort
+      - ExecuteCompensationApplicationService
+      - CompensationAction
+      - CompensationPersistenceAdapter
+
+  test_classes:
+      - ExecuteCompensationApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (17 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      7 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.
+
+SPEC-TW-041:
+  title: Data Integrity Repair
+  phase: IMP-TW-P10
+  dependencies:
+    - SPEC-TW-037
+
+  design:
+    lld_documents:
+      - 01-domain-model
+      - 02-business-invariants
+      - 03-state-machine
+      - 04-use-cases
+      - 05-api-contracts
+      - 06-event-contracts
+      - 07-data-model
+      - 08-transaction-and-outbox
+      - 09-concurrency-and-idempotency
+      - 10-error-handling-and-reconciliation
+      - 11-security-and-authorization
+      - 12-observability-and-audit
+      - 13-package-and-class-design
+      - 14-testing-strategy
+    note: >
+      This entry was written during SPEC-OP-036-era investigation of this
+      domain's real state (2026-09-01), not during original spec authoring
+      like SPEC-TW-001~008. It records real, directly-verified implementation
+      and test classes rather than a full LLD business-invariant/API-ID
+      cross-reference (which SPEC-TW-001~008's entries carry) -- see
+      services/ticket-workflow-service/src for the real source and
+      docs/specs/domains/02-ticket-workflow/SPEC-TW-041-data-integrity-repair/spec_EN.md for the
+      full original design intent.
+
+  implementation_classes:
+      - ApplyDataIntegrityRepairApiMapper
+      - ApplyDataIntegrityRepairController
+      - ApplyDataIntegrityRepairRequest
+      - ApplyDataIntegrityRepairResponse
+      - ApplyDataIntegrityRepairCommand
+      - ApplyDataIntegrityRepairResult
+      - IntegrityRepairAppliedEventMapper
+      - DataIntegrityRepairConflictException
+      - IntegrityRepairSourceNotFoundException
+      - DataIntegrityRepairRecord
+      - ApplyDataIntegrityRepairUseCase
+      - DataIntegrityRepairAttemptSummary
+      - DataIntegrityRepairGuard
+      - DataIntegrityRepairGuardPort
+      - DataIntegrityRepairRepository
+      - ApplyDataIntegrityRepairApplicationService
+      - DataIntegrityRepairPersistenceAdapter
+
+  test_classes:
+      - ApplyDataIntegrityRepairApplicationServiceTest
+
+
+  status:
+    specification: reviewed
+    tests: complete
+    implementation: complete
+    verification: >
+      Real code confirmed present under services/ticket-workflow-service/src
+      matching this spec's business concept (17 implementation
+      classes across domain/application/api/infrastructure layers). Real
+      tests confirmed present and PASSING: 1 test classes,
+      7 test methods, 0 failures/errors -- part of the
+      full-suite run (`JAVA_HOME=<jdk-21> ./mvnw -o test -DskipITs=true`)
+      that produced BUILD SUCCESS with 2039 tests total, 0 failures, 0
+      errors, run 2026-09-01. Class-to-spec mapping is by real, direct
+      keyword/package correspondence (e.g. "TransitionTicketStatus*" for
+      this spec), not assumed. Integration tests (Testcontainers-backed)
+      were not separately re-run for every spec in this pass -- this is a
+      stated, honest limitation of this documentation pass, not claimed
+      complete.

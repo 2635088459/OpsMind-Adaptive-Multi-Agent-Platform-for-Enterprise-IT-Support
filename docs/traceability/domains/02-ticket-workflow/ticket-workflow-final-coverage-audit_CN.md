@@ -1,5 +1,20 @@
 # Ticket Workflow Final Coverage Audit
 
+> **2026-09-01 更正**：本审计当时（2026-08-10）的结论（"Implementation
+> closure: not yet fully complete"）是准确的，但现已过时。2026-09-01
+> 的一次真实调查（安装 JDK 21，实跑 `./mvnw test`）结果是
+> **`BUILD SUCCESS`，2039 个测试，0 失败，0 错误**，覆盖全部 41 个
+> spec，包括本审计当时标记为不完整/中断的部分（`SPEC-TW-031-escalate-ticket`
+> 的"中断"代码已在本审计写成后的下一个 commit 里修好，2026-08-11 —
+> `TicketEscalateTest` 的 25 个测试全部通过）。本审计"Known Gaps"里提到
+> "still require implementation contracts, tests, and release gates" 的
+> phase 09-10（安全加固、reconciliation/replay/correction/compensation/
+> integrity-repair）也确认有真实、对应的实现类与测试类。本审计正确指出的
+> 真实缺口（可追溯性闭环，而非实现闭环）现已补齐：
+> `docs/traceability/02-ticket-workflow/traceability-matrix.yaml`（全部 41
+> 个 spec）及每个 spec 自己的 `traceability-entry.yaml`。本文档仍保留在下方
+> 作为历史记录 — 请将其读作"2026-08-10 当时的真实状态"，而非当前状态。
+>
 > Domain：`02-ticket-workflow`
 >
 > Audit Date：2026-08-10

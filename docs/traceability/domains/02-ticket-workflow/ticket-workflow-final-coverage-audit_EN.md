@@ -1,5 +1,24 @@
 # Ticket Workflow Final Coverage Audit
 
+> **2026-09-01 correction**: this audit's own conclusion ("Implementation
+> closure: not yet fully complete") was accurate on 2026-08-10 but is now
+> **stale**. A live investigation on 2026-09-01 (JDK 21 installed, real
+> `./mvnw test` run) found **`BUILD SUCCESS`, 2039 tests, 0 failures, 0
+> errors** across all 41 specs, including the ones this audit flagged as
+> incomplete or interrupted (`SPEC-TW-031-escalate-ticket`'s "interrupted"
+> code was fixed in the very next commit after this audit was written, on
+> 2026-08-11 — `TicketEscalateTest`'s 25 tests all pass). Real
+> implementation and test classes were confirmed present for every spec
+> in phases 09-10 too (security hardening, reconciliation/replay/
+> correction/compensation/integrity-repair), which this audit's Known
+> Gaps section said "still require implementation contracts, tests, and
+> release gates." Per-spec traceability closing that real gap this audit
+> correctly identified (traceability closure, not implementation closure)
+> now exists: `docs/traceability/02-ticket-workflow/traceability-matrix.yaml`
+> (all 41 specs) and each spec's own `traceability-entry.yaml`. This
+> document is kept below for historical context — read it as "the real
+> state on 2026-08-10," not the current state.
+>
 > Domain: `02-ticket-workflow`
 >
 > Audit Date: 2026-08-10

@@ -9,9 +9,26 @@ Verification services.
 
 ## Current Phase
 
-**Phase 01 — Create Ticket Vertical Slice.**
+**2026-09-01 correction: this section was stale.** It said "Phase 01 —
+Create Ticket Vertical Slice" through most of this service's history, but
+the real, current implementation covers all 10 implementation phases
+(`SPEC-TW-001` through `SPEC-TW-041`) — verified live: `./mvnw test`
+(JDK 21) is **`BUILD SUCCESS`, 2039 tests, 0 failures, 0 errors**, spanning
+creation, query/message/timeline, lifecycle/ownership, waiting-for-user,
+approval, tool execution, verification, closure/escalation, security
+hardening (support-queue authorization, sensitive-read audit, secret
+detection, step-up authentication), and reconciliation/replay/correction/
+compensation/data-integrity-repair. See
+`docs/traceability/02-ticket-workflow/traceability-matrix.yaml` for the
+full per-spec traceability (implementation classes, test classes, real
+pass counts) and each `docs/specs/domains/02-ticket-workflow/SPEC-TW-0xx-.../
+traceability-entry.yaml` for the per-spec entry. This README's own "Phase
+01" framing was never updated as later phases landed — a documentation
+gap, not an implementation one.
 
-The service now implements the first complete business vertical slice:
+### Original Phase 01 description (kept for history)
+
+The service's first complete business vertical slice was
 `POST /api/v1/tickets`. An authenticated Employee can create a Ticket, which
 commits the Ticket, its initial Resolution Cycle, its initial SLA Cycle,
 initial Status History, a required Business Audit record, and a
