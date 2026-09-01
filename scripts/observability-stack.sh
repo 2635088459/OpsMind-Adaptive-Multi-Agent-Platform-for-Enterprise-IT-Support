@@ -876,11 +876,11 @@ query_back() {
   echo "  ✓ both evaluation-business alerts loaded"
 
   echo "→ SPEC-OP-012: file_sd discovery is up with correct per-target job labels; TSDB rule evaluated"
-  for j in prometheus otel-collector alertmanager loki tempo grafana postgres-exporter rabbitmq; do
+  for j in prometheus otel-collector alertmanager loki tempo grafana postgres-exporter rabbitmq synthetic-probe; do
     curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22$j%22%7D" | grep -q '"value":\[' \
       || { echo "  ✗ job=$j not up via file_sd discovery"; rc=1; }
   done
-  echo "  ✓ all 9 file_sd-discovered + self-scrape targets are up with their own job labels"
+  echo "  ✓ all file_sd-discovered + self-scrape targets are up with their own job labels"
 
   echo "→ SPEC-OP-029: postgres_exporter / rabbitmq_prometheus real infra metrics scraped"
   curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=pg_up' | grep -q '"value":\[.*,"1"\]' \
@@ -1218,6 +1218,27 @@ sys.exit(0 if ok else 1)
   else
     echo "  (i) could not confirm retention_period: 168h via /config for user-access-authentication — non-fatal, /config reflects the static+runtime merge but its exact per-tenant rendering isn't guaranteed by this endpoint"
   fi
+
+  echo "→ SPEC-OP-033: self-monitoring recording rules + synthetic probe are real and live"
+  for r in prometheus:query_errors:ratio5m loki:query_errors:ratio5m tempo:query_errors:ratio5m otelcol:filter_dropped_spans:rate5m otelcol:tail_sampling_dropped_traces:rate5m; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=$r" | grep -q '"status":"success"' \
+      || { echo "  ✗ $r recording rule failed"; rc=1; }
+  done
+  echo "  ✓ query-error + drop-visibility recording rules all query-valid"
+  for a in PrometheusQueryErrorRateHigh LokiQueryErrorRateHigh TempoQueryErrorRateHigh AlertmanagerNotificationsFailing SyntheticProbeFailing SyntheticProbeStale; do
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/rules?rule_name=$a" | grep -q "$a" \
+      || { echo "  ✗ $a alert rule not found"; rc=1; }
+  done
+  echo "  ✓ all 6 platform-self-monitoring alerts loaded"
+  probe_metrics="$(curl -sf http://localhost:9464/metrics || true)"
+  if printf '%s' "$probe_metrics" | grep -q "synthetic_probe_last_success 1"; then
+    echo "  ✓ synthetic probe's own /metrics reports last_success=1 (real push+query roundtrip through the actual OTLP boundary)"
+  else
+    echo "  ✗ synthetic probe last_success != 1: $probe_metrics"; rc=1
+  fi
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=synthetic_probe_last_success' | grep -q '"value":\[' \
+    && echo "  ✓ synthetic_probe_last_success reachable via Prometheus (file_sd scrape wired correctly)" \
+    || { echo "  ✗ synthetic_probe_last_success not scraped by Prometheus"; rc=1; }
 
   echo "→ SPEC-OP-031: live secret/PII scan proof (Loki log-body redaction)"
   scan_json="$(curl -sf -u admin:admin -H "X-Scope-OrgID: shared" --data-urlencode 'query={service_namespace="shared"} |= "op-031-secret-scan"' \

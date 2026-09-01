@@ -2,8 +2,121 @@ SPEC-OP-033:
   domain: 08-observability-platform
   name: Observability Self Monitoring
   cn_name: 可观测平台自监控
-  status: planned
+  status: implemented
   phase: phase-08-self-monitoring-recovery-degraded-mode
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-002, SPEC-OP-011, SPEC-OP-012, SPEC-OP-015]
+  tech_stack: "New PromQL recording/alerting rules on already-scraped real self-metrics + a new minimal pure-stdlib-Python synthetic-probe sidecar (its own OTLP producer + Tempo query-API consumer), scraped like every other component via the existing file_sd glob"
+  implementation_notes: >
+    Concrete objective: "Self-monitor ingestion, drops, queues, storage,
+    queries, notifications, and synthetic probes." Opens phase-08.
+
+    Investigated first: ingestion/queue self-monitoring was already real
+    (SPEC-OP-011's collector-resilience rules) and storage/retention
+    self-monitoring was already real (SPEC-OP-015) — both explicitly
+    reused, not duplicated. A minimal self-monitoring dashboard + 2
+    seed alerts (TargetDown, PrometheusRuleEvaluationFailing) already
+    existed since SPEC-OP-002, with a comment already stating "SPEC-OP-033
+    owns the full observability-platform self-monitoring alert set" —
+    confirming this spec's real job was to EXTEND that seed, not start
+    from nothing. Genuinely missing: (a) visibility into INTENTIONAL drops
+    (filter/noise, tail_sampling) as distinct from the FAILURES SPEC-OP-011
+    already alerts on; (b) each backend's own QUERY-path health (distinct
+    from ingestion/write-path, already covered); (c) Alertmanager's own
+    NOTIFICATION-delivery health ("who watches the watcher" — if
+    Alertmanager itself fails to deliver, nothing else in this stack would
+    say so); (d) any SYNTHETIC PROBE at all — nothing previously proved the
+    pipeline works continuously, only at CI/manual-smoke time.
+
+    Verified every new metric name against a REAL running stack before
+    writing any rule (not assumed): otelcol_processor_filter_spans_filtered,
+    otelcol_processor_tail_sampling_global_count_traces_sampled{sampled="false"},
+    alertmanager_notifications_failed_total{integration,reason},
+    prometheus_http_requests_total{handler=~"/api/v1/query.*"},
+    loki_request_duration_seconds_count{route="loki_api_v1_query_range"},
+    tempo_request_duration_seconds_count{route=~"api_traces_traceid|querier_api_traces_traceid"}
+    — all confirmed present and real via curl against each component's own
+    /metrics before use.
+
+    BUILT: new rules/recording/platform-self-monitoring.yml (6 rules) +
+    rules/alerting/platform-self-monitoring.yml (6 alerts: 4 warning
+    query-error-rate alerts per backend, 2 critical "who watches the
+    watcher" alerts for notification-delivery and the synthetic probe).
+    Both promtool-validated. New runbook PlatformSelfMonitoring.md (full
+    8-section structure, required since 2 alerts here are critical/paging).
+    Extended dashboards/observability-platform-self.json with 4 new panels
+    (drops, per-backend query-error ratio, notification-failure rate,
+    synthetic-probe success/duration).
+
+    NEW SYNTHETIC PROBE (infrastructure/observability/synthetic-probe/):
+    a minimal pure-stdlib-Python sidecar — NOT a custom telemetry backend
+    (ADR-0002 unaffected: it is a PRODUCER using the same real OTLP/HTTPS
+    ingestion boundary every signal uses, ADR-0007, plus a Tempo query-API
+    CONSUMER; it never talks to a storage backend directly). Every
+    PROBE_INTERVAL_SECONDS (60s default): pushes a real trace through the
+    real Collector, waits past tail_sampling's own decision_wait, queries
+    Tempo for it, and exposes synthetic_probe_last_success /
+    _last_duration_seconds / _runs_total / _failures_total on its own
+    /metrics — scraped by Prometheus via a new file_sd/synthetic-probe.json
+    entry (SPEC-OP-012's existing glob discovery, no Prometheus config
+    edit needed). Built as a docker-compose `build:` service (a local
+    utility image, not one of the 6 pinned telemetry-backend components
+    ADR-0003's version-pinning discipline targets).
+
+    REAL LIVE PROOF the probe genuinely detects failure, not just always
+    reporting success (not merely asserted): confirmed a clean pass
+    (last_success=1) against the healthy stack; then `docker stop
+    opsmind-tempo`, confirmed the probe's NEXT cycle genuinely failed
+    (last_success=0, failures_total incremented, real
+    "Name or service not known" connection error logged); then `docker
+    start opsmind-tempo`, waited for it healthy again, confirmed the probe
+    self-recovered to last_success=1 on its very next cycle with zero
+    manual intervention to the probe itself.
+  lld_mapping:
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - custom_telemetry_backend
+    - alerting_on_intentional_sampling_drops_as_if_they_were_failures
+  artifacts:
+    contract:
+      - infrastructure/observability/synthetic-probe/probe.py
+      - infrastructure/observability/synthetic-probe/Dockerfile
+    enforcement:
+      - infrastructure/docker-compose/observability-stack.yml
+      - infrastructure/observability/prometheus/base/file_sd/synthetic-probe.json
+      - infrastructure/observability/rules/recording/platform-self-monitoring.yml
+      - infrastructure/observability/rules/alerting/platform-self-monitoring.yml
+    rules_runbook:
+      - infrastructure/observability/runbooks/PlatformSelfMonitoring.md
+      - infrastructure/observability/dashboards/observability-platform-self.json
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err/0 warn (transient audit_ref warnings resolved once this doc existed); validate-telemetry-governance.py 0 err/0 warn; validate-signal-contracts.py 0 err/0 warn; validate-collector-pipeline.py 0 err/0 warn; validate-dashboards.py 0 err/1 pre-existing warn; validate-rule-catalog.py 0 err/12 warn (all pre-existing categories, no new orphan — every new runbook/rule is alert-linked); validate-config-change-audit.py 0 err/0 warn; promtool check rules: both new rule files SUCCESS"
+    unit: "scripts/tests — 88 passed, unaffected (no validator logic touched by this spec)"
+    integration: >
+      scripts/observability-stack.sh smoke — SMOKE: PASS, every
+      SPEC-OP-002~031 assertion green plus new SPEC-OP-033 assertions: all
+      5 new recording rules query-valid, all 6 new alerts loaded,
+      synthetic_probe_last_success=1 confirmed both directly (probe's own
+      /metrics) and via Prometheus (proving the file_sd scrape wiring is
+      correct), job=synthetic-probe added to the file_sd target-health
+      check. Separately (outside the smoke script, a one-off live proof for
+      this spec): a real Tempo outage injected and recovered while the
+      probe ran continuously, confirmed failure detection AND
+      self-recovery — see implementation_notes. Full stack (incl. a docker
+      build of the new synthetic-probe image) verified via `up --wait`,
+      every container healthy. Stack torn down clean. Verified 2026-09-01.
+    result: >
+      Self-monitoring now covers all 7 named surfaces: ingestion/queues
+      (SPEC-OP-011, reused), storage (SPEC-OP-015, reused), drops
+      (new, intentional-only, visibility not alerting — a deliberate,
+      stated distinction from SPEC-OP-011's failure alerts), queries (new,
+      per-backend, real metric names verified live), notifications (new,
+      Alertmanager's own delivery-failure metric, critical severity since
+      it is a "who watches the watcher" signal), and synthetic probes
+      (new, a minimal real pipeline-roundtrip prover, proven live to both
+      detect a real injected failure and self-recover — not merely
+      asserted to work). Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-033-traceability.md

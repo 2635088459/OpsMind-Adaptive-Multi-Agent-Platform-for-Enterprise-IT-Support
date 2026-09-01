@@ -1,8 +1,8 @@
 {
   "__opsmind_meta": {
     "owner": "platform-observability",
-    "version": "0.1.0",
-    "spec": "SPEC-OP-002",
+    "version": "0.2.0",
+    "spec": "SPEC-OP-002; SPEC-OP-033 (drops/query-errors/notifications/synthetic-probe panels)",
     "access_policy": "viewer: all-engineering; edit: platform-observability",
     "retention": "n/a (view only)",
     "runbook": "runbooks/TargetDown.md",
@@ -11,29 +11,67 @@
   },
   "uid": "opsmind-observability-self",
   "title": "Observability Platform Self-Monitoring",
-  "tags": ["opsmind", "owner:platform-observability", "v:0.1.0", "spec:SPEC-OP-002"],
+  "tags": [
+    "opsmind",
+    "owner:platform-observability",
+    "v:0.2.0",
+    "spec:SPEC-OP-002",
+    "spec:SPEC-OP-033"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
-  "templating": { "list": [] },
-  "annotations": { "list": [] },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
   "panels": [
     {
       "id": 1,
       "type": "table",
       "title": "Scrape targets (up)",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "up", "instant": true, "format": "table" }
+        {
+          "refId": "A",
+          "expr": "up",
+          "instant": true,
+          "format": "table"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
           ]
         },
         "overrides": []
@@ -42,32 +80,186 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "Collector — accepted vs refused spans (rate/s)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Collector \u2014 accepted vs refused spans (rate/s)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))", "legendFormat": "accepted" },
-        { "refId": "B", "expr": "sum(rate(otelcol_receiver_refused_spans_total[5m]))", "legendFormat": "refused" }
+        {
+          "refId": "A",
+          "expr": "sum(rate(otelcol_receiver_accepted_spans_total[5m]))",
+          "legendFormat": "accepted"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(otelcol_receiver_refused_spans_total[5m]))",
+          "legendFormat": "refused"
+        }
       ]
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Collector — send queue size",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Collector \u2014 send queue size",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "otelcol_exporter_queue_size", "legendFormat": "{{exporter}}" }
+        {
+          "refId": "A",
+          "expr": "otelcol_exporter_queue_size",
+          "legendFormat": "{{exporter}}"
+        }
       ]
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Prometheus — TSDB head series",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "title": "Prometheus \u2014 TSDB head series",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "expr": "prometheus_tsdb_head_series", "legendFormat": "head series" }
+        {
+          "refId": "A",
+          "expr": "prometheus_tsdb_head_series",
+          "legendFormat": "head series"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Intentional drops (rate/s) \u2014 filter/noise + tail_sampling",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "otelcol:filter_dropped_spans:rate5m",
+          "legendFormat": "filter/noise"
+        },
+        {
+          "refId": "B",
+          "expr": "otelcol:tail_sampling_dropped_traces:rate5m",
+          "legendFormat": "tail_sampling"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Backend query error ratio (5m)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prometheus:query_errors:ratio5m",
+          "legendFormat": "prometheus"
+        },
+        {
+          "refId": "B",
+          "expr": "loki:query_errors:ratio5m",
+          "legendFormat": "loki"
+        },
+        {
+          "refId": "C",
+          "expr": "tempo:query_errors:ratio5m",
+          "legendFormat": "tempo"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Alertmanager \u2014 notification failure rate by integration",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "alertmanager:notifications_failed:rate5m",
+          "legendFormat": "{{integration}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Synthetic pipeline probe \u2014 last success / duration",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "synthetic_probe_last_success",
+          "legendFormat": "last_success (1=ok)"
+        },
+        {
+          "refId": "B",
+          "expr": "synthetic_probe_last_duration_seconds",
+          "legendFormat": "duration (s)"
+        }
       ]
     }
   ]

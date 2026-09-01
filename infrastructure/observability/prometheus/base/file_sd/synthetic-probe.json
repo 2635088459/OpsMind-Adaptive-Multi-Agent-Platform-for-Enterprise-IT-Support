@@ -1,0 +1,6 @@
+[
+  {
+    "targets": ["synthetic-probe:9464"],
+    "labels": { "job": "synthetic-probe" }
+  }
+]

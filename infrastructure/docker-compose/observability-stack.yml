@@ -228,6 +228,42 @@ services:
     networks: [observability]
 
   # --------------------------------------------------------------------------
+  # SPEC-OP-033 — synthetic pipeline probe. A PRODUCER (same real OTLP/HTTPS
+  # ingestion boundary every other signal uses, ADR-0007) + a Tempo query-API
+  # CONSUMER, proving the full pipeline continuously, not just at CI/manual-
+  # smoke time. Not a custom telemetry backend (ADR-0002) — it never talks to
+  # a storage backend for writes.
+  # --------------------------------------------------------------------------
+  synthetic-probe:
+    build:
+      context: ../observability/synthetic-probe
+    container_name: opsmind-synthetic-probe
+    restart: unless-stopped
+    environment:
+      OTLP_TRACES_ENDPOINT: https://otel-collector:4318/v1/traces
+      TEMPO_QUERY_BASE: http://tempo:3200
+      OTEL_GATEWAY_AUTH_TOKEN: ${OTEL_GATEWAY_AUTH_TOKEN}
+      PROBE_TENANT: observability-platform
+      PROBE_INTERVAL_SECONDS: "60"
+    ports:
+      - "9464:9464"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9464/metrics', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits: { cpus: "0.1", memory: 64M }
+        reservations: { cpus: "0.02", memory: 16M }
+    labels: *obs-labels
+    networks: [observability]
+    depends_on:
+      otel-collector: { condition: service_healthy }
+      tempo: { condition: service_healthy }
+
+  # --------------------------------------------------------------------------
   # Grafana — dashboards + Explore correlation. Datasources are QUERY ONLY.
   # --------------------------------------------------------------------------
   grafana:

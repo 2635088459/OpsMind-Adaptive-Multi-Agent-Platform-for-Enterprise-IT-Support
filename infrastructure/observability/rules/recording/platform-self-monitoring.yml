@@ -1,0 +1,49 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-033
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/PlatformSelfMonitoring.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-033-traceability.md
+#
+# SPEC-OP-033 — the self-monitoring surfaces SPEC-OP-011/015/020 did not cover:
+# intentional DROPS (distinct from the failures SPEC-OP-011 already alerts on),
+# the QUERY path of every backend (Prometheus/Loki/Tempo's own request handling,
+# not the ingestion path), and Alertmanager's own NOTIFICATION delivery. Every
+# metric name below verified live against a real running stack (0.116.0
+# otelcol-contrib, Prometheus v3.1.0, Loki 3.3.2, Tempo 2.7.1, Alertmanager
+# v0.28.0) — see the traceability doc for the exact discovery commands.
+groups:
+  - name: platform-self-monitoring-recording
+    interval: 30s
+    rules:
+      # Intentional drops (SPEC-OP-009 filter/noise, SPEC-OP-010 tail_sampling) —
+      # expected to be non-zero by DESIGN; this is visibility, not a failure signal.
+      - record: otelcol:filter_dropped_spans:rate5m
+        expr: rate(otelcol_processor_filter_spans_filtered[5m])
+      - record: otelcol:tail_sampling_dropped_traces:rate5m
+        expr: rate(otelcol_processor_tail_sampling_global_count_traces_sampled{sampled="false"}[5m])
+
+      # Query-path health per backend — distinct from each backend's own
+      # ingestion/write path (already covered elsewhere).
+      - record: prometheus:query_errors:ratio5m
+        expr: |
+          sum(rate(prometheus_http_requests_total{handler=~"/api/v1/query.*",code=~"5.."}[5m]))
+          /
+          sum(rate(prometheus_http_requests_total{handler=~"/api/v1/query.*"}[5m]))
+      - record: loki:query_errors:ratio5m
+        expr: |
+          sum(rate(loki_request_duration_seconds_count{route="loki_api_v1_query_range",status_code=~"5.."}[5m]))
+          /
+          sum(rate(loki_request_duration_seconds_count{route="loki_api_v1_query_range"}[5m]))
+      - record: tempo:query_errors:ratio5m
+        expr: |
+          sum(rate(tempo_request_duration_seconds_count{route=~"api_traces_traceid|querier_api_traces_traceid",status_code=~"5.."}[5m]))
+          /
+          sum(rate(tempo_request_duration_seconds_count{route=~"api_traces_traceid|querier_api_traces_traceid"}[5m]))
+
+      # Notification delivery — "who watches the watcher": if Alertmanager
+      # itself cannot deliver, nothing else in this stack would ever say so.
+      - record: alertmanager:notifications_failed:rate5m
+        expr: sum by (integration) (rate(alertmanager_notifications_failed_total[5m]))

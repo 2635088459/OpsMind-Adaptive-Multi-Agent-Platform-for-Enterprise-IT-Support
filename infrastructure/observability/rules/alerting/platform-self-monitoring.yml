@@ -1,0 +1,103 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-033
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/PlatformSelfMonitoring.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-033-traceability.md
+#
+# SPEC-OP-033 — self-monitoring for query-path health, notification delivery, and
+# the synthetic pipeline probe. Intentional drops (otelcol:filter_dropped_spans:*,
+# otelcol:tail_sampling_dropped_traces:*) are deliberately NOT alerted on here —
+# they are visibility-only (dashboard), since dropping by design is not a failure;
+# SPEC-OP-011's CollectorExportFailing/CollectorReceiverThrottling already alert
+# on UNINTENTIONAL drops (failures), which is the real risk signal.
+groups:
+  - name: platform-self-monitoring-alerting
+    rules:
+      - alert: PrometheusQueryErrorRateHigh
+        expr: prometheus:query_errors:ratio5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Prometheus's own query API is erroring on {{ $value | humanizePercentage }} of requests"
+          description: "This is Prometheus's QUERY path (PromQL evaluation via /api/v1/query*), distinct from its scrape/ingestion path. Check prometheus_engine_query_duration_seconds and prometheus logs for the real cause (bad query load, resource pressure, TSDB corruption)."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PlatformSelfMonitoring.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: LokiQueryErrorRateHigh
+        expr: loki:query_errors:ratio5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Loki's query_range API is erroring on {{ $value | humanizePercentage }} of requests"
+          description: "This is Loki's QUERY path (/loki/api/v1/query_range), distinct from its ingestion/write path. Check loki_request_duration_seconds{route=\"loki_api_v1_query_range\"} and Loki's own logs for the real cause."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PlatformSelfMonitoring.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: TempoQueryErrorRateHigh
+        expr: tempo:query_errors:ratio5m > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Tempo's trace-lookup API is erroring on {{ $value | humanizePercentage }} of requests"
+          description: "This is Tempo's QUERY path (trace-by-ID lookup), distinct from its ingestion path. Check tempo_request_duration_seconds{route=~\"api_traces_traceid|querier_api_traces_traceid\"} and Tempo's own logs for the real cause."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PlatformSelfMonitoring.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: AlertmanagerNotificationsFailing
+        # "Who watches the watcher": if Alertmanager itself cannot deliver a real
+        # notification, no other alert in this stack would ever say so.
+        expr: sum(alertmanager:notifications_failed:rate5m) > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Alertmanager has been failing to deliver notifications for 5m+"
+          description: "A stuck or misconfigured receiver means real pages/tickets are silently not reaching anyone. Check alertmanager_notifications_failed_total{reason=...} for the specific integration/reason."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PlatformSelfMonitoring.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: SyntheticProbeFailing
+        # SPEC-OP-033's own synthetic pipeline probe — a continuous, independent
+        # push+query roundtrip through the REAL ingestion boundary (not a
+        # heartbeat/liveness check). A failure here means the pipeline itself is
+        # broken end-to-end, even if every individual component reports healthy.
+        expr: synthetic_probe_last_success == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "The synthetic pipeline probe has been failing for 5m+"
+          description: "A pushed trace did not become queryable in Tempo within the probe's own wait window. This means the FULL pipeline (OTLP ingestion -> Collector processing -> Tempo storage/query) is broken, even if Collector/Tempo individually report healthy — check the collector's own export metrics and Tempo's logs next."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PlatformSelfMonitoring.md"
+          dashboard: "Observability Platform Self-Monitoring"
+
+      - alert: SyntheticProbeStale
+        # The probe itself could be down/crashed (distinct from it running and
+        # reporting a failed roundtrip) — catches that failure mode too.
+        expr: time() - synthetic_probe_last_run_unix > 300
+        for: 2m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "The synthetic pipeline probe has not reported a run in 5m+"
+          description: "The probe container itself may be down, crash-looping, or unable to reach Prometheus. Check `docker logs opsmind-synthetic-probe`."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/PlatformSelfMonitoring.md"
+          dashboard: "Observability Platform Self-Monitoring"
