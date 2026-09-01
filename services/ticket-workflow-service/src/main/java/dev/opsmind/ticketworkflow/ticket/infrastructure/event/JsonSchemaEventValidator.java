@@ -40,6 +40,17 @@ public class JsonSchemaEventValidator implements EventSchemaValidator {
         Map.entry("ticket.user-reply-received:1", "event-schemas/ticket/published/ticket-user-reply-received-v1.schema.json"),
         Map.entry("ticket.user-input-resumed:1", "event-schemas/ticket/published/ticket-user-input-resumed-v1.schema.json"),
         Map.entry("ticket.approval-wait-started:1", "event-schemas/ticket/published/ticket-approval-wait-started-v1.schema.json"),
+        // Project-level integration verification (2026-09-01): the real
+        // translation-bridge event into policy-approval-governance-
+        // service's own ticket.approval.required.v1 consumer contract --
+        // see TicketApprovalRequiredBridgeEventMapper's own javadoc. Key
+        // includes the ".v1" inside the eventType half (unlike every other
+        // entry in this map): governance's own consumer checks the
+        // envelope's `eventType` field for the exact literal string
+        // "ticket.approval.required.v1", not a separately split version --
+        // that consumer's contract dictates this bridge event's wire shape,
+        // not this service's own eventType/eventVersion-split convention.
+        Map.entry("ticket.approval.required.v1:1", "event-schemas/ticket/published/ticket-approval-required-v1.schema.json"),
         Map.entry("ticket.approval-granted-applied:1", "event-schemas/ticket/published/ticket-approval-granted-applied-v1.schema.json"),
         Map.entry("ticket.approval-rejected-applied:1", "event-schemas/ticket/published/ticket-approval-rejected-applied-v1.schema.json"),
         Map.entry("ticket.approval-expired-applied:1", "event-schemas/ticket/published/ticket-approval-expired-applied-v1.schema.json"),

@@ -2,7 +2,7 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from alembic import context
 
@@ -43,6 +43,24 @@ def include_object(object, name, type_, reflected, compare_to):
     return True
 
 
+# REAL BUG found live (project-level integration verification, 2026-09-01),
+# not just the SPEC-MK-032/SPEC-TG-002-era comments about it: the shared
+# Postgres database is also ticket-workflow-service's, memory-knowledge-
+# service's, evaluation-improvement-service's, and tool-integration-gateway's
+# own — this was the one remaining service whose migrations/env.py never set
+# version_table_schema, so its alembic history collided with theirs in the
+# same default public.alembic_version table (memory-knowledge-service's own
+# SPEC-MK-032 found exactly this collision against THIS service specifically
+# — see that service's own migrations/env.py comment — but this file itself
+# was never given the matching fix). Scoping this service's own version table
+# to its own dedicated `agent_runtime` schema — the same isolation
+# 07-data-model §"Schema" already requires of every real table — closes that
+# collision. CREATE SCHEMA IF NOT EXISTS must run before context.configure()
+# itself: alembic creates <schema>.alembic_version on its own, but never the
+# schema that's meant to contain it.
+_VERSION_TABLE_SCHEMA = Base.metadata.schema
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -52,6 +70,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
         include_object=include_object,
+        version_table_schema=_VERSION_TABLE_SCHEMA,
     )
 
     with context.begin_transaction():
@@ -66,11 +85,14 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        connection.execute(text(f"CREATE SCHEMA IF NOT EXISTS {_VERSION_TABLE_SCHEMA}"))
+        connection.commit()
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             include_schemas=True,
             include_object=include_object,
+            version_table_schema=_VERSION_TABLE_SCHEMA,
         )
 
         with context.begin_transaction():

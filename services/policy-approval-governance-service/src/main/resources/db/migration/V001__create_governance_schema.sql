@@ -1,4 +1,19 @@
 -- SPEC-PG-002: one shared Postgres instance, one schema per service
 -- (see ticket-workflow-service's `ticket` schema and tool-integration-gateway's
 -- `tool` schema for the same convention). This service owns `governance`.
-CREATE SCHEMA governance;
+--
+-- IF NOT EXISTS (project-level integration verification, 2026-09-01): a real
+-- bug found live bringing all 7 services up together for the first time --
+-- with `spring.flyway.create-schemas` at its Spring Boot default (true) and
+-- `schemas: [governance]` now set in application.yml (see that file), Flyway
+-- itself pre-creates the `governance` schema before running this migration,
+-- so this statement must tolerate the schema already existing. Same class of
+-- bug as the memory-knowledge-service/agent-runtime-service Alembic
+-- `version_table_schema` collision, but for Flyway: every one of these 3 Java
+-- services was writing its own `flyway_schema_history` bookkeeping table to
+-- the shared default `public` schema, so their same-numbered migrations
+-- (V001, V002, ...) collided as checksum mismatches the moment more than one
+-- of these services ran against the same database at once -- invisible to
+-- any single service's own Testcontainers-based tests, which each get a
+-- throwaway Postgres to themselves.
+CREATE SCHEMA IF NOT EXISTS governance;

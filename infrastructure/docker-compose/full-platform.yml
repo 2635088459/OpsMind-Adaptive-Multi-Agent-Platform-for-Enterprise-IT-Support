@@ -1,0 +1,266 @@
+# owner: platform-wide
+# rollback: git revert <sha>; docker compose -f local-platform.yml -f full-platform.yml down
+#
+# NEW (2026-09-01): the first real docker-compose bringing up all 7 real
+# hexagonal services together, on top of local-platform.yml's existing shared
+# Postgres/RabbitMQ. Every service defaults to the SAME shared "ticket_workflow"
+# database (confirmed live across every service's settings/application-local.yml)
+# with its own dedicated schema — not a separate database per service. Invoke
+# with BOTH files:
+#
+#   docker compose -f infrastructure/docker-compose/local-platform.yml \
+#                  -f infrastructure/docker-compose/full-platform.yml \
+#                  up -d --build
+#
+# domain 08 (observability-platform) has no service of its own (infra-config
+# only, per its own README) and is deliberately not included here — its own
+# infrastructure/docker-compose/observability-stack.yml is a separate stack.
+#
+# Real, honest scope for this first pass: user-access-authentication-service's
+# OIDC-gated browser-login flows need a real Keycloak instance, which does not
+# exist as a standing container anywhere in this repo (infrastructure/keycloak/
+# is an empty placeholder — confirmed during SPEC-OP-030). This compose brings
+# the service up regardless (Spring's OAuth2 resource server validates JWKS
+# lazily, not at startup) and documents this as a real, stated limitation of
+# this first integration pass, not a hidden gap.
+
+services:
+  # Real Keycloak, added live during project-level integration verification
+  # (2026-09-01): every non-actuator endpoint on the 2 Spring resource-server
+  # services below requires a genuinely signed JWT (`.anyRequest()
+  # .authenticated()` + `oauth2ResourceServer().jwt()`, no local-dev bypass),
+  # so a real cross-domain business-flow test needs a real issuer, not a
+  # forged token.
+  #
+  # Real bug found live: KC_HOSTNAME set to a bare hostname (`keycloak`) only
+  # pins the host part of every issued `iss` claim under Keycloak 25's
+  # default hostname:v2 provider -- the PORT still tracks whatever port the
+  # caller's own request came in on (8081 from the host-mapped port, 8080
+  # from a sibling container on the internal network), so the discovery
+  # document's own `issuer` field silently disagreed with itself depending
+  # on who asked. KC_HOSTNAME must be a full base URL (scheme+host+port) to
+  # pin the whole thing, which is what every resource-server service's own
+  # KEYCLOAK_ISSUER_URI below must then match exactly.
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.6
+    container_name: opsmind-keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://keycloak:8080
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ../keycloak/opsmind-realm.json:/opt/keycloak/data/import/opsmind-realm.json:ro
+    ports:
+      - "8081:8080"
+    healthcheck:
+      # Real bug found live: Keycloak 25's health endpoints live on the
+      # separate management interface (port 9000, confirmed via this
+      # container's own boot log: "Management interface listening on
+      # http://0.0.0.0:9000"), not the app port -- a healthcheck against
+      # :8080/health/ready 404s forever and never turns healthy.
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nhost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'UP' <&3"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 10
+
+  agent-runtime-service:
+    build:
+      context: ../../services/agent-runtime-service
+    container_name: opsmind-agent-runtime-service
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      EVENT_PUBLISHER_ADAPTER: rabbitmq
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  memory-knowledge-service:
+    build:
+      context: ../../services/memory-knowledge-service
+    container_name: opsmind-memory-knowledge-service
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      EVENT_PUBLISHER_ADAPTER: rabbitmq
+    ports:
+      - "8010:8010"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  evaluation-improvement-service:
+    build:
+      context: ../../services/evaluation-improvement-service
+    container_name: opsmind-evaluation-improvement-service
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      EVENT_PUBLISHER_ADAPTER: rabbitmq
+      # Real bug this compose is likely to surface: this default (from
+      # settings.py) points at :8003, but agent-runtime-service's own real
+      # port is 8000 (see its main.py) -- overriding here with the real value
+      # rather than silently leaving a stale default in place.
+      AGENT_RUNTIME_BASE_URL: http://agent-runtime-service:8000
+      POLICY_APPROVAL_BASE_URL: http://policy-approval-governance-service:8086
+    ports:
+      - "8011:8011"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  tool-integration-gateway:
+    build:
+      context: ../../services/tool-integration-gateway
+    container_name: opsmind-tool-integration-gateway
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      EVENT_PUBLISHER_ADAPTER: rabbitmq
+    ports:
+      - "8020:8020"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  user-access-authentication-service:
+    build:
+      context: ../../services/user-access-authentication-service
+    container_name: opsmind-user-access-authentication-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      SERVER_PORT: "8087"
+      # Project-level integration verification (2026-09-01): this service
+      # needed a real Keycloak more than the other 2 Java services -- it
+      # configures real OAuth2 CLIENT registration (browser SSO,
+      # SPEC-UA-005/018), which eagerly resolves the OIDC discovery
+      # document at Spring Boot startup via
+      # ClientRegistrations#fromIssuerLocation, unlike the resource-server-
+      # only config the other services use (lazy JWKS fetch). Real client
+      # + matching secret registered in opsmind-realm.json, redirect URIs
+      # pointed at the host-mapped port (8087) since a real browser login
+      # round trip is reached via localhost, not the in-network hostname.
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+      KEYCLOAK_CLIENT_SECRET: user-access-secret
+    ports:
+      - "8087:8087"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  ticket-workflow-service:
+    build:
+      context: ../../services/ticket-workflow-service
+    container_name: opsmind-ticket-workflow-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+
+  policy-approval-governance-service:
+    build:
+      context: ../../services/policy-approval-governance-service
+    container_name: opsmind-policy-approval-governance-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      SERVER_PORT: "8086"
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+    ports:
+      - "8086:8086"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy

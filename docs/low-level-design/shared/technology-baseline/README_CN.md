@@ -129,7 +129,7 @@ Playwright
 SSE
 ```
 
-MVP 使用一个 Web Portal，通过 `employee`、`support`、`admin`、`manager`、`auditor` 角色路由划分页面。
+**2026-09-01 架构变更**（domain 09/10 立项时确认，取代下方曾经的"单一 Portal、按角色分区"设想）：拆分为 `apps/employee-portal`（domain 09，员工自助/对话式支持）与 `apps/support-console`（domain 10，坐席/管理员控制台）两个独立的前端应用——不是一个门户内部按角色路由。理由：两者面向的用户心智模型本身不同（员工要的是一段对话，坐席要的是一张可扫描的工作台），拆开比合并进同一份路由/组件树更清晰；`apps/` 目录结构从项目初始就是两个独立文件夹，与本文档旧文字始终不一致，现以 `apps/` 目录结构为准正式澄清。两者仍共享同一套技术栈（本节其余内容）、同一个 Keycloak realm、同一批后端 REST API，只是各自独立部署、独立路由树。
 
 规则：
 
@@ -528,7 +528,9 @@ docs/
     │   ├── 05-tool-integration-gateway/
     │   ├── 06-policy-approval-governance/
     │   ├── 07-evaluation-improvement/
-    │   └── 08-observability-platform/
+    │   ├── 08-observability-platform/
+    │   ├── 09-employee-portal/
+    │   └── 10-support-console/
     ├── README_CN.md
     └── README_EN.md
 ```

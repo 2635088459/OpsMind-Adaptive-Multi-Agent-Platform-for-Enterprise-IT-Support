@@ -22,10 +22,16 @@ COPY --from=build /workspace/target/policy-approval-governance-service.jar app.j
 
 USER opsmind
 
+# Real bug found live (project-level integration verification, 2026-09-01):
+# this service's own application-local.yml defaults SERVER_PORT to 8086, not
+# Spring Boot's usual 8080 -- this file was a generic copy of the sibling
+# services' own Dockerfile that never accounted for that. Never caught by any
+# single-service test (Testcontainers/MockMvc tests bind to a random port,
+# never this Docker healthcheck).
 ENV JAVA_OPTS=""
-EXPOSE 8080
+EXPOSE 8086
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD curl --fail http://localhost:8080/actuator/health/liveness || exit 1
+    CMD curl --fail http://localhost:8086/actuator/health/liveness || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]

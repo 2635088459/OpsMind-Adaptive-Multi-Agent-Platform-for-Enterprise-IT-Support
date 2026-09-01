@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.opsmind.ticketworkflow.ticket.application.command.ActorContext;
 import dev.opsmind.ticketworkflow.ticket.application.command.RequestApprovalCommand;
 import dev.opsmind.ticketworkflow.ticket.application.command.RequestApprovalResult;
+import dev.opsmind.ticketworkflow.ticket.application.event.TicketApprovalRequiredBridgeEventMapper;
 import dev.opsmind.ticketworkflow.ticket.application.event.TicketApprovalWaitStartedEventMapper;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ApprovalRequestAlreadyOpenException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
@@ -79,6 +80,7 @@ public class RequestApprovalApplicationService implements RequestApprovalUseCase
     private final ClockPort clock;
     private final RequestHashCalculator requestHashCalculator;
     private final TicketApprovalWaitStartedEventMapper eventMapper;
+    private final TicketApprovalRequiredBridgeEventMapper bridgeEventMapper;
     private final TicketTelemetry telemetry;
     private final ObjectMapper objectMapper;
 
@@ -92,6 +94,7 @@ public class RequestApprovalApplicationService implements RequestApprovalUseCase
         ClockPort clock,
         RequestHashCalculator requestHashCalculator,
         TicketApprovalWaitStartedEventMapper eventMapper,
+        TicketApprovalRequiredBridgeEventMapper bridgeEventMapper,
         TicketTelemetry telemetry,
         ObjectMapper objectMapper
     ) {
@@ -104,6 +107,7 @@ public class RequestApprovalApplicationService implements RequestApprovalUseCase
         this.clock = clock;
         this.requestHashCalculator = requestHashCalculator;
         this.eventMapper = eventMapper;
+        this.bridgeEventMapper = bridgeEventMapper;
         this.telemetry = telemetry;
         this.objectMapper = objectMapper;
     }
@@ -151,6 +155,12 @@ public class RequestApprovalApplicationService implements RequestApprovalUseCase
                 traceId, command.commandId(), "SUCCESS", "INTERNAL", now, null, null
             ));
             outboxEventRepository.append(eventMapper.map(started, guard.supportQueueId(), traceId, command.correlationId(), command.commandId()));
+            // Translation bridge into policy-approval-governance-service's own
+            // consumer contract (SPEC-PG-027) -- see
+            // TicketApprovalRequiredBridgeEventMapper's own javadoc for the full
+            // reasoning. Staged in the same transaction, so this and the event
+            // above are both durably queued or neither is.
+            outboxEventRepository.append(bridgeEventMapper.map(started, traceId, command.correlationId(), command.commandId()));
 
             RequestApprovalResult result = new RequestApprovalResult(
                 command.ticketId(), started.approvalRequestId(), started.approvalId(), started.previousStatus(), started.newStatus(),

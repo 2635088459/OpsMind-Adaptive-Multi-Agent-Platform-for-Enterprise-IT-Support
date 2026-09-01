@@ -13,6 +13,16 @@ spring:
       ddl-auto: validate
   lifecycle:
     timeout-per-shutdown-phase: 20s
+  # Project-level integration verification (2026-09-01): scopes this
+  # service's own `flyway_schema_history` bookkeeping table into its own
+  # `governance` schema instead of Flyway's default `public` -- without this,
+  # every one of the 3 Java services here collided in the same shared
+  # `public.flyway_schema_history` table the moment they ran against the same
+  # database at once (same-numbered migrations across services read back as
+  # checksum mismatches). See V001's own comment for the full root cause.
+  flyway:
+    schemas: governance
+    default-schema: governance
 
 server:
   shutdown: graceful

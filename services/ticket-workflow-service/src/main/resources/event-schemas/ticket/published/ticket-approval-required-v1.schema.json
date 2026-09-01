@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsmind.dev/schemas/events/ticket/published/ticket-approval-required-v1.schema.json",
+  "title": "ticket.approval.required.v1 payload",
+  "description": "Project-level integration verification (2026-09-01): a real translation bridge into policy-approval-governance-service's own consumed-event contract (SPEC-PG-027, TicketApprovalRequiredPayload) -- published alongside, not instead of, this service's own ticket.approval-wait-started.v1 (SPEC-TW-014, ticket-approval-wait-started-v1.schema.json). See TicketApprovalRequiredBridgeEventMapper's own javadoc for the full reasoning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ticketId",
+    "exceptionType",
+    "riskLevel",
+    "inputHash",
+    "constraints",
+    "expiresAt"
+  ],
+  "properties": {
+    "ticketId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "exceptionType": {
+      "type": ["string", "null"],
+      "enum": ["SLA_EXCEPTION", "CLOSURE_OVERRIDE", "ESCALATION_EXCEPTION", null]
+    },
+    "riskLevel": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+    },
+    "inputHash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "constraints": {
+      "type": "array"
+    },
+    "expiresAt": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}

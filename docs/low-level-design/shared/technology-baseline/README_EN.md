@@ -118,7 +118,7 @@ Playwright
 SSE
 ```
 
-One portal provides role-based areas for employees, support, administrators, managers, and auditors.
+**2026-09-01 architecture change** (settled when domains 09/10 were chartered, superseding the "one portal, role-based areas" sentence below): split into two independent frontend applications — `apps/employee-portal` (domain 09, employee self-service / conversational support) and `apps/support-console` (domain 10, support-staff / admin console) — not one portal with internal role-based routing. Reason: the two audiences have genuinely different mental models (an employee wants a conversation; support staff want a scannable operating console), and separating them is clearer than merging into one route/component tree; `apps/` has been two separate folders since the project's own initial scaffold, always in tension with this document's older wording, now formally reconciled in the `apps/` directory's favor. Both still share this section's technology stack, one Keycloak realm, and the same backend REST APIs — only deployment and routing trees are separate.
 
 Rules: no direct infrastructure access; all business data comes through APIs; backend authorization is mandatory; secrets and unrestricted prompts are never displayed; SSE supports reconnect, heartbeat, and Last-Event-ID.
 
@@ -439,7 +439,9 @@ docs/
     │   ├── 05-tool-integration-gateway/
     │   ├── 06-policy-approval-governance/
     │   ├── 07-evaluation-improvement/
-    │   └── 08-observability-platform/
+    │   ├── 08-observability-platform/
+    │   ├── 09-employee-portal/
+    │   └── 10-support-console/
     ├── README_CN.md
     └── README_EN.md
 ```

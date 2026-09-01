@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.opsmind.ticketworkflow.ticket.application.command.ActorContext;
 import dev.opsmind.ticketworkflow.ticket.application.command.RequestApprovalCommand;
 import dev.opsmind.ticketworkflow.ticket.application.command.RequestApprovalResult;
+import dev.opsmind.ticketworkflow.ticket.application.event.TicketApprovalRequiredBridgeEventMapper;
 import dev.opsmind.ticketworkflow.ticket.application.event.TicketApprovalWaitStartedEventMapper;
 import dev.opsmind.ticketworkflow.ticket.application.exception.ApprovalRequestAlreadyOpenException;
 import dev.opsmind.ticketworkflow.ticket.application.exception.IdempotencyKeyReusedException;
@@ -52,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,9 +98,11 @@ class RequestApprovalApplicationServiceTest {
         });
 
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+        RequestHashCalculator requestHashCalculator = new RequestHashCalculator(objectMapper);
         service = new RequestApprovalApplicationService(
             guardPort, requestRepository, historyWriter, auditRecordPort, outboxEventRepository, idempotencyRepository,
-            clock, new RequestHashCalculator(objectMapper), new TicketApprovalWaitStartedEventMapper(), telemetry, objectMapper
+            clock, requestHashCalculator, new TicketApprovalWaitStartedEventMapper(),
+            new TicketApprovalRequiredBridgeEventMapper(requestHashCalculator), telemetry, objectMapper
         );
     }
 
@@ -151,11 +155,23 @@ class RequestApprovalApplicationServiceTest {
         assertThat(auditCaptor.getValue().action()).isEqualTo("APPROVAL_REQUESTED");
         assertThat(auditCaptor.getValue().outcome()).isEqualTo("SUCCESS");
 
+        // Project-level integration verification (2026-09-01): this operation now
+        // stages a SECOND outbox entry alongside its own -- a translation bridge
+        // into policy-approval-governance-service's own consumer contract (see
+        // TicketApprovalRequiredBridgeEventMapper's own javadoc) -- so append()
+        // is called twice, not once.
         ArgumentCaptor<OutboxEventEntry> outboxCaptor = ArgumentCaptor.forClass(OutboxEventEntry.class);
-        verify(outboxEventRepository).append(outboxCaptor.capture());
-        assertThat(outboxCaptor.getValue().eventType()).isEqualTo("ticket.approval-wait-started");
-        assertThat(outboxCaptor.getValue().routingKey()).isEqualTo("ticket.approval-wait-started.v1");
-        assertThat(outboxCaptor.getValue().payload()).doesNotContainKey("riskContext");
+        verify(outboxEventRepository, times(2)).append(outboxCaptor.capture());
+        OutboxEventEntry ownEvent = outboxCaptor.getAllValues().get(0);
+        assertThat(ownEvent.eventType()).isEqualTo("ticket.approval-wait-started");
+        assertThat(ownEvent.routingKey()).isEqualTo("ticket.approval-wait-started.v1");
+        assertThat(ownEvent.payload()).doesNotContainKey("riskContext");
+
+        OutboxEventEntry bridgeEvent = outboxCaptor.getAllValues().get(1);
+        assertThat(bridgeEvent.eventType()).isEqualTo("ticket.approval.required.v1");
+        assertThat(bridgeEvent.routingKey()).isEqualTo("ticket.approval.required.v1");
+        assertThat(bridgeEvent.payload()).containsKeys("ticketId", "riskLevel", "inputHash");
+        assertThat(bridgeEvent.payload()).doesNotContainKey("riskContext");
 
         verify(idempotencyRepository).complete(any(), any());
         verify(telemetry).recordRequestApprovalCommand("success");

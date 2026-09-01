@@ -1,0 +1,469 @@
+<title>Integration Verification</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --paper: #eef0ec;
+    --surface: #ffffff;
+    --ink: #1c2321;
+    --muted: #5b645f;
+    --faint: #838d84;
+    --border: #d7dbd3;
+    --accent: #9c6316;
+    --accent-ink: #7a4f10;
+    --accent-soft: #f1e3cd;
+    --ok: #2f6b4d;
+    --ok-soft: #e2ede6;
+    --danger: #a8362f;
+    --danger-soft: #f2e2e0;
+    --term-bg: #1a201d;
+    --term-ink: #d9e0d8;
+    --term-muted: #8b968d;
+    --term-accent: #e0aa5c;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #12161a;
+      --surface: #191f24;
+      --ink: #e8eae5;
+      --muted: #a2ada4;
+      --faint: #74807a;
+      --border: #2b3339;
+      --accent: #d9a856;
+      --accent-ink: #f0c988;
+      --accent-soft: #2c2417;
+      --ok: #74c19a;
+      --ok-soft: #1d2b24;
+      --danger: #e08079;
+      --danger-soft: #2e1e1c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #12161a;
+    --surface: #191f24;
+    --ink: #e8eae5;
+    --muted: #a2ada4;
+    --faint: #74807a;
+    --border: #2b3339;
+    --accent: #d9a856;
+    --accent-ink: #f0c988;
+    --accent-soft: #2c2417;
+    --ok: #74c19a;
+    --ok-soft: #1d2b24;
+    --danger: #e08079;
+    --danger-soft: #2e1e1c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 64px 24px 96px;
+  }
+
+  /* ---------- Masthead ---------- */
+  .masthead {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 28px;
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    margin: 0 0 14px;
+  }
+  .eyebrow::before { content: "▪ "; }
+  h1.title {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-weight: 600;
+    font-size: clamp(2.1rem, 4.5vw, 2.8rem);
+    line-height: 1.08;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    text-wrap: balance;
+  }
+  .dek {
+    font-size: 1.05rem;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0 0 22px;
+  }
+  .stat-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat b {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat span {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  /* ---------- Sections ---------- */
+  section { margin: 0 0 52px; }
+  section:last-of-type { margin-bottom: 0; }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  h2 {
+    font-family: 'IBM Plex Serif', Georgia, serif;
+    font-weight: 600;
+    font-size: 1.5rem;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .section-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--faint);
+  }
+  .section-intro {
+    color: var(--muted);
+    max-width: 66ch;
+    margin: 10px 0 22px;
+  }
+
+  p { max-width: 68ch; }
+  strong { font-weight: 600; }
+
+  /* ---------- Status chips ---------- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 3px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .chip.fixed { background: var(--ok-soft); color: var(--ok); }
+  .chip.found { background: var(--danger-soft); color: var(--danger); }
+  .chip.verified { background: var(--accent-soft); color: var(--accent-ink); }
+  .chip.scope { background: transparent; color: var(--faint); border: 1px solid var(--border); }
+
+  /* ---------- Bug cards ---------- */
+  .bug {
+    border-top: 1px solid var(--border);
+    padding: 22px 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .bug:last-child { border-bottom: 1px solid var(--border); }
+  .bug-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .bug-title {
+    font-weight: 600;
+    font-size: 1.02rem;
+  }
+  .bug-services {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .bug p { color: var(--muted); font-size: 0.96rem; margin: 2px 0 0; }
+
+  /* ---------- Terminal / evidence inset ---------- */
+  .evidence {
+    background: var(--term-bg);
+    color: var(--term-ink);
+    border-radius: 5px;
+    padding: 16px 18px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    overflow-x: auto;
+    margin: 14px 0;
+  }
+  .evidence .prompt { color: var(--term-muted); }
+  .evidence .hit { color: var(--term-accent); font-weight: 600; }
+  .evidence .ok-line { color: #8fd6ac; }
+  .evidence-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 18px 0 -6px;
+  }
+
+  /* ---------- Flow steps ---------- */
+  .flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0 4px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+  }
+  .flow .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+  .flow .arrow { color: var(--faint); align-self: center; }
+
+  /* ---------- Table ---------- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+  th, td {
+    text-align: left;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  thead th {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+    background: var(--surface);
+    font-weight: 600;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.svc { font-weight: 600; }
+  td.port { font-family: 'IBM Plex Mono', monospace; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Scope-boundary list ---------- */
+  .boundary {
+    border-left: 3px solid var(--border);
+    padding: 4px 0 4px 16px;
+    margin: 16px 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+  .boundary + .boundary { margin-top: 12px; }
+  .boundary b { color: var(--ink); }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  @media (max-width: 560px) {
+    .page { padding: 40px 18px 72px; }
+    .stat-strip { gap: 20px; }
+  }
+</style>
+
+<div class="page">
+
+  <div class="masthead">
+    <p class="eyebrow">OpsMind Platform — Field Report</p>
+    <h1 class="title">Integration Verification</h1>
+    <p class="dek">The first time all seven OpsMind backend services were brought up together, run against a real Keycloak, and driven through real cross-domain business flows — not read from code, clicked through a live stack.</p>
+    <div class="stat-strip">
+      <div class="stat"><b>7 / 7</b><span>Services wired live</span></div>
+      <div class="stat"><b>8</b><span>Real bugs found &amp; fixed</span></div>
+      <div class="stat"><b>4</b><span>Flows proven end-to-end</span></div>
+      <div class="stat"><b>0</b><span>Commits made</span></div>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head"><span class="section-num">01</span><h2>Why this happened</h2></div>
+    <p class="section-intro">Every domain in the platform — ticket workflow, policy approval, memory &amp; knowledge, tool integration, agent runtime, evaluation, user access, observability — had already been individually spec-complete and independently test-covered. None of the seven backend services had ever been started in the same place at the same time. Spec-complete and integration-verified turned out to be two different claims.</p>
+    <p>A shared Postgres, a shared RabbitMQ, a new multi-service Compose stack, and — because every Java service's endpoints require a genuinely signed JWT — a real Keycloak realm went up for the first time. What follows is what broke, and what it took to make it real.</p>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">02</span><h2>Eight bugs, none of them visible in isolation</h2></div>
+    <p class="section-intro">Every one of these was invisible to every existing test suite, because every existing test suite gives each service its own throwaway database and a random port. Only running the real services side by side surfaced them.</p>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">Flyway history table collision across services</span>
+        <span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">ticket-workflow · policy-approval-governance · user-access-authentication</span>
+      <p>All three Java services wrote <code>flyway_schema_history</code> to the same default <code>public</code> schema. The moment two ran against the shared database at once, identical migration version numbers from different services read back as checksum mismatches. Scoped each service's history table into its own schema, and made each <code>V001</code> migration's schema creation idempotent.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">Docker healthcheck ports hardcoded to the wrong value</span>
+        <span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">policy-approval-governance (8086) · user-access-authentication (8087)</span>
+      <p>Both Dockerfiles were copied from a sibling that really does run on 8080. Neither service's own healthcheck had ever actually been exercised before — Testcontainers-based tests bind to a random port and never touch this file.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">Keycloak's issued tokens disagreed with themselves on port</span>
+        <span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">keycloak</span>
+      <p>Setting <code>KC_HOSTNAME</code> to a bare hostname only pins the host half of every <code>iss</code> claim — the port still tracked whichever port the caller happened to connect through, 8081 from the host or 8080 from inside the network. Two callers, two different issuers. Fixed by pinning a full base URL.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">A hardcoded scope claim gets silently overwritten</span>
+        <span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">keycloak</span>
+      <p><code>scope</code> is not an ordinary claim — Keycloak regenerates it from the client's actually-granted scopes after every mapper runs. A hardcoded-claim mapper aimed at it quietly loses. Fixed with a real, granted client scope instead.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">No outbox dispatcher existed at all</span>
+        <span class="chip found">Major finding</span><span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">ticket-workflow</span>
+      <p>The write side of the outbox pattern was solid — every domain event landed transactionally in <code>outbox_events</code>. Nothing ever drained a row back out. <code>published_at</code> was <code>NULL</code> on every row, forever. Built a real claim‑publish‑retry dispatcher, exposed behind an admin/scheduler endpoint, mirroring the one working precedent already in the codebase.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">Two domains built the same event twice, differently</span>
+        <span class="chip found">Major finding</span><span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">ticket-workflow ↔ policy-approval-governance</span>
+      <p>ticket-workflow's own <code>ticket.approval-wait-started.v1</code> and governance's consumed <code>ticket.approval.required.v1</code> were both legitimate, independently specified contracts for the same real-world fact — different name, different payload shape — that had simply never been reconciled. Neither was rewritten; a translation bridge stages a second, correctly-shaped event alongside the first.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">A realm import silently drops Keycloak's own default scopes</span>
+        <span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">keycloak</span>
+      <p>Declaring a realm's own <code>clientScopes</code> array replaces Keycloak's built-in defaults rather than adding to them — <code>profile</code> and <code>email</code> simply didn't exist, breaking the browser login the instant it asked for them. Added them back explicitly.</p>
+    </div>
+
+    <div class="bug">
+      <div class="bug-head">
+        <span class="bug-title">A description string overflowed a database column</span>
+        <span class="chip fixed">Fixed</span>
+      </div>
+      <span class="bug-services">keycloak</span>
+      <p>One of the fix comments above ran past Keycloak's own 255-character limit on a scope description and crashed the entire realm import at boot. Caught immediately in the logs; shortened.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">03</span><h2>What was actually proven live</h2></div>
+    <p class="section-intro">Not "the code looks right" — a running stack, real HTTP calls, real database rows, read back afterward.</p>
+
+    <p><strong>A ticket's real lifecycle, under a real Keycloak-issued JWT:</strong></p>
+    <div class="flow">
+      <span class="step">create</span><span class="arrow">→</span>
+      <span class="step">triage</span><span class="arrow">→</span>
+      <span class="step">assign</span><span class="arrow">→</span>
+      <span class="step">in_progress</span><span class="arrow">→</span>
+      <span class="step">request approval</span>
+    </div>
+    <div class="evidence-label">real response — ticket creation</div>
+    <div class="evidence"><span class="prompt">$</span> curl -X POST /api/v1/tickets ...
+<span class="ok-line">201 Created</span>  {"ticketId":"01a05e...","displayId":"<span class="hit">INC-1</span>","status":"NEW"}</div>
+
+    <p><strong>The outbox dispatcher, against six queued events:</strong></p>
+    <div class="evidence-label">real response — POST /internal/v1/outbox:dispatch</div>
+    <div class="evidence">{"claimed":6,"published":<span class="hit">6</span>,"retried":0,"deadLettered":0}</div>
+
+    <p><strong>The cross-domain bridge, read back from governance's own database:</strong></p>
+    <div class="evidence-label">real row — governance.approval_requests</div>
+    <div class="evidence">status: <span class="hit">REQUESTED</span>  risk_level: MEDIUM  source_domain: ticket-workflow-service</div>
+
+    <p><strong>A full browser SSO login, Authorization Code + PKCE, cookie jar and all:</strong></p>
+    <div class="flow">
+      <span class="step">/oauth2/authorization/opsmind</span><span class="arrow">→</span>
+      <span class="step">Keycloak login form</span><span class="arrow">→</span>
+      <span class="step">real credentials</span><span class="arrow">→</span>
+      <span class="step">callback + code exchange</span>
+    </div>
+    <div class="evidence-label">real response header — the session that comes back</div>
+    <div class="evidence">Set-Cookie: <span class="hit">OPSMIND_SESSION</span>=aff7eb02-5a4c-4bc2-a4bd-ab372dd0460d; Secure; HttpOnly
+Location: http://localhost:8087/</div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">04</span><h2>Where the line was drawn</h2></div>
+    <p class="section-intro">Not every open thread is a gap. Three things were looked at and deliberately left alone.</p>
+
+    <div class="boundary">
+      <b>evaluation-improvement's call into agent-runtime</b> is a documented stub — the agent-runtime side of that contract was never built, and its own docstring already says so. Confirmed, not discovered.
+    </div>
+    <div class="boundary">
+      <b>evaluation-improvement's call into policy-approval</b> was checked field-for-field against governance's real request DTO. Every name and enum value matches. No live re-test was needed once the identical server-side endpoint had already been proven live from ticket-workflow's own call to it.
+    </div>
+    <div class="boundary">
+      <b>tool-integration-gateway's outbound calls</b> target whatever endpoint a connector's own database row names — a dynamic, per-connector surface, not a fixed sibling link, and out of scope for a wiring check.
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><span class="section-num">05</span><h2>The stack, as it stands</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Service</th><th>Port</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="svc">ticket-workflow-service</td><td class="port">8080</td><td>Healthy — full lifecycle + outbox dispatch verified live</td></tr>
+          <tr><td class="svc">agent-runtime-service</td><td class="port">8000</td><td>Healthy</td></tr>
+          <tr><td class="svc">memory-knowledge-service</td><td class="port">8010</td><td>Healthy</td></tr>
+          <tr><td class="svc">evaluation-improvement-service</td><td class="port">8011</td><td>Healthy</td></tr>
+          <tr><td class="svc">tool-integration-gateway</td><td class="port">8020</td><td>Healthy</td></tr>
+          <tr><td class="svc">policy-approval-governance-service</td><td class="port">8086</td><td>Healthy — real approval request received</td></tr>
+          <tr><td class="svc">user-access-authentication-service</td><td class="port">8087</td><td>Healthy — real browser login verified live</td></tr>
+          <tr><td class="svc">keycloak</td><td class="port">8081</td><td>Healthy — realm, 2 clients, 1 test user</td></tr>
+          <tr><td class="svc">postgres · rabbitmq</td><td class="port">—</td><td>Healthy — shared infrastructure</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <span>OpsMind Adaptive Multi-Agent Platform — Enterprise IT Support</span>
+    <span>Compiled 2026-09-01 · no commits made</span>
+  </footer>
+
+</div>

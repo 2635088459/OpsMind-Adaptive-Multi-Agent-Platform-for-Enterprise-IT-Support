@@ -124,6 +124,23 @@ class TicketAssignmentRollbackIT extends AbstractTicketAssignmentIT {
             }
             delegate.append(entry);
         }
+
+        @Override
+        public java.util.List<OutboxEventEntry> claimPublishable(
+            java.time.Instant now, java.time.Instant staleLockThreshold, String workerId, int batchSize
+        ) {
+            return delegate.claimPublishable(now, staleLockThreshold, workerId, batchSize);
+        }
+
+        @Override
+        public void markPublished(java.util.UUID outboxId, java.time.Instant publishedAt) {
+            delegate.markPublished(outboxId, publishedAt);
+        }
+
+        @Override
+        public void markRetry(java.util.UUID outboxId, int attempts, java.time.Instant nextAvailableAt, String errorCode) {
+            delegate.markRetry(outboxId, attempts, nextAvailableAt, errorCode);
+        }
     }
 
     static class FailureInjectingAuditRecordPort implements AuditRecordPort {
