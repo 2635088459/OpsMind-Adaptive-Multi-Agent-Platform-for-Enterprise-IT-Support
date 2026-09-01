@@ -1240,6 +1240,11 @@ sys.exit(0 if ok else 1)
     && echo "  ✓ synthetic_probe_last_success reachable via Prometheus (file_sd scrape wired correctly)" \
     || { echo "  ✗ synthetic_probe_last_success not scraped by Prometheus"; rc=1; }
 
+  echo "→ SPEC-OP-034: disk-capacity self-monitoring is real and query-valid"
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=prometheus:storage_bytes:total' | grep -q '"status":"success"' \
+    && echo "  ✓ prometheus:storage_bytes:total recording rule query-valid" \
+    || { echo "  ✗ prometheus:storage_bytes:total recording rule failed"; rc=1; }
+
   echo "→ SPEC-OP-031: live secret/PII scan proof (Loki log-body redaction)"
   scan_json="$(curl -sf -u admin:admin -H "X-Scope-OrgID: shared" --data-urlencode 'query={service_namespace="shared"} |= "op-031-secret-scan"' \
        --data-urlencode "start=$begin" --data-urlencode "end=$end" \

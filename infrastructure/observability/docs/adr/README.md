@@ -17,6 +17,7 @@ is immutable once `Accepted`; a reversal is a new ADR that supersedes it.
 | [0007](0007-otlp-gateway-requires-tls-and-bearer-auth.md) | The OTLP gateway requires TLS and bearer-token auth in every environment, including local | Accepted |
 | [0008](0008-sdk-level-redaction-contract.md) | SDK-level redaction is a documented producer contract, not domain-08-owned code | Accepted |
 | [0009](0009-config-change-approval-and-audit.md) | Configuration change governance is Git review + CI + git-log audit + a proven git-revert rollback — no new control plane | Accepted |
+| [0010](0010-outage-recovery-rto-rpo-targets.md) | Outage recovery targets (RTO/RPO) and the real recovery model for this topology | Accepted |
 
 ## Format
 

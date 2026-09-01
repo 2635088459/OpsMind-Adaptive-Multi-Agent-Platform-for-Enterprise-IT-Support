@@ -50,6 +50,7 @@ ADRS = [
     "0007-otlp-gateway-requires-tls-and-bearer-auth.md",
     "0008-sdk-level-redaction-contract.md",
     "0009-config-change-approval-and-audit.md",
+    "0010-outage-recovery-rto-rpo-targets.md",
 ]
 VERSION_KEYS = {
     "collector": "OTEL_COLLECTOR",

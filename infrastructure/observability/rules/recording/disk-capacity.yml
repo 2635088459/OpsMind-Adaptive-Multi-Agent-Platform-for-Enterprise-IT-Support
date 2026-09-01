@@ -1,0 +1,24 @@
+# meta.owner: platform-observability
+# meta.version: 0.1.0
+# meta.spec: SPEC-OP-034
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/OutageAndRecoveryDrill.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-034-traceability.md
+#
+# SPEC-OP-034 — disk-capacity self-monitoring. Prometheus is the only one of the 3
+# backends (Prometheus/Loki/Tempo) that exposes its own real storage-size metric
+# today (prometheus_tsdb_wal_storage_size_bytes / prometheus_tsdb_storage_blocks_bytes
+# — both confirmed live). Loki/Tempo expose per-chunk/per-block size histograms but
+# no TOTAL-storage-bytes gauge as of loki 3.3.2 / tempo 2.7.1 — a stated, honest
+# residual gap (traceability doc), not fabricated. All 3 sit on the same local
+# ext4/overlay filesystem (ADR-0002) and would hit an identical OS-level ENOSPC
+# ("no space left on device") on any write once genuinely full — confirmed via an
+# isolated tmpfs drill (not the shared host disk itself, to stay safe), not assumed.
+groups:
+  - name: disk-capacity-recording
+    interval: 1m
+    rules:
+      - record: prometheus:storage_bytes:total
+        expr: prometheus_tsdb_storage_blocks_bytes + prometheus_tsdb_wal_storage_size_bytes
