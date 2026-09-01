@@ -93,8 +93,8 @@ class EndToEndTests(unittest.TestCase):
             # Swap transform/governance to run BEFORE transform/resource-contract in
             # the traces pipeline only — a real, subtle out-of-order regression.
             broken = text.replace(
-                "processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, tail_sampling, batch]\n      exporters: [otlp/tempo]",
-                "processors: [memory_limiter, resourcedetection, resource, transform/governance, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, tail_sampling, batch]\n      exporters: [otlp/tempo]",
+                "processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, tail_sampling, batch]\n      exporters: [routing/traces-tenant]",
+                "processors: [memory_limiter, resourcedetection, resource, transform/governance, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, tail_sampling, batch]\n      exporters: [routing/traces-tenant]",
             )
             self.assertNotEqual(text, broken, "fixture replace did not match — update this test")
             cfg.write_text(broken, encoding="utf-8")
@@ -108,8 +108,8 @@ class EndToEndTests(unittest.TestCase):
             cfg = clone / "infrastructure" / "observability" / "collector" / "base" / "config.yaml"
             text = cfg.read_text(encoding="utf-8")
             broken = text.replace(
-                "processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, tail_sampling, batch]\n      exporters: [otlp/tempo]",
-                "processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/metric-cardinality, transform/trace-priority, transform/governance, tail_sampling, batch]\n      exporters: [otlp/tempo]",
+                "processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, tail_sampling, batch]\n      exporters: [routing/traces-tenant]",
+                "processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/metric-cardinality, transform/trace-priority, transform/governance, tail_sampling, batch]\n      exporters: [routing/traces-tenant]",
             )
             self.assertNotEqual(text, broken, "fixture replace did not match — update this test")
             cfg.write_text(broken, encoding="utf-8")

@@ -1,0 +1,44 @@
+# owner: platform-observability
+# spec: SPEC-OP-031
+# rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate tempo
+#
+# Real per-tenant overrides (Tempo's own per_tenant_override_config
+# mechanism, referenced by tempo.yml's own overrides.per_tenant_override_config).
+# Same 2 differentiated tenants as loki/base/overrides.yaml, same real
+# rationale (security-sensitive audit traces retained longer; this domain's
+# own self-monitoring traces retained for less time than the global
+# default). Every tenant not listed here inherits overrides.defaults from
+# tempo.yml itself.
+#
+# REAL BUG found+fixed live (SPEC-OP-031): Tempo 2.7.1 does NOT merge a
+# per-tenant entry here onto overrides.defaults field-by-field — listing a
+# tenant at all replaces its WHOLE Limits struct, so any field left
+# unspecified silently becomes the Go zero value, not the default. Proven
+# empirically: with only `compaction.block_retention` set below, ingestion
+# for user-access-authentication failed with "RATE_LIMITED: ingestion rate
+# limit (local: 0 bytes, global: 0 bytes) exceeded" — a real zero limit, not
+# a doc/typo issue — while ticket-workflow (no entry here, pure defaults)
+# ingested fine. Fix: every tenant listed here must re-state the same
+# ingestion/global baseline as tempo.yml's overrides.defaults verbatim,
+# alongside its one differentiated field.
+overrides:
+  user-access-authentication:
+    ingestion:
+      rate_strategy: local
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+      max_traces_per_user: 10000
+    global:
+      max_bytes_per_trace: 5000000
+    compaction:
+      block_retention: 168h
+  observability-platform:
+    ingestion:
+      rate_strategy: local
+      rate_limit_bytes: 15000000
+      burst_size_bytes: 20000000
+      max_traces_per_user: 10000
+    global:
+      max_bytes_per_trace: 5000000
+    compaction:
+      block_retention: 24h

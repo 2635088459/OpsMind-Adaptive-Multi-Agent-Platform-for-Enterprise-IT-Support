@@ -1,0 +1,31 @@
+# owner: platform-observability
+# spec: SPEC-OP-013; SPEC-OP-031 (moved from the single "fake" tenant directory
+#   into one real per-tenant copy — real bug found live: Loki's OSS ruler
+#   evaluates a tenant's rule file against only that tenant's own logs, so once
+#   auth_enabled: true made every real producer stamp its own tenant instead of
+#   the synthetic "fake" tenant, the rule under fake/ would never see real
+#   traffic again and would silently stop firing. No cross-tenant rule
+#   evaluation exists in OSS Loki, so the same reviewed rule content is
+#   duplicated per real tenant below, mirroring loki/base/overrides.yaml's own
+#   per-tenant pattern.)
+# rollback: git revert <sha>; recreate loki
+#
+# Loki ruler rule group, tenant "observability-platform".  This is the LogQL alert SPEC-OP-007's
+# traceability explicitly deferred ("Loki ruler is present but unwired to
+# Alertmanager — SPEC-OP-013/021 scope") — it closes that gap.
+groups:
+  - name: log-quality
+    rules:
+      - alert: HighLogSchemaViolationRate
+        expr: |
+          sum(count_over_time({service_name=~".+"} | opsmind_log_violation != `` [5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "Log records failing the structured-log contract (SPEC-OP-007)"
+          description: "One or more services are emitting logs with opsmind.log.violation set (missing trace linkage, unspecified severity, or a malformed event.code). See runbooks/StructuredLogContractViolation.md."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/StructuredLogContractViolation.md"
+          dashboard: "Observability Platform Self-Monitoring"

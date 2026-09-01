@@ -308,27 +308,280 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 
-  # Traces → Tempo over OTLP gRPC (Tempo's own receiver, not exposed to producers).
-  otlp/tempo:
+  # SPEC-OP-031 — real per-tenant exporters, one per real service_namespace
+  # already established in metric-naming.yaml's own service_series_budgets
+  # (9 real producing domains + "shared"). Each carries a distinct
+  # X-Scope-OrgID header — Loki's and Tempo's own native multi-tenancy
+  # mechanism, routed to by the routing/traces-tenant and routing/logs-tenant
+  # connectors below. This is per-PRODUCING-DOMAIN isolation, deliberately NOT
+  # the same thing as a real per-CUSTOMER tenant boundary — see this spec's
+  # own traceability doc §2 for why: signals/trace-propagation.yaml already
+  # reserves a `tenant.id` baggage key for real customer-tenant isolation, but
+  # NO producing domain today attaches a value to it (confirmed by grepping
+  # every service), and correctly deriving "the" tenant for a request would
+  # require real logic against domain 01's own role-assignment-scoped
+  # TenantId model — a materially deeper, domain-01-owned change this spec
+  # does not make. Documented as a residual, unrealized gap, not built here.
+  otlp/tempo-user-access-authentication:
     endpoint: ${env:OTEL_TEMPO_ENDPOINT}
     tls:
       insecure: true
+    headers:
+      X-Scope-OrgID: "user-access-authentication"
     sending_queue:
       enabled: true
       queue_size: 1000
       num_consumers: 10
-      # SPEC-OP-011 — WAL: the queue survives a collector restart. Without this the
-      # in-memory queue (and anything buffered in it) is lost on crash/redeploy.
       storage: file_storage
     retry_on_failure:
       enabled: true
       initial_interval: 1s
       max_interval: 30s
       max_elapsed_time: 120s
-
-  # Logs → Loki via OTLP HTTP (Loki 3.x native OTLP endpoint).
-  otlphttp/loki:
+  otlp/tempo-ticket-workflow:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "ticket-workflow"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-agent-runtime:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "agent-runtime"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-memory-knowledge:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "memory-knowledge"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-tool-integration:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "tool-integration"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-policy-approval-governance:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "policy-approval-governance"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-evaluation-improvement:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "evaluation-improvement"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-observability-platform:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "observability-platform"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlp/tempo-shared:
+    endpoint: ${env:OTEL_TEMPO_ENDPOINT}
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: "shared"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-user-access-authentication:
     endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "user-access-authentication"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-ticket-workflow:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "ticket-workflow"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-agent-runtime:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "agent-runtime"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-memory-knowledge:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "memory-knowledge"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-tool-integration:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "tool-integration"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-policy-approval-governance:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "policy-approval-governance"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-evaluation-improvement:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "evaluation-improvement"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-observability-platform:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "observability-platform"
+    sending_queue:
+      enabled: true
+      queue_size: 1000
+      num_consumers: 10
+      storage: file_storage
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 120s
+  otlphttp/loki-shared:
+    endpoint: ${env:OTEL_LOKI_ENDPOINT}
+    headers:
+      X-Scope-OrgID: "shared"
     sending_queue:
       enabled: true
       queue_size: 1000
@@ -340,6 +593,87 @@ exporters:
       max_interval: 30s
       max_elapsed_time: 120s
 
+connectors:
+  # SPEC-OP-031 — real per-tenant routing, keyed on service.namespace (a
+  # REQUIRED resource attribute since SPEC-OP-004). Unlike SPEC-OP-009's
+  # rejected per-SPAN-status-code routing attempt (routing connectors operate
+  # at RESOURCE-batch granularity, confirmed by that spec's own real startup
+  # failure), service.namespace genuinely IS a resource attribute — this is
+  # exactly the use case this connector is designed for.
+  routing/traces-tenant:
+    default_pipelines: [traces/tenant-shared]
+    # error_mode: propagate is a deliberate departure from this file's other
+    # OTTL error_mode: ignore instances (those guard per-signal transform/filter
+    # statements against a genuinely optional attribute being absent — safe to
+    # swallow). A routing statement failing has no such safe interpretation: it
+    # means telemetry silently stops reaching ANY tenant pipeline. Proven live
+    # during SPEC-OP-031 — with error_mode: ignore, a real Tempo per-tenant
+    # ingestion-limit bug (see tempo/base/overrides.yaml) surfaced as spans
+    # simply vanishing between receipt and export, no error anywhere. Keep
+    # this on propagate.
+    error_mode: propagate
+    match_once: true
+    table:
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "user-access-authentication"'
+        pipelines: [traces/tenant-user-access-authentication]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "ticket-workflow"'
+        pipelines: [traces/tenant-ticket-workflow]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "agent-runtime"'
+        pipelines: [traces/tenant-agent-runtime]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "memory-knowledge"'
+        pipelines: [traces/tenant-memory-knowledge]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "tool-integration"'
+        pipelines: [traces/tenant-tool-integration]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "policy-approval-governance"'
+        pipelines: [traces/tenant-policy-approval-governance]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "evaluation-improvement"'
+        pipelines: [traces/tenant-evaluation-improvement]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "observability-platform"'
+        pipelines: [traces/tenant-observability-platform]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "shared"'
+        pipelines: [traces/tenant-shared]
+  routing/logs-tenant:
+    default_pipelines: [logs/tenant-shared]
+    # Same reasoning as routing/traces-tenant above.
+    error_mode: propagate
+    match_once: true
+    table:
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "user-access-authentication"'
+        pipelines: [logs/tenant-user-access-authentication]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "ticket-workflow"'
+        pipelines: [logs/tenant-ticket-workflow]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "agent-runtime"'
+        pipelines: [logs/tenant-agent-runtime]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "memory-knowledge"'
+        pipelines: [logs/tenant-memory-knowledge]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "tool-integration"'
+        pipelines: [logs/tenant-tool-integration]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "policy-approval-governance"'
+        pipelines: [logs/tenant-policy-approval-governance]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "evaluation-improvement"'
+        pipelines: [logs/tenant-evaluation-improvement]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "observability-platform"'
+        pipelines: [logs/tenant-observability-platform]
+      - context: resource
+        statement: 'route() where attributes["service.namespace"] == "shared"'
+        pipelines: [logs/tenant-shared]
 extensions:
   # ADR-0007 — every producer authenticates with a bearer token before the Collector
   # accepts its telemetry. The token is never committed; local/CI use a placeholder
@@ -381,7 +715,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, tail_sampling, batch]
-      exporters: [otlp/tempo]
+      exporters: [routing/traces-tenant]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, attributes/semconv-compat, transform/metric-cardinality, transform/governance, batch]
@@ -389,4 +723,85 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/log-schema-contract, transform/log-body-redaction, transform/governance, batch]
-      exporters: [otlphttp/loki]
+      exporters: [routing/logs-tenant]
+    traces/tenant-user-access-authentication:
+      receivers: [routing/traces-tenant]
+      # validate-collector-pipeline.py requires every pipeline to start with
+      # memory_limiter, end with batch, and include transform/governance — no
+      # exception for connector-fed fan-out pipelines. Real justification, not
+      # just satisfying the check: memory_limiter here guards against the
+      # routing connector's own fan-out building backpressure; transform/
+      # governance re-applies the deny-list floor defense-in-depth (idempotent —
+      # the keys are already gone from the upstream run); batch re-batches this
+      # now-single-tenant stream before its own dedicated exporter, instead of
+      # reusing the all-tenants-mixed batch from upstream.
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-user-access-authentication]
+    traces/tenant-ticket-workflow:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-ticket-workflow]
+    traces/tenant-agent-runtime:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-agent-runtime]
+    traces/tenant-memory-knowledge:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-memory-knowledge]
+    traces/tenant-tool-integration:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-tool-integration]
+    traces/tenant-policy-approval-governance:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-policy-approval-governance]
+    traces/tenant-evaluation-improvement:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-evaluation-improvement]
+    traces/tenant-observability-platform:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-observability-platform]
+    traces/tenant-shared:
+      receivers: [routing/traces-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlp/tempo-shared]
+    logs/tenant-user-access-authentication:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-user-access-authentication]
+    logs/tenant-ticket-workflow:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-ticket-workflow]
+    logs/tenant-agent-runtime:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-agent-runtime]
+    logs/tenant-memory-knowledge:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-memory-knowledge]
+    logs/tenant-tool-integration:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-tool-integration]
+    logs/tenant-policy-approval-governance:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-policy-approval-governance]
+    logs/tenant-evaluation-improvement:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-evaluation-improvement]
+    logs/tenant-observability-platform:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-observability-platform]
+    logs/tenant-shared:
+      receivers: [routing/logs-tenant]
+      processors: [memory_limiter, transform/governance, batch]
+      exporters: [otlphttp/loki-shared]

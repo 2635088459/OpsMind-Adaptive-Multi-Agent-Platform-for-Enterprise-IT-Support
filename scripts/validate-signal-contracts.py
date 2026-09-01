@@ -185,6 +185,31 @@ def check_fixtures(attrs: list[dict], ra: dict) -> None:
         warn("no 'expect: reject' fixture — negative coverage is thin")
 
 
+def _ingest_pipelines(text: str) -> dict[str, list[str]]:
+    """{pipeline_name: processors_list} scoped to pipelines that receive
+    directly from the otlp receiver (ADR-0001's sole ingestion boundary).
+
+    SPEC-OP-031 added per-tenant fan-out pipelines (receivers: [routing/...])
+    downstream of the real traces/metrics/logs ingest pipelines — every
+    processor these contracts care about already ran once, upstream, before
+    the routing connector. Re-requiring resourcedetection / resource-contract /
+    baggage-contract on each fan-out hop would just be duplicate no-op work
+    (the attributes they touch are already resolved), not a real additional
+    guarantee, so callers scope to ingest pipelines rather than every pipeline
+    in the file regardless of what feeds it.
+    """
+    try:
+        doc = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return {}
+    pipelines = (doc or {}).get("service", {}).get("pipelines", {})
+    return {
+        name: list((body or {}).get("processors") or [])
+        for name, body in pipelines.items()
+        if "otlp" in (body or {}).get("receivers", [])
+    }
+
+
 def check_collector(ra: dict) -> None:
     if not COLLECTOR.is_file():
         err(f"missing {COLLECTOR.relative_to(REPO)}")
@@ -193,11 +218,10 @@ def check_collector(ra: dict) -> None:
     for token in ("resourcedetection", "transform/resource-contract"):
         if token not in text:
             err(f"collector/base/config.yaml: missing processor '{token}'")
-    pipeline_lines = [ln for ln in text.splitlines() if "processors: [" in ln]
-    for ln in pipeline_lines:
+    for name, procs in _ingest_pipelines(text).items():
         for token in ("resourcedetection", "transform/resource-contract"):
-            if token not in ln:
-                err(f"collector pipeline not wired with {token}: {ln.strip()}")
+            if token not in procs:
+                err(f"collector pipeline {name!r} not wired with {token}: processors: {procs}")
     default = ra.get("missing_service_name_default", "")
     viol = ra.get("violation_attribute", "")
     if default and default not in text:
@@ -314,9 +338,9 @@ def check_propagation_collector(tp: dict) -> None:
     proc = tp.get("collector_processor", "transform/baggage-contract")
     if proc not in text:
         err(f"collector/base/config.yaml: missing processor '{proc}'")
-    for ln in [l for l in text.splitlines() if "processors: [" in l]:
-        if proc not in ln:
-            err(f"collector pipeline not wired with {proc}: {ln.strip()}")
+    for name, procs in _ingest_pipelines(text).items():
+        if proc not in procs:
+            err(f"collector pipeline {name!r} not wired with {proc}: processors: {procs}")
     prefix = tp.get("span_attribute_prefix_removed", "baggage.")
     if f'^{prefix.rstrip(".")}' not in text and "^baggage" not in text:
         err(f"collector config has no delete_matching_keys for prefix {prefix!r}")

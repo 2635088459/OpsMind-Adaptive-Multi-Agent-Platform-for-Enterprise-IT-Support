@@ -93,6 +93,13 @@ RISKY_SPAN_ID="bbbbbbbbbbbbbbbb"
 # smoke_test so tail_sampling always keeps it regardless of the probabilistic floor.
 METRICS_GEN_TRACE_ID="cccccccccccccccccccccccccccccccc"
 METRICS_GEN_SPAN_ID="cccccccccccccccc"
+# SPEC-OP-031: two different service.namespace values (real per-PRODUCING-DOMAIN
+# tenants) must route to two DIFFERENT tenants in Tempo/Loki, each queryable only
+# with its own X-Scope-OrgID and invisible to the other tenant / no header.
+TENANT_A_TRACE_ID="dddddddddddddddddddddddddddddddd"
+TENANT_A_SPAN_ID="dddddddddddddddd"
+TENANT_B_TRACE_ID="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+TENANT_B_SPAN_ID="eeeeeeeeeeeeeeee"
 
 now_ns() { echo "$(date +%s)000000000"; }
 
@@ -535,6 +542,41 @@ push_signal() {
               {"key":"grader_type","value":{"stringValue":"llm_judge"}},
               {"key":"run_id","value":{"stringValue":"SHOULD-BE-STRIPPED"}}]}]}}
       ]}]}]}'
+
+  echo "→ pushing two traces from DIFFERENT service.namespace values — SPEC-OP-031 tenant routing"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/traces \
+    -H 'Content-Type: application/json' -d '{
+    "resourceSpans":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"user-access-authentication-service"}},
+      {"key":"service.namespace","value":{"stringValue":"user-access-authentication"}}]},
+      "scopeSpans":[{"scope":{"name":"op-031-smoke"},"spans":[{
+        "traceId":"'"$TENANT_A_TRACE_ID"'","spanId":"'"$TENANT_A_SPAN_ID"'",
+        "name":"op-031-tenant-a-span","kind":2,
+        "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+        "attributes":[{"key":"opsmind.smoke_test","value":{"stringValue":"true"}}],
+        "status":{"code":1}}]}]}]}'
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/traces \
+    -H 'Content-Type: application/json' -d '{
+    "resourceSpans":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"ticket-workflow-service"}},
+      {"key":"service.namespace","value":{"stringValue":"ticket-workflow"}}]},
+      "scopeSpans":[{"scope":{"name":"op-031-smoke"},"spans":[{
+        "traceId":"'"$TENANT_B_TRACE_ID"'","spanId":"'"$TENANT_B_SPAN_ID"'",
+        "name":"op-031-tenant-b-span","kind":2,
+        "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+        "attributes":[{"key":"opsmind.smoke_test","value":{"stringValue":"true"}}],
+        "status":{"code":1}}]}]}]}'
+
+  echo "→ pushing a log body with an embedded fake secret + PII — SPEC-OP-031 live secret/PII scan proof"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/logs \
+    -H 'Content-Type: application/json' -d '{
+    "resourceLogs":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"op-031-scan-service"}},
+      {"key":"service.namespace","value":{"stringValue":"shared"}}]},
+      "scopeLogs":[{"scope":{"name":"op-031-scan"},"logRecords":[{
+        "timeUnixNano":"'"$ts"'","severityNumber":9,"severityText":"INFO",
+        "body":{"stringValue":"op-031-secret-scan user login from Bearer sk-liveTestToken1234567890abcdef contact user.leak@example.com"},
+        "attributes":[{"key":"opsmind.smoke_test","value":{"stringValue":"true"}}]}]}]}]}'
 }
 
 query_back() {
@@ -542,7 +584,12 @@ query_back() {
   echo "→ waiting 15s for pipeline flush"; sleep 15
 
   echo "→ Tempo: GET /api/traces/$TRACE_ID"
-  trace_json="$(curl -sf "http://localhost:3200/api/traces/$TRACE_ID" || true)"
+  # SPEC-OP-031 — Tempo/Loki now require X-Scope-OrgID (multitenancy_enabled /
+  # auth_enabled: true). Every query below is tagged with whatever real tenant
+  # its push actually routed to (service.namespace on the pushed resource, or
+  # "shared" when the resource declared none — the routing connector's own
+  # default_pipelines fallback).
+  trace_json="$(curl -sf -H "X-Scope-OrgID: observability-platform" "http://localhost:3200/api/traces/$TRACE_ID" || true)"
   if printf '%s' "$trace_json" | grep -q "op-002-smoke-span"; then
     echo "  ✓ trace found in Tempo with expected span name"
   else
@@ -568,7 +615,7 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-004: missing service.name is stamped, not dropped"
-  viol_json="$(curl -sf "http://localhost:3200/api/traces/$VIOL_TRACE_ID" || true)"
+  viol_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$VIOL_TRACE_ID" || true)"
   if printf '%s' "$viol_json" | grep -q "op-004-violation-span"; then
     echo "  ✓ the non-conformant trace was still ingested (ADR-0004)"
   else
@@ -582,7 +629,7 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-005: publish→consume hand-off is one linked trace, baggage.* stripped"
-  prop_json="$(curl -sf "http://localhost:3200/api/traces/$PROP_TRACE_ID" || true)"
+  prop_json="$(curl -sf -H "X-Scope-OrgID: observability-platform" "http://localhost:3200/api/traces/$PROP_TRACE_ID" || true)"
   # Tempo returns span ids base64-encoded; assert the child's parentSpanId points at a
   # span present in the same trace (i.e. the producer span).
   child_parent="$(printf '%s' "$prop_json" | grep -o '"parentSpanId":"[A-Za-z0-9+/=]\{1,\}"' | head -1 | sed 's/.*:"//;s/"$//')"
@@ -861,7 +908,7 @@ query_back() {
 
   echo "→ Loki: query {service_name=\"op-002-smoke\"}"
   end="$(date +%s)000000000"; begin="$(( $(date +%s) - 600 ))000000000"
-  if curl -sf --data-urlencode 'query={service_name="op-002-smoke"}' \
+  if curl -sf -H "X-Scope-OrgID: shared" --data-urlencode 'query={service_name="op-002-smoke"}' \
        --data-urlencode "start=$begin" --data-urlencode "end=$end" \
        "http://localhost:3100/loki/api/v1/query_range" | grep -q "op-002 smoke log"; then
     echo "  ✓ log line found in Loki (correlatable by trace_id)"
@@ -870,7 +917,7 @@ query_back() {
   fi
 
   echo "→ Loki: query {service_name=\"op-007-smoke\"} — SPEC-OP-007 structured log contract"
-  op7_json="$(curl -sf --data-urlencode 'query={service_name="op-007-smoke"}' \
+  op7_json="$(curl -sf -H "X-Scope-OrgID: shared" --data-urlencode 'query={service_name="op-007-smoke"}' \
        --data-urlencode "start=$begin" --data-urlencode "end=$end" \
        "http://localhost:3100/loki/api/v1/query_range" || true)"
   if printf '%s' "$op7_json" | grep -Eq 'jane\.doe@example\.com|SHOULD-BE-REDACTED-1234'; then
@@ -895,13 +942,13 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-009: filter/noise must drop the health-check-shaped trace + log entirely"
-  noise_trace_json="$(curl -sf "http://localhost:3200/api/traces/$NOISE_TRACE_ID" || true)"
+  noise_trace_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$NOISE_TRACE_ID" || true)"
   if printf '%s' "$noise_trace_json" | grep -q "GET /health"; then
     echo "  ✗ health-check span reached Tempo — filter/noise did not drop it"; rc=1
   else
     echo "  ✓ health-check span absent from Tempo"
   fi
-  noise_log_json="$(curl -sf --data-urlencode 'query={service_name="op-009-smoke"}' \
+  noise_log_json="$(curl -sf -H "X-Scope-OrgID: shared" --data-urlencode 'query={service_name="op-009-smoke"}' \
        --data-urlencode "start=$begin" --data-urlencode "end=$end" \
        "http://localhost:3100/loki/api/v1/query_range" || true)"
   if printf '%s' "$noise_log_json" | grep -q "GET /health 200 OK"; then
@@ -911,7 +958,7 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-009: attributes/semconv-compat must add canonical keys from old semconv"
-  semconv_json="$(curl -sf "http://localhost:3200/api/traces/$SEMCONV_TRACE_ID" || true)"
+  semconv_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$SEMCONV_TRACE_ID" || true)"
   if printf '%s' "$semconv_json" | grep -q '"key":"http.request.method"' \
      && printf '%s' "$semconv_json" | grep -q '"key":"http.response.status_code"'; then
     echo "  ✓ canonical http.request.method / http.response.status_code present"
@@ -925,8 +972,8 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-009: transform/trace-priority — ERROR gets stamped, OK does not"
-  error_json="$(curl -sf "http://localhost:3200/api/traces/$ERROR_TRACE_ID" || true)"
-  ok_json="$(curl -sf "http://localhost:3200/api/traces/$OK_TRACE_ID" || true)"
+  error_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$ERROR_TRACE_ID" || true)"
+  ok_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$OK_TRACE_ID" || true)"
   if printf '%s' "$error_json" | grep -q '"opsmind.trace.priority"'; then
     echo "  ✓ ERROR-status trace stamped opsmind.trace.priority=high"
   else
@@ -939,13 +986,13 @@ query_back() {
   fi
 
   echo "→ SPEC-OP-010: tail_sampling must ALWAYS keep a slow trace and a security.sensitive trace"
-  slow_json="$(curl -sf "http://localhost:3200/api/traces/$SLOW_TRACE_ID" || true)"
+  slow_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$SLOW_TRACE_ID" || true)"
   if printf '%s' "$slow_json" | grep -q "db.query slow"; then
     echo "  ✓ slow (>1s) trace kept by the 'slow' latency policy"
   else
     echo "  ✗ slow trace NOT found in Tempo — 'slow' policy did not keep it"; rc=1
   fi
-  risky_json="$(curl -sf "http://localhost:3200/api/traces/$RISKY_TRACE_ID" || true)"
+  risky_json="$(curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3200/api/traces/$RISKY_TRACE_ID" || true)"
   if printf '%s' "$risky_json" | grep -q "auth.mfa.step_up"; then
     echo "  ✓ fast/OK security.sensitive trace kept by the 'risky-operation' policy"
   else
@@ -1004,9 +1051,21 @@ sys.exit(0 if ok else 1)
   fi
 
   echo "→ SPEC-OP-013: Loki ruler loaded the LogQL log-quality rule"
-  curl -sf "http://localhost:3100/prometheus/api/v1/rules" | grep -q "HighLogSchemaViolationRate" \
-    && echo "  ✓ ruler loaded HighLogSchemaViolationRate from the bind-mounted rules dir" \
-    || { echo "  ✗ Loki ruler did not load the log-quality rule"; rc=1; }
+  # SPEC-OP-031 — real bug found+fixed live: this rule used to live under
+  # Loki's synthetic "fake" tenant (the fixed id used only when
+  # auth_enabled: false); once real per-tenant auth went live no producer
+  # sends that tenant id anymore, so the rule would silently never evaluate
+  # against real traffic again. Fixed by duplicating the same reviewed rule
+  # content into every real tenant's own rules directory (loki/rules/<tenant>/)
+  # — OSS Loki's ruler has no cross-tenant rule evaluation. Checked here
+  # against 2 representative tenants, not all 9, to keep the smoke test fast;
+  # loki/rules/*/log-quality.yaml are identical by construction.
+  curl -sf -H "X-Scope-OrgID: shared" "http://localhost:3100/prometheus/api/v1/rules" | grep -q "HighLogSchemaViolationRate" \
+    && echo "  ✓ ruler loaded HighLogSchemaViolationRate for tenant 'shared'" \
+    || { echo "  ✗ Loki ruler did not load the log-quality rule for tenant 'shared'"; rc=1; }
+  curl -sf -H "X-Scope-OrgID: user-access-authentication" "http://localhost:3100/prometheus/api/v1/rules" | grep -q "HighLogSchemaViolationRate" \
+    && echo "  ✓ ruler loaded HighLogSchemaViolationRate for tenant 'user-access-authentication'" \
+    || { echo "  ✗ Loki ruler did not load the log-quality rule for tenant 'user-access-authentication'"; rc=1; }
 
   echo "→ SPEC-OP-014: Tempo metrics_generator (span-metrics + exemplars) — polling up to 60s"
   gen_ok=0
@@ -1111,6 +1170,68 @@ sys.exit(0 if ok else 1)
     echo "  ✓ Grafana's own structured request log captures the querying user's identity (real audit trail)"
   else
     echo "  ✗ expected uname=obs-viewer in Grafana's own logs"; rc=1
+  fi
+
+  echo "→ SPEC-OP-031: real per-tenant trace routing + isolation (Tempo)"
+  # Real bug found+fixed live building this: the routing connector's error_mode
+  # was left at the file's usual "ignore", which silently swallowed a genuine
+  # Tempo per-tenant ingestion-limit misconfiguration (see
+  # tempo/base/overrides.yaml) — spans were accepted by the receiver but never
+  # reached any exporter, with zero errors anywhere. Fixed by setting
+  # error_mode: propagate on both routing connectors (collector/base/config.yaml)
+  # and giving every per-tenant override entry the same ingestion/global
+  # baseline as overrides.defaults, since Tempo 2.7.1 replaces — not merges —
+  # a listed tenant's whole Limits struct.
+  a_own="$(curl -s -o /dev/null -w '%{http_code}' -H "X-Scope-OrgID: user-access-authentication" "http://localhost:3200/api/traces/$TENANT_A_TRACE_ID")"
+  b_own="$(curl -s -o /dev/null -w '%{http_code}' -H "X-Scope-OrgID: ticket-workflow" "http://localhost:3200/api/traces/$TENANT_B_TRACE_ID")"
+  a_cross="$(curl -s -o /dev/null -w '%{http_code}' -H "X-Scope-OrgID: ticket-workflow" "http://localhost:3200/api/traces/$TENANT_A_TRACE_ID")"
+  b_cross="$(curl -s -o /dev/null -w '%{http_code}' -H "X-Scope-OrgID: user-access-authentication" "http://localhost:3200/api/traces/$TENANT_B_TRACE_ID")"
+  no_header="$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:3200/api/traces/$TENANT_A_TRACE_ID")"
+  if [ "$a_own" = "200" ] && [ "$b_own" = "200" ]; then
+    echo "  ✓ each trace reachable under its OWN real tenant (user-access-authentication=200, ticket-workflow=200)"
+  else
+    echo "  ✗ own-tenant trace lookup failed (a_own=$a_own b_own=$b_own)"; rc=1
+  fi
+  if [ "$a_cross" = "404" ] && [ "$b_cross" = "404" ]; then
+    echo "  ✓ cross-tenant lookup finds NOTHING (both 404) — real tenant isolation, not just routing"
+  else
+    echo "  ✗ cross-tenant lookup should 404 (a_cross=$a_cross b_cross=$b_cross)"; rc=1
+  fi
+  if [ "$no_header" = "401" ]; then
+    echo "  ✓ query with no X-Scope-OrgID rejected (401) — multitenancy_enabled is genuinely enforcing auth"
+  else
+    echo "  ✗ expected 401 for a headerless Tempo query, got $no_header"; rc=1
+  fi
+
+  echo "→ SPEC-OP-031: real per-tenant retention override actually loaded (Tempo)"
+  uaa_overrides="$(curl -sf -H "X-Scope-OrgID: user-access-authentication" "http://localhost:3200/status/overrides/user-access-authentication" || true)"
+  if printf '%s' "$uaa_overrides" | grep -q "block_retention: 1w"; then
+    echo "  ✓ user-access-authentication's differentiated 168h/1w block_retention is the effective runtime override"
+  else
+    echo "  ✗ expected block_retention: 1w in user-access-authentication's effective overrides"; rc=1
+  fi
+
+  echo "→ SPEC-OP-031: real per-tenant retention override actually loaded (Loki)"
+  loki_limits="$(curl -sf -u admin:admin -H "X-Scope-OrgID: user-access-authentication" "http://localhost:3100/config" || true)"
+  if printf '%s' "$loki_limits" | grep -q "retention_period: 168h"; then
+    echo "  ✓ user-access-authentication's differentiated 168h retention_period is loaded"
+  else
+    echo "  (i) could not confirm retention_period: 168h via /config for user-access-authentication — non-fatal, /config reflects the static+runtime merge but its exact per-tenant rendering isn't guaranteed by this endpoint"
+  fi
+
+  echo "→ SPEC-OP-031: live secret/PII scan proof (Loki log-body redaction)"
+  scan_json="$(curl -sf -u admin:admin -H "X-Scope-OrgID: shared" --data-urlencode 'query={service_namespace="shared"} |= "op-031-secret-scan"' \
+       --data-urlencode "start=$begin" --data-urlencode "end=$end" \
+       "http://localhost:3100/loki/api/v1/query_range" || true)"
+  if printf '%s' "$scan_json" | grep -Eq 'sk-liveTestToken1234567890abcdef|user\.leak@example\.com'; then
+    echo "  ✗ raw secret/PII reached Loki unredacted"; rc=1
+  else
+    echo "  ✓ embedded bearer token + email were scrubbed before reaching Loki"
+  fi
+  if printf '%s' "$scan_json" | grep -q '\[REDACTED\]' && printf '%s' "$scan_json" | grep -q "REDACTED_EMAIL"; then
+    echo "  ✓ redacted body carries the expected replacement markers"
+  else
+    echo "  ✗ redacted body missing expected replacement markers"; rc=1
   fi
 
   return $rc

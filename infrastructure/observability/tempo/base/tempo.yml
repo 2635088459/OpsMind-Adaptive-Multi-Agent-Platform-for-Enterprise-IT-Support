@@ -8,6 +8,13 @@
 # to Prometheus via remote_write — these are VIEWS, never business facts (ADR-0004).
 # Block retention / object storage is SPEC-OP-015. Overlay sets environment parameters.
 
+# SPEC-OP-031 — real multi-tenancy: one tenant per real producing domain,
+# X-Scope-OrgID stamped by the Collector's routing/traces-tenant connector.
+# Per-PRODUCING-DOMAIN isolation, not real per-CUSTOMER tenant isolation — see
+# loki.yml's own comment (identical reasoning applies to both backends) and
+# this spec's own traceability doc.
+multitenancy_enabled: true
+
 stream_over_http_enabled: true
 
 server:
@@ -66,6 +73,9 @@ overrides:
   defaults:
     metrics_generator:
       processors: [service-graphs, span-metrics, local-blocks]
+  # SPEC-OP-031 — real per-tenant overrides, hot-reloadable without a restart
+  # (mirrors loki.yml's own runtime_config mechanism).
+  per_tenant_override_config: /etc/tempo/overrides.yaml
 
 usage_report:
   reporting_enabled: false

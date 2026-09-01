@@ -23,13 +23,97 @@ processors:
     decision_wait: 3s
     num_traces: 5000
 
+# SPEC-OP-031 — one entry per real per-tenant exporter base/config.yaml now
+# defines (9 tenants x 2 signal types); same laptop-friendly tuning every
+# exporter already had, just applied to each tenant-suffixed name instead of
+# the old single untenanted otlp/tempo/otlphttp/loki names.
 exporters:
-  otlp/tempo:
+  otlp/tempo-user-access-authentication:
     sending_queue:
       queue_size: 400
     retry_on_failure:
       max_elapsed_time: 60s
-  otlphttp/loki:
+  otlp/tempo-ticket-workflow:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-agent-runtime:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-memory-knowledge:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-tool-integration:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-policy-approval-governance:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-evaluation-improvement:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-observability-platform:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlp/tempo-shared:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-user-access-authentication:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-ticket-workflow:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-agent-runtime:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-memory-knowledge:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-tool-integration:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-policy-approval-governance:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-evaluation-improvement:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-observability-platform:
+    sending_queue:
+      queue_size: 400
+    retry_on_failure:
+      max_elapsed_time: 60s
+  otlphttp/loki-shared:
     sending_queue:
       queue_size: 400
     retry_on_failure:

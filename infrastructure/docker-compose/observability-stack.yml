@@ -172,6 +172,9 @@ services:
       - ../observability/loki/overlays/local/values.env
     volumes:
       - ../observability/loki/base/loki.yml:/etc/loki/loki.yml:ro
+      # SPEC-OP-031 — real per-tenant retention overrides, referenced by
+      # loki.yml's own runtime_config.file.
+      - ../observability/loki/base/overrides.yaml:/etc/loki/overrides.yaml:ro
       # SPEC-OP-013 — ruler rules, GitOps-reviewed same as Prometheus rules.
       - ../observability/loki/rules:/etc/loki/rules:ro
       - loki-data:/loki
@@ -205,6 +208,9 @@ services:
       - ../observability/tempo/overlays/local/values.env
     volumes:
       - ../observability/tempo/base/tempo.yml:/etc/tempo/tempo.yml:ro
+      # SPEC-OP-031 — real per-tenant overrides, referenced by tempo.yml's own
+      # overrides.per_tenant_override_config.
+      - ../observability/tempo/base/overrides.yaml:/etc/tempo/overrides.yaml:ro
       - tempo-data:/var/tempo
     ports:
       - "3200:3200"     # HTTP / TraceQL

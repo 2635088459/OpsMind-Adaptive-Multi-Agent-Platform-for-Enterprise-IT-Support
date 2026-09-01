@@ -1,0 +1,20 @@
+# owner: platform-observability
+# spec: SPEC-OP-031
+# rollback: git revert <sha>; docker compose -f infrastructure/docker-compose/observability-stack.yml up -d --force-recreate loki
+#
+# Real per-tenant retention overrides (Loki's own `runtime_config` mechanism —
+# hot-reloadable without a restart). Every tenant not listed here inherits the
+# global default (limits_config.retention_period, LOKI_RETENTION_PERIOD).
+# Two tenants get a REAL, differentiated value to prove the override actually
+# takes effect per-tenant, not just structurally present but unused:
+#   - user-access-authentication: security-sensitive audit logs — longer
+#     retention (168h/7d) than the global default, a real incident-
+#     investigation need.
+#   - observability-platform: this domain's own self-monitoring signals —
+#     shorter retention (24h) than the global default, since they are lower
+#     business value than every other domain's real signals.
+overrides:
+  user-access-authentication:
+    retention_period: 168h
+  observability-platform:
+    retention_period: 24h

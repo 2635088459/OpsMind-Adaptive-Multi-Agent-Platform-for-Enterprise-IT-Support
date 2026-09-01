@@ -232,7 +232,10 @@ class EndToEndTests(unittest.TestCase):
     def test_loki_ruler_rules_are_scanned(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             clone = self._clone(tmp)
-            f = (clone / "infrastructure" / "observability" / "loki" / "rules" / "fake" / "log-quality.yaml")
+            # SPEC-OP-031 moved this rule from the single "fake" tenant directory
+            # (Loki's synthetic single-tenant id) into one real copy per producing-
+            # domain tenant — any one of them exercises the same scanning logic.
+            f = (clone / "infrastructure" / "observability" / "loki" / "rules" / "shared" / "log-quality.yaml")
             text = f.read_text(encoding="utf-8")
             broken = text.replace(
                 'runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/StructuredLogContractViolation.md"',

@@ -7,9 +7,17 @@
 # oversight. Splitting write/read into separate deployments is a horizontal-scaling
 # concern with no current need at this volume; the config is already structured
 # (schema/limits/compactor/ruler as their own sections) so splitting later needs no
-# rework, only a second deployment target. Multi-tenancy (`auth_enabled: false`,
-# single tenant "fake") is explicitly SPEC-OP-031's scope, not this one's — see
-# signals/trace-propagation.yaml's tenant.id baggage key, already deferred there.
+# rework, only a second deployment target. Multi-tenancy is real as of
+# SPEC-OP-031 (auth_enabled: true below) — one tenant per real producing
+# domain (X-Scope-OrgID, stamped by the Collector's routing/logs-tenant
+# connector), per-tenant retention overrides in overrides.yaml. This is
+# per-PRODUCING-DOMAIN isolation, NOT the same thing as real per-CUSTOMER
+# tenant isolation — signals/trace-propagation.yaml's own `tenant.id` baggage
+# key (a genuine customer-tenant concept) remains unrealized: no producing
+# domain attaches a value to it today, and correctly deriving one would need
+# real logic against domain 01's own role-assignment-scoped TenantId model, a
+# domain-01-owned change this spec does not make. See SPEC-OP-031's own
+# traceability doc for the full reasoning.
 #
 # Receives logs ONLY from the Collector via the native OTLP endpoint
 # (/otlp/v1/logs, enabled by default in Loki 3.x). Structured-log shape and PII/
@@ -21,7 +29,12 @@
 # cardinality change as a side effect of ruler wiring). Overlay (values.env) sets
 # only environment parameters.
 
-auth_enabled: false
+auth_enabled: true
+
+# SPEC-OP-031 — real per-tenant retention overrides, hot-reloadable without a
+# restart.
+runtime_config:
+  file: /etc/loki/overrides.yaml
 
 server:
   http_listen_port: 3100
