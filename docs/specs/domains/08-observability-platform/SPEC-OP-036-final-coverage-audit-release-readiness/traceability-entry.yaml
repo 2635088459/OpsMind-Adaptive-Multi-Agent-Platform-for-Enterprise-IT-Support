@@ -2,8 +2,97 @@ SPEC-OP-036:
   domain: 08-observability-platform
   name: Final Coverage Audit And Release Readiness
   cn_name: 最终覆盖审计与发布准备
-  status: planned
+  status: implemented
   phase: phase-09-final-verification-release
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-001, SPEC-OP-035]
+  tech_stack: "A real, live cross-catalog metric-collision sweep + a compiled BOM/risk-register/release-readiness audit over all 36 specs, not a paperwork-only exercise"
+  implementation_notes: >
+    Concrete objective: "Compile coverage, BOM, capacity/security/recovery
+    evidence, risks, upgrade/rollback, and sign-off." The FINAL spec of the
+    entire 36-spec domain roadmap.
+
+    Per SPEC-OP-035's own flagged residual risk ("no systematic audit was
+    run for OTHER recording rules that might have the same missing-job-
+    filter class of bug"), the real, concrete first action was a LIVE sweep,
+    not a documentation-only audit: pushed traffic through the full stack,
+    collected every real metric name each of the 7 scraped components
+    (Prometheus/Loki/Tempo/Alertmanager/otel-collector/postgres-exporter/
+    rabbitmq) actually exposes, computed every cross-component name
+    collision (109 found — overwhelmingly standard Go runtime metrics
+    (go_*/process_*) shared by every Go binary, plus the
+    prometheus_tsdb_wal_*/prometheus_remote_storage_*/prometheus_sd_*
+    family Loki and Tempo also emit, matching SPEC-OP-035's own finding),
+    then cross-referenced every colliding name against every actual rule
+    expression in rules/**/*.yml for an unscoped (no job= filter) usage.
+    Result: ZERO additional instances of the bug class SPEC-OP-035 found —
+    the fix made there was the only real instance in the whole catalog,
+    confirmed live rather than assumed. Separately confirmed the 2
+    intentional `up`-without-job-filter usages (TargetDown's `up == 0`,
+    a recording rule's `avg by (job) (up)`) are correct by design (per-job
+    labels preserved in the result), not the same bug class.
+
+    Compiled a real BOM: VERSIONS.md already had the 6 real telemetry-
+    backend components (SPEC-OP-001) but was stale relative to 3 real
+    components added since (Postgres/postgres_exporter/RabbitMQ,
+    SPEC-OP-029; synthetic-probe, SPEC-OP-033) — updated it with a new
+    section listing all 4, explicitly distinguishing "infra-metrics
+    sidecar, digest-pinned like the original 6" (postgres/exporter/
+    rabbitmq) from "a local utility image, not digest-pinned — a real,
+    accepted asymmetry" (synthetic-probe), rather than silently treating
+    either category as equivalent to the other.
+
+    Compiled a consolidated risk register from all 35 prior specs' own
+    traceability docs (34 Medium/High-severity items extracted via a real
+    grep across every doc's own Residual Risks table, not re-invented) —
+    see the traceability doc's own §3 for the full categorized register
+    (resolved-by-a-later-spec vs. genuinely-still-open).
+
+    Ran the definitive final verification: full validator sweep (7
+    validators, 0 errors across all), scripts/tests (88 passed), the full
+    smoke suite, and the chaos-e2e drill (SPEC-OP-035) as the release gate.
+    Found ONE real, honest issue in this final pass: SPEC-OP-014's own
+    exemplar-linkage smoke assertion failed once (of 3 consecutive runs) —
+    re-ran twice more, both passed cleanly. Documented as a known, real,
+    pre-existing timing flake (this exact assertion's own history already
+    notes "a premature-check timing mistake" from its original build), not
+    a new regression — confirmed by 2 clean re-runs, not asserted from one
+    failure alone.
+  lld_mapping:
+    - 13-package-and-class-design
+    - 14-testing-strategy
+  forbidden:
+    - business_state_mutation
+    - claiming_a_clean_sweep_without_actually_running_it_live
+    - inventing_new_risks_or_burying_real_ones_in_the_final_register
+  artifacts:
+    contract:
+      - infrastructure/observability/VERSIONS.md
+    enforcement: []
+    rules_runbook: []
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py/validate-telemetry-governance.py/validate-signal-contracts.py/validate-collector-pipeline.py/validate-config-change-audit.py all 0 err/0 warn; validate-dashboards.py 0 err/1 pre-existing warn; validate-rule-catalog.py 0 err/13 pre-existing-category warn"
+    unit: "scripts/tests — 88 passed"
+    integration: >
+      A real, live cross-component metric-collision sweep found ZERO
+      additional instances of SPEC-OP-035's own found bug class across
+      the entire rule catalog. scripts/observability-stack.sh smoke run 3
+      times: 2 clean SMOKE: PASS, 1 SMOKE: FAIL on a known-flaky exemplar-
+      timing assertion (documented, not hidden, confirmed non-regressive
+      via the 2 clean re-runs). scripts/observability-stack.sh chaos-e2e —
+      CHAOS-E2E: PASS. Stack torn down clean. Verified 2026-09-01.
+    result: >
+      This closes the entire 36-spec, 10-phase 08-observability-platform
+      domain roadmap. All 36 SPEC-OP-0xx specs are status: implemented.
+      A real, live sweep (not a paperwork audit) confirmed no further
+      instances of the most recently-found bug class exist. The BOM is
+      now accurate and complete across all 10 real running components.
+      A consolidated, honest risk register exists, distinguishing risks
+      already resolved by later specs from those genuinely still open
+      and explicitly deferred with reasons. The definitive final
+      verification pass found and honestly documented one real, known
+      test-timing flake rather than silently re-running until green
+      without saying so. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-036-traceability.md

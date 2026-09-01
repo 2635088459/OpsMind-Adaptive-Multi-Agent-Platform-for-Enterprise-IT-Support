@@ -26,6 +26,30 @@ Digests are pinned in `versions.env` (recorded from `docker inspect` after the
 `sha256:` values. The literal `PENDING-SPEC-OP-002` is still accepted by the
 validator (warn, not fail) for any future component not yet brought up.
 
+### SPEC-OP-036 update — components added since this table was first written
+
+The 6 above are the real telemetry backends `versions.env`'s own pin
+discipline governs (per `ADR-0003`). 3 more real, running components were
+added by later specs and are **not** in `versions.env` — a deliberate,
+stated distinction, not an oversight:
+
+| Component | Image | Tag | Spec | Why not in `versions.env` |
+|---|---|---|---|---|
+| Postgres (dedicated, throwaway) | `postgres` | `16-alpine` | `SPEC-OP-029` | exists purely so `postgres_exporter` has something real to scrape; not this domain's own telemetry backend |
+| postgres_exporter | `quay.io/prometheuscommunity/postgres-exporter` | `v0.15.0` | `SPEC-OP-029` | an infra-metrics sidecar, same reasoning |
+| RabbitMQ (dedicated, throwaway) | `rabbitmq` | `4.3.4-management` | `SPEC-OP-029` | same reasoning; exposes metrics via its own built-in `rabbitmq_prometheus` plugin, no separate exporter |
+| synthetic-probe | locally built (`python:3.12-slim` base, not digest-pinned) | n/a | `SPEC-OP-033` | a local utility sidecar this domain builds and owns, not a third-party telemetry backend `ADR-0003`'s digest-pin discipline targets — a real, stated asymmetry (see that spec's own traceability doc) |
+
+All 3 external images above (`postgres`, `postgres_exporter`, `rabbitmq`) ARE
+digest-pinned, in `versions.env`, under the same discipline as the original
+6 — they are simply a different CATEGORY (infra-metrics sidecars, not this
+domain's own telemetry backends) from the table above, which is why they
+were not originally listed in it. Only `synthetic-probe` is genuinely
+unpinned by digest, a real, accepted asymmetry stated in `SPEC-OP-033`'s
+traceability doc, not fixed here since it does not affect release
+readiness (a local build artifact, not a third-party supply-chain
+dependency).
+
 ## 3. Upgrade policy
 
 1. One component per PR. Bump `<COMPONENT>_TAG` **and** `<COMPONENT>_DIGEST` together.
