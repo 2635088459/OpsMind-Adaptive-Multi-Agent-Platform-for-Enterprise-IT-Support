@@ -65,27 +65,56 @@ public abstract class AbstractAddTicketMessageIT implements InfrastructureContai
         Instant now = Instant.parse("2026-07-23T16:30:00Z");
         String displayId = "INC-" + Math.abs(ticketId.hashCode());
 
-        // RESOLVED/CLOSED/CANCELLED each require extra fields to satisfy
-        // ticket.tickets' status-specific CHECK constraints (V002).
-        Timestamp resolvedAt = ("RESOLVED".equals(status) || "CLOSED".equals(status)) ? Timestamp.from(now) : null;
-        Timestamp autoCloseDueAt = "RESOLVED".equals(status) ? Timestamp.from(now.plusSeconds(3600)) : null;
-        Timestamp closedAt = "CLOSED".equals(status) ? Timestamp.from(now) : null;
-        String closeReasonCode = "CLOSED".equals(status) ? "RESOLVED_CONFIRMED" : null;
+        // RESOLVED/CLOSED/CANCELLED/WAITING_FOR_USER each require extra fields to
+        // satisfy ticket.tickets' status-specific CHECK constraints. This comment
+        // originally cited only V002's ck_tickets_resolved_fields/
+        // ck_tickets_closed_fields (resolved_at/auto_close_due_at/closed_at/
+        // close_reason_code) — REAL BUG found live (SPEC-OP-036-era investigation,
+        // 2026-09-01): V016/V017 later tightened ck_tickets_resolved_fields/
+        // ck_tickets_closed_fields to also require resolved_by/resolution_code/
+        // resolution_summary/current_support_user_id (RESOLVED) and closed_by
+        // (CLOSED), and V015 added ck_tickets_waiting_for_user_metadata
+        // (WAITING_FOR_USER needs waiting_for_requester_since) plus
+        // ck_tickets_work_states_have_assignee (WAITING_FOR_USER also needs
+        // current_support_user_id) — this helper was never updated to match,
+        // so seeding a ticket directly into RESOLVED or WAITING_FOR_USER failed
+        // with a real DataIntegrityViolationException in 3 IT classes.
+        boolean resolved = "RESOLVED".equals(status);
+        boolean closed = "CLOSED".equals(status);
+        boolean waitingForUser = "WAITING_FOR_USER".equals(status);
+        // ck_tickets_support_user_requires_team (V002): current_support_user_id
+        // requires current_team_id too -- another real, previously-masked
+        // constraint (only surfaced once the missing-column bug above was fixed).
+        String supportUserId = (resolved || closed || waitingForUser) ? "support-1" : null;
+        String supportTeamId = supportUserId != null ? "TEAM-HOUSING" : null;
+        Timestamp resolvedAt = (resolved || closed) ? Timestamp.from(now) : null;
+        Timestamp autoCloseDueAt = resolved ? Timestamp.from(now.plusSeconds(3600)) : null;
+        String resolvedBy = (resolved || closed) ? supportUserId : null;
+        String resolutionCode = (resolved || closed) ? "FIXED" : null;
+        String resolutionSummary = (resolved || closed) ? "Requester's VPN client re-enrolled successfully." : null;
+        Timestamp closedAt = closed ? Timestamp.from(now) : null;
+        String closeReasonCode = closed ? "SUPPORT_CONFIRMED" : null;
+        String closedBy = closed ? supportUserId : null;
         Timestamp cancelledAt = "CANCELLED".equals(status) ? Timestamp.from(now) : null;
         String cancelReasonCode = "CANCELLED".equals(status) ? "REQUESTER_CANCELLED" : null;
+        Timestamp waitingForRequesterSince = waitingForUser ? Timestamp.from(now) : null;
 
         jdbcTemplate.update("""
             INSERT INTO ticket.tickets
                 (ticket_id, display_id, requester_id, title, initial_description, source, application_code,
-                 priority, status, current_resolution_cycle_id, resolved_at, auto_close_due_at, closed_at,
-                 close_reason_code, cancelled_at, cancel_reason_code, created_at, updated_at, version,
+                 priority, status, current_team_id, current_support_user_id, current_resolution_cycle_id,
+                 resolved_at, auto_close_due_at, resolved_by, resolution_code, resolution_summary, closed_at,
+                 close_reason_code, closed_by, cancelled_at, cancel_reason_code,
+                 waiting_for_requester_since, created_at, updated_at, version,
                  created_by_type, created_by_id)
-            VALUES (?, ?, ?, ?, ?, 'PORTAL', ?, 'UNASSIGNED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'EMPLOYEE', ?)
+            VALUES (?, ?, ?, ?, ?, 'PORTAL', ?, 'UNASSIGNED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'EMPLOYEE', ?)
             """,
             ticketId, displayId, requesterId,
             "Cannot sign in to Housing Portal", "Duo keeps asking me to enroll again.",
-            applicationCode, status, resolutionCycleId,
-            resolvedAt, autoCloseDueAt, closedAt, closeReasonCode, cancelledAt, cancelReasonCode,
+            applicationCode, status, supportTeamId, supportUserId, resolutionCycleId,
+            resolvedAt, autoCloseDueAt, resolvedBy, resolutionCode, resolutionSummary,
+            closedAt, closeReasonCode, closedBy, cancelledAt, cancelReasonCode,
+            waitingForRequesterSince,
             Timestamp.from(now), Timestamp.from(now), requesterId
         );
 

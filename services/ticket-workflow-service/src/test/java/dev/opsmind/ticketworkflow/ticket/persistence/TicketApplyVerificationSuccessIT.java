@@ -151,7 +151,18 @@ class TicketApplyVerificationSuccessIT extends AbstractTicketAssignmentIT {
     void shouldFlagConflictRequiresReconciliationWhenAFailedResultAlreadyExists() {
         UUID ticketId = seedVerifyingTicketWithActiveAttempt("ver-1234", "wf-9000", 1);
         UUID resolutionCycleId = resolutionCycleId(ticketId);
-        jdbcTemplate.update("UPDATE ticket.ticket_verification_attempts SET attempt_status = 'FAILED' WHERE verification_id = ?", "ver-1234");
+        // REAL BUG found live (SPEC-OP-036-era investigation, 2026-09-01): V030's
+        // ck_verification_attempt_failed_fields requires failure_code/
+        // failure_class/failed_at/failed_event_id whenever attempt_status='FAILED'
+        // — this raw test-only UPDATE set only attempt_status, so it always
+        // violated that CHECK constraint. Setting the required companion fields
+        // to real, valid placeholder values for this precondition setup.
+        jdbcTemplate.update("""
+            UPDATE ticket.ticket_verification_attempts
+            SET attempt_status = 'FAILED', failure_code = 'IDENTITY_LOGIN_CHECK_FAILED',
+                failure_class = 'PIPELINE_FAILED', failed_at = ?, failed_event_id = 'evt-verification-earlier-failure'
+            WHERE verification_id = ?
+            """, Timestamp.from(Instant.parse("2026-08-08T17:50:00Z")), "ver-1234");
 
         publish(envelope(
             "evt-verification-late", ALLOWED_PRODUCER, ticketId.toString(),

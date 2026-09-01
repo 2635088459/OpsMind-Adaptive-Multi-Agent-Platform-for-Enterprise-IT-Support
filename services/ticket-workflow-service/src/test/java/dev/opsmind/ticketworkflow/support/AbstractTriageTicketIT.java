@@ -102,29 +102,51 @@ public abstract class AbstractTriageTicketIT implements InfrastructureContainerS
         UUID categoryId = seedCategory(true);
         UUID queueId = seedSupportQueue(DEFAULT_TEAM_ID, true);
 
-        Timestamp resolvedAt = ("RESOLVED".equals(status) || "CLOSED".equals(status)) ? Timestamp.from(now) : null;
-        Timestamp autoCloseDueAt = "RESOLVED".equals(status) ? Timestamp.from(now.plusSeconds(3600)) : null;
-        Timestamp closedAt = "CLOSED".equals(status) ? Timestamp.from(now) : null;
-        String closeReasonCode = "CLOSED".equals(status) ? "RESOLVED_CONFIRMED" : null;
+        // REAL BUG found live (SPEC-OP-036-era investigation, 2026-09-01): V016/
+        // V017/V015 later tightened ck_tickets_resolved_fields/
+        // ck_tickets_closed_fields/ck_tickets_waiting_for_user_metadata beyond
+        // what this helper originally set (see AbstractAddTicketMessageIT's own
+        // fix comment for the full history) — RESOLVED here additionally needs
+        // resolved_by/resolution_code/resolution_summary/current_support_user_id.
+        boolean resolved = "RESOLVED".equals(status);
+        boolean closedStatus = "CLOSED".equals(status);
+        boolean waitingForUser = "WAITING_FOR_USER".equals(status);
+        // ck_tickets_support_user_requires_team (V002): current_support_user_id
+        // requires current_team_id too -- another real, previously-masked
+        // constraint (only surfaced once the missing-column bug above was fixed).
+        String supportUserId = (resolved || closedStatus || waitingForUser) ? "support-1" : null;
+        String supportTeamId = supportUserId != null ? DEFAULT_TEAM_ID : null;
+        Timestamp resolvedAt = (resolved || closedStatus) ? Timestamp.from(now) : null;
+        Timestamp autoCloseDueAt = resolved ? Timestamp.from(now.plusSeconds(3600)) : null;
+        String resolvedBy = (resolved || closedStatus) ? supportUserId : null;
+        String resolutionCode = (resolved || closedStatus) ? "FIXED" : null;
+        String resolutionSummary = (resolved || closedStatus) ? "Requester's VPN client re-enrolled successfully." : null;
+        Timestamp closedAt = closedStatus ? Timestamp.from(now) : null;
+        String closeReasonCode = closedStatus ? "SUPPORT_CONFIRMED" : null;
+        String closedBy = closedStatus ? supportUserId : null;
         Timestamp cancelledAt = "CANCELLED".equals(status) ? Timestamp.from(now) : null;
         String cancelReasonCode = "CANCELLED".equals(status) ? "REQUESTER_CANCELLED" : null;
+        Timestamp waitingForRequesterSince = waitingForUser ? Timestamp.from(now) : null;
         boolean triaged = !"NEW".equals(status);
 
         jdbcTemplate.update("""
             INSERT INTO ticket.tickets
                 (ticket_id, display_id, requester_id, title, initial_description, source, application_code,
                  category_id, support_queue_id, triaged_by, triaged_at,
-                 priority, status, current_resolution_cycle_id, resolved_at, auto_close_due_at, closed_at,
-                 close_reason_code, cancelled_at, cancel_reason_code, created_at, updated_at, version,
+                 priority, status, current_team_id, current_support_user_id, current_resolution_cycle_id, resolved_at,
+                 auto_close_due_at, resolved_by, resolution_code, resolution_summary, closed_at,
+                 close_reason_code, closed_by, cancelled_at, cancel_reason_code,
+                 waiting_for_requester_since, created_at, updated_at, version,
                  created_by_type, created_by_id)
-            VALUES (?, ?, ?, ?, ?, 'PORTAL', ?, ?, ?, ?, ?, 'HIGH', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'EMPLOYEE', ?)
+            VALUES (?, ?, ?, ?, ?, 'PORTAL', ?, ?, ?, ?, ?, 'HIGH', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'EMPLOYEE', ?)
             """,
             ticketId, displayId, DEFAULT_REQUESTER,
             "Cannot sign in to Housing Portal", "Duo keeps asking me to enroll again.",
             DEFAULT_APPLICATION_CODE,
             triaged ? categoryId : null, triaged ? queueId : null, triaged ? DEFAULT_REQUESTER : null, triaged ? Timestamp.from(now) : null,
-            status, resolutionCycleId,
-            resolvedAt, autoCloseDueAt, closedAt, closeReasonCode, cancelledAt, cancelReasonCode,
+            status, supportTeamId, supportUserId, resolutionCycleId,
+            resolvedAt, autoCloseDueAt, resolvedBy, resolutionCode, resolutionSummary,
+            closedAt, closeReasonCode, closedBy, cancelledAt, cancelReasonCode, waitingForRequesterSince,
             Timestamp.from(now), Timestamp.from(now), DEFAULT_REQUESTER
         );
 

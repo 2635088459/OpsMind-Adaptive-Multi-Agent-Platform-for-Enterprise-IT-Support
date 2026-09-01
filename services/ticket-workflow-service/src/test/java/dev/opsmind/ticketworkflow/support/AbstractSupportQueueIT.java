@@ -84,27 +84,49 @@ public abstract class AbstractSupportQueueIT implements InfrastructureContainerS
         UUID resolutionCycleId = UUID.randomUUID();
         String displayId = "INC-" + Math.abs(ticketId.hashCode());
 
-        // RESOLVED/CLOSED/CANCELLED each require extra fields to satisfy
-        // ticket.tickets' status-specific CHECK constraints (V002).
-        Timestamp resolvedAt = ("RESOLVED".equals(status) || "CLOSED".equals(status)) ? Timestamp.from(createdAt) : null;
-        Timestamp autoCloseDueAt = "RESOLVED".equals(status) ? Timestamp.from(createdAt.plusSeconds(3600)) : null;
-        Timestamp closedAt = "CLOSED".equals(status) ? Timestamp.from(createdAt) : null;
-        String closeReasonCode = "CLOSED".equals(status) ? "RESOLVED_CONFIRMED" : null;
+        // RESOLVED/CLOSED/CANCELLED/WAITING_FOR_USER each require extra fields to
+        // satisfy ticket.tickets' status-specific CHECK constraints. This comment
+        // originally cited only V002's ck_tickets_resolved_fields/
+        // ck_tickets_closed_fields (resolved_at/auto_close_due_at/closed_at/
+        // close_reason_code) — REAL BUG found live (SPEC-OP-036-era investigation,
+        // 2026-09-01): V016/V017 later tightened those constraints to also
+        // require resolved_by/resolution_code/resolution_summary/
+        // current_support_user_id (RESOLVED) and closed_by (CLOSED) — a caller
+        // passing agentId=null for a RESOLVED ticket (a real, valid scenario:
+        // "resolved but not currently assigned to anyone specific") failed with a
+        // real DataIntegrityViolationException. Defaulting a real agent id and
+        // the resolution/close metadata below when the caller didn't supply one
+        // for a status that now requires it.
+        boolean resolved = "RESOLVED".equals(status);
+        boolean closed = "CLOSED".equals(status);
+        boolean waitingForUser = "WAITING_FOR_USER".equals(status);
+        String effectiveAgentId = ((resolved || closed || waitingForUser) && agentId == null) ? "support-1" : agentId;
+        Timestamp resolvedAt = (resolved || closed) ? Timestamp.from(createdAt) : null;
+        Timestamp autoCloseDueAt = resolved ? Timestamp.from(createdAt.plusSeconds(3600)) : null;
+        String resolvedBy = (resolved || closed) ? effectiveAgentId : null;
+        String resolutionCode = (resolved || closed) ? "FIXED" : null;
+        String resolutionSummary = (resolved || closed) ? "Requester's VPN client re-enrolled successfully." : null;
+        Timestamp closedAt = closed ? Timestamp.from(createdAt) : null;
+        String closeReasonCode = closed ? "SUPPORT_CONFIRMED" : null;
+        String closedBy = closed ? effectiveAgentId : null;
         Timestamp cancelledAt = "CANCELLED".equals(status) ? Timestamp.from(createdAt) : null;
         String cancelReasonCode = "CANCELLED".equals(status) ? "REQUESTER_CANCELLED" : null;
+        Timestamp waitingForRequesterSince = waitingForUser ? Timestamp.from(createdAt) : null;
 
         jdbcTemplate.update("""
             INSERT INTO ticket.tickets
                 (ticket_id, display_id, requester_id, title, initial_description, source, application_code,
                  priority, status, current_team_id, current_support_user_id, current_resolution_cycle_id,
-                 resolved_at, auto_close_due_at, closed_at, close_reason_code, cancelled_at, cancel_reason_code,
+                 resolved_at, auto_close_due_at, resolved_by, resolution_code, resolution_summary, closed_at,
+                 close_reason_code, closed_by, cancelled_at, cancel_reason_code, waiting_for_requester_since,
                  created_at, updated_at, version, created_by_type, created_by_id)
-            VALUES (?, ?, ?, ?, ?, 'PORTAL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'EMPLOYEE', ?)
+            VALUES (?, ?, ?, ?, ?, 'PORTAL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'EMPLOYEE', ?)
             """,
             ticketId, displayId, requesterId,
             "Cannot sign in to Housing Portal", "Duo keeps asking me to enroll again.",
-            applicationCode, priority, status, teamId, agentId, resolutionCycleId,
-            resolvedAt, autoCloseDueAt, closedAt, closeReasonCode, cancelledAt, cancelReasonCode,
+            applicationCode, priority, status, teamId, effectiveAgentId, resolutionCycleId,
+            resolvedAt, autoCloseDueAt, resolvedBy, resolutionCode, resolutionSummary,
+            closedAt, closeReasonCode, closedBy, cancelledAt, cancelReasonCode, waitingForRequesterSince,
             Timestamp.from(createdAt), Timestamp.from(createdAt), requesterId
         );
 
