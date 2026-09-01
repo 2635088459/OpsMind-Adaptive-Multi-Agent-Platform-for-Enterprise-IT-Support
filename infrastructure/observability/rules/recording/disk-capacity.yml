@@ -7,18 +7,28 @@
 # meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
 # meta.audit_ref: docs/traceability/domains/08-observability-platform/SPEC-OP-034-traceability.md
 #
-# SPEC-OP-034 — disk-capacity self-monitoring. Prometheus is the only one of the 3
-# backends (Prometheus/Loki/Tempo) that exposes its own real storage-size metric
-# today (prometheus_tsdb_wal_storage_size_bytes / prometheus_tsdb_storage_blocks_bytes
-# — both confirmed live). Loki/Tempo expose per-chunk/per-block size histograms but
-# no TOTAL-storage-bytes gauge as of loki 3.3.2 / tempo 2.7.1 — a stated, honest
-# residual gap (traceability doc), not fabricated. All 3 sit on the same local
-# ext4/overlay filesystem (ADR-0002) and would hit an identical OS-level ENOSPC
-# ("no space left on device") on any write once genuinely full — confirmed via an
-# isolated tmpfs drill (not the shared host disk itself, to stay safe), not assumed.
+# SPEC-OP-034 — disk-capacity self-monitoring (Prometheus's own storage).
+#
+# SPEC-OP-035 CORRECTION to this file's own original SPEC-OP-034 comment (a real,
+# self-caught mistake): prometheus_tsdb_wal_storage_size_bytes is NOT unique to
+# Prometheus — Tempo emits a metric of the exact same name (confirmed live,
+# non-zero, once enough trace traffic had passed through it; the original
+# SPEC-OP-034 check ran too early, before Tempo's own metric had ever been
+# populated, and a false "Loki/Tempo have no such metric" conclusion slipped
+# through). Loki's OWN wal_storage_size_bytes was 0 in the same check — real,
+# but not yet informative. Without a job="prometheus" filter, this rule was
+# SILENTLY aggregating whichever component's identically-named metric Prometheus
+# happened to see, NOT Prometheus's own storage — found while investigating a
+# separate, bigger bug (SPEC-OP-030 left Prometheus's own self-scrape
+# unauthenticated against its own basic-auth gate — see prometheus.yml's own
+# fix). Fixed by scoping both terms to job="prometheus" explicitly. All 3
+# backends sit on the same local ext4/overlay filesystem (ADR-0002) and would
+# hit an identical OS-level ENOSPC ("no space left on device") on any write once
+# genuinely full — confirmed via an isolated tmpfs drill (not the shared host
+# disk itself, to stay safe), not assumed.
 groups:
   - name: disk-capacity-recording
     interval: 1m
     rules:
       - record: prometheus:storage_bytes:total
-        expr: prometheus_tsdb_storage_blocks_bytes + prometheus_tsdb_wal_storage_size_bytes
+        expr: prometheus_tsdb_storage_blocks_bytes{job="prometheus"} + prometheus_tsdb_wal_storage_size_bytes{job="prometheus"}

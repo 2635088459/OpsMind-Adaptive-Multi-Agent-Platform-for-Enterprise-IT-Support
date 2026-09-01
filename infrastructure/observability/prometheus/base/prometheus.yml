@@ -49,6 +49,20 @@ scrape_configs:
   # Self-scrape stays static — Prometheus scraping itself never benefits from
   # discovery, and it must work even if file_sd's directory were ever empty.
   - job_name: prometheus
+    # SPEC-OP-035 — REAL BUG found+fixed live: SPEC-OP-030 gated Prometheus's
+    # WHOLE server (not just the query API) behind basic auth, but this
+    # self-scrape target was never given credentials — it has been silently
+    # 401'ing since SPEC-OP-030 shipped (confirmed via /api/v1/targets:
+    # health=down, lastError="server returned HTTP status 401 Unauthorized").
+    # up{job="prometheus"} and every prometheus_* self-metric from this job
+    # have been unavailable for the whole SPEC-OP-031~034 span without
+    # anyone noticing, since a bare (job-unfiltered) PromQL query against a
+    # metric name like prometheus_tsdb_wal_storage_size_bytes silently
+    # returned Loki's/Tempo's OWN incidentally-same-named metric instead —
+    # see rules/recording/disk-capacity.yml's own corrected comment.
+    basic_auth:
+      username: admin
+      password: admin
     static_configs:
       - targets: ["localhost:9090"]
 
@@ -60,7 +74,18 @@ scrape_configs:
   # DEFAULT; every file under file_sd/ sets its own "labels":{"job": "..."}, which
   # takes precedence — confirmed live that a target's own job label wins even though
   # every file shares this one job_name/scrape_config (see the traceability doc).
+  #
+  # SPEC-OP-035 — basic_auth here too: this job also discovers alertmanager.json
+  # (SPEC-OP-030 gated Alertmanager's whole server too), and the SAME 401
+  # self-scrape bug applied to it. Harmless for every other file_sd target
+  # (otel-collector/loki/tempo/grafana/postgres-exporter/rabbitmq/
+  # synthetic-probe) — none of them validate the Authorization header, so an
+  # unnecessary one is silently ignored; confirmed live post-fix, all still
+  # report up=1.
   - job_name: file-sd-observability-platform
+    basic_auth:
+      username: admin
+      password: admin
     file_sd_configs:
       - files: ["/etc/prometheus/file_sd/*.json"]
         refresh_interval: 15s

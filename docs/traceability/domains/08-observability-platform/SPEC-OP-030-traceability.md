@@ -103,6 +103,23 @@ own dependency chain. Summary:
   `obs-viewer` user and RBAC proof both repeated cleanly.
 - Every `SPEC-OP-002~030` assertion in the same run stayed green.
 
+## 5a. Addendum (2026-09-01, from SPEC-OP-035): a real regression this spec introduced, found+fixed
+
+`SPEC-OP-035`'s chaos-e2e drill found `up{job="prometheus"}` and
+`up{job="alertmanager"}` were both `0` — Prometheus's own self-scrape
+(`prometheus.yml`'s `job_name: prometheus`, target `localhost:9090`) and its
+scrape of Alertmanager (via the shared `file-sd-observability-platform`
+job) were both **silently 401'ing since this spec shipped** (confirmed via
+`/api/v1/targets`: `lastError: "server returned HTTP status 401
+Unauthorized"`). This spec gated Prometheus's and Alertmanager's *whole*
+servers behind basic auth (§3) but never gave Prometheus's own scrape
+configs credentials for scraping either endpoint — a real gap this spec's
+own smoke assertions never caught, since they checked *query-API*
+rejection (curl with no credentials → 401, correctly) but never checked
+whether Prometheus's *own internal scrape* of these 2 targets was still
+succeeding. Fixed under `SPEC-OP-035` by adding `basic_auth` to both
+scrape blocks — see that spec's own traceability doc for the full account.
+
 ## 6. Residual risks
 
 | Risk | Severity | Mitigation / owner |

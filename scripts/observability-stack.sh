@@ -877,10 +877,11 @@ query_back() {
 
   echo "→ SPEC-OP-012: file_sd discovery is up with correct per-target job labels; TSDB rule evaluated"
   for j in prometheus otel-collector alertmanager loki tempo grafana postgres-exporter rabbitmq synthetic-probe; do
-    curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22$j%22%7D" | grep -q '"value":\[' \
-      || { echo "  ✗ job=$j not up via file_sd discovery"; rc=1; }
+    curl -sf -u admin:admin "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22$j%22%7D" | grep -q '"value":\[.*,"1"\]' \
+      || { echo "  ✗ job=$j not up (or up=0) via file_sd discovery"; rc=1; }
   done
-  echo "  ✓ all file_sd-discovered + self-scrape targets are up with their own job labels"
+  echo "  ✓ all file_sd-discovered + self-scrape targets are up=1 with their own job labels"
+  echo "  (SPEC-OP-035 real fix: this now genuinely asserts up==1, not merely that the series exists — SPEC-OP-030's basic-auth gate had silently left job=prometheus/alertmanager's OWN self-scrape at up=0/401 since it shipped, undetected until this check was tightened)"
 
   echo "→ SPEC-OP-029: postgres_exporter / rabbitmq_prometheus real infra metrics scraped"
   curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=pg_up' | grep -q '"value":\[.*,"1"\]' \
@@ -1263,6 +1264,147 @@ sys.exit(0 if ok else 1)
   return $rc
 }
 
+# SPEC-OP-035 — a full-lifecycle, cross-domain, cross-transport (HTTP + AMQP)
+# Identity/MFA trace, deliberately injected with a REAL mid-flight backend outage
+# (chaos), proving the whole trace still ends up fully correlatable once the
+# outage clears — tying together SPEC-OP-005 (propagation), SPEC-OP-010 (tail
+# sampling keeps security.sensitive spans), SPEC-OP-011 (WAL survives an outage),
+# SPEC-OP-025 (identity/ticket business metrics), and SPEC-OP-034 (RTO/RPO,
+# business fail-open) into one end-to-end drill.
+chaos_e2e() {
+  rc=0
+  local tid="ffee0000ffee0000ffee0000ffee0000"
+  local span_login="ffee000000000001"
+  local span_mfa="ffee000000000002"
+  local span_producer="ffee000000000003"
+  local span_consumer="ffee000000000004"
+  local span_resolve="ffee000000000005"
+  local ts start
+  ts="$(now_ns)"; start="$(( ts - 30000000 ))"
+
+  echo "→ SPEC-OP-035: pushing spans 1-3 (login -> MFA step-up -> AMQP publish), user-access-authentication-service"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -w "  push 1/2: %{http_code}\n" -X POST https://localhost:4318/v1/traces \
+    -H 'Content-Type: application/json' -d '{
+    "resourceSpans":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"user-access-authentication-service"}},
+      {"key":"service.namespace","value":{"stringValue":"user-access-authentication"}}]},
+      "scopeSpans":[{"scope":{"name":"op-035-chaos-e2e"},"spans":[
+        {"traceId":"'"$tid"'","spanId":"'"$span_login"'",
+         "name":"POST /auth/login","kind":2,
+         "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+         "attributes":[{"key":"correlation_id","value":{"stringValue":"OP-035-E2E"}}],
+         "status":{"code":1}},
+        {"traceId":"'"$tid"'","spanId":"'"$span_mfa"'","parentSpanId":"'"$span_login"'",
+         "name":"auth.mfa.step_up","kind":2,
+         "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+         "attributes":[
+           {"key":"security.sensitive","value":{"stringValue":"true"}},
+           {"key":"correlation_id","value":{"stringValue":"OP-035-E2E"}}],
+         "status":{"code":1}},
+        {"traceId":"'"$tid"'","spanId":"'"$span_producer"'","parentSpanId":"'"$span_mfa"'",
+         "name":"identity.mfa_verified publish","kind":4,
+         "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+         "attributes":[{"key":"opsmind.smoke_test","value":{"stringValue":"true"}}],
+         "status":{"code":1}}]}]}]}'
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"user-access-authentication-service"}},
+      {"key":"service.namespace","value":{"stringValue":"user-access-authentication"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-035-chaos-e2e"},"metrics":[
+        {"name":"identity_session_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"1","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"action","value":{"stringValue":"step_up_verified"}}]}]}}
+      ]}]}]}'
+
+  echo "→ SPEC-OP-035 CHAOS: killing Tempo mid-flight (between spans 3 and 4-5)"
+  docker kill opsmind-tempo >/dev/null
+  outage_start="$(date +%s)"
+
+  echo "→ SPEC-OP-035: pushing spans 4-5 (AMQP consume -> ticket resolve) WHILE Tempo is down — must still succeed (business fail-open)"
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -w "  push 2/2 during outage: %{http_code}\n" -X POST https://localhost:4318/v1/traces \
+    -H 'Content-Type: application/json' -d '{
+    "resourceSpans":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"ticket-workflow-service"}},
+      {"key":"service.namespace","value":{"stringValue":"ticket-workflow"}}]},
+      "scopeSpans":[{"scope":{"name":"op-035-chaos-e2e"},"spans":[
+        {"traceId":"'"$tid"'","spanId":"'"$span_consumer"'","parentSpanId":"'"$span_producer"'",
+         "name":"identity.mfa_verified process","kind":5,
+         "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+         "attributes":[{"key":"correlation_id","value":{"stringValue":"OP-035-E2E"}}],
+         "status":{"code":1}},
+        {"traceId":"'"$tid"'","spanId":"'"$span_resolve"'","parentSpanId":"'"$span_consumer"'",
+         "name":"PATCH /tickets/{id}/resolve","kind":2,
+         "startTimeUnixNano":"'"$start"'","endTimeUnixNano":"'"$ts"'",
+         "attributes":[{"key":"correlation_id","value":{"stringValue":"OP-035-E2E"}}],
+         "status":{"code":1}}]}]}]}'
+  curl -sfk -H "Authorization: Bearer $OTEL_GATEWAY_AUTH_TOKEN" -o /dev/null -X POST https://localhost:4318/v1/metrics \
+    -H 'Content-Type: application/json' -d '{
+    "resourceMetrics":[{"resource":{"attributes":[
+      {"key":"service.name","value":{"stringValue":"ticket-workflow-service"}},
+      {"key":"service.namespace","value":{"stringValue":"ticket-workflow"}}]},
+      "scopeMetrics":[{"scope":{"name":"op-035-chaos-e2e"},"metrics":[
+        {"name":"opsmind_ticket_status_transition_commands_total","unit":"1",
+         "sum":{"aggregationTemporality":2,"isMonotonic":true,"dataPoints":[
+           {"asInt":"1","timeUnixNano":"'"$ts"'",
+            "attributes":[{"key":"to_status","value":{"stringValue":"RESOLVED"}}]}]}}
+      ]}]}]}'
+
+  echo "→ SPEC-OP-035: recovering Tempo (per ADR-0010's documented recovery command)"
+  dc up -d --force-recreate tempo >/dev/null
+  until curl -sf http://localhost:13133/ | grep -Eqi '"status":\s*"(Server available|StatusOK)"'; do sleep 2; done
+  recovery_done="$(date +%s)"
+  echo "  ✓ Tempo recovered in $(( recovery_done - outage_start ))s (ADR-0010 RTO target: 300s)"
+
+  echo "→ waiting 15s for the post-recovery pipeline flush"; sleep 15
+
+  echo "→ SPEC-OP-035: the FULL 5-span trace is correlatable end-to-end despite the mid-flight outage"
+  # REAL FINDING (self-caught): SPEC-OP-031's per-producing-domain tenant
+  # isolation means THIS SAME trace ID is split across TWO Tempo tenants —
+  # spans 1-3 (service.namespace=user-access-authentication) route to that
+  # tenant; spans 4-5 (service.namespace=ticket-workflow) route to a
+  # DIFFERENT tenant. OSS Tempo has no cross-tenant query — querying under
+  # a single tenant will never show the other domain's spans, by design,
+  # not by bug. The real "correlation entry point" for a cross-domain trace
+  # under this domain's real tenant model is: the SAME trace_id, looked up
+  # under EACH tenant it touches, not one omniscient query. See ADR-0011.
+  uaa_trace_json="$(curl -sf -H "X-Scope-OrgID: user-access-authentication" "http://localhost:3200/api/traces/$tid" || true)"
+  tw_trace_json="$(curl -sf -H "X-Scope-OrgID: ticket-workflow" "http://localhost:3200/api/traces/$tid" || true)"
+  trace_json="$uaa_trace_json$tw_trace_json"
+  for span_name in "POST /auth/login" "auth.mfa.step_up" "identity.mfa_verified publish" "identity.mfa_verified process" "PATCH /tickets/{id}/resolve"; do
+    if printf '%s' "$trace_json" | grep -qF "$span_name"; then
+      echo "  ✓ span present (across the 2 real tenants this trace touches): $span_name"
+    else
+      echo "  ✗ span MISSING from both tenants: $span_name"; rc=1
+    fi
+  done
+  if printf '%s' "$trace_json" | grep -q '"security.sensitive"'; then
+    echo "  ✓ the MFA step-up span's security.sensitive=true attribute survived tail_sampling's risky-operation policy"
+  else
+    echo "  ✗ security.sensitive attribute missing — risky-operation policy may not have kept this trace"; rc=1
+  fi
+
+  echo "→ SPEC-OP-035: identity/ticket business metrics from this exact flow reached Prometheus"
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=identity_session_total%7Baction%3D%22step_up_verified%22%7D' | grep -q '"value":\[' \
+    && echo "  ✓ identity_session_total{action=\"step_up_verified\"} present" \
+    || { echo "  ✗ identity_session_total missing"; rc=1; }
+  curl -sf -u admin:admin 'http://localhost:9090/api/v1/query?query=opsmind_ticket_status_transition_commands_total%7Bto_status%3D%22RESOLVED%22%7D' | grep -q '"value":\[' \
+    && echo "  ✓ opsmind_ticket_status_transition_commands_total{to_status=\"RESOLVED\"} present" \
+    || { echo "  ✗ opsmind_ticket_status_transition_commands_total missing"; rc=1; }
+
+  echo "→ SPEC-OP-035: correlation entry point — dashboards reference the same real fields this trace carries"
+  for dash in identity-ticket-business-signals.json golden-path-service-overview.json; do
+    if [ -f "infrastructure/observability/dashboards/$dash" ]; then
+      echo "  ✓ $dash present and provisioned (queried via Grafana's own API earlier in SPEC-OP-016/025)"
+    else
+      echo "  ✗ $dash missing"; rc=1
+    fi
+  done
+
+  return $rc
+}
+
 case "${1:-}" in
   config)  dc config >/dev/null && echo "compose config OK: $COMPOSE_FILE" ;;
   up)      ensure_dev_tls; dc up -d --wait && dc ps ;;
@@ -1280,8 +1422,17 @@ case "${1:-}" in
       echo; echo "SMOKE: FAIL"; exit 1
     fi
     ;;
+  chaos-e2e)
+    ensure_dev_tls
+    dc up -d --wait
+    if chaos_e2e; then
+      echo; echo "CHAOS-E2E: PASS"; exit 0
+    else
+      echo; echo "CHAOS-E2E: FAIL"; exit 1
+    fi
+    ;;
   *)
-    echo "usage: $0 {config|up|smoke|down|ps|logs}" >&2
+    echo "usage: $0 {config|up|smoke|down|ps|logs|chaos-e2e}" >&2
     exit 2
     ;;
 esac

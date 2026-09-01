@@ -212,6 +212,24 @@ correctness to coincidence.
   after 3 separate `--force-recreate` cycles (collector, tempo, loki) while
   iterating on the real bugs above.
 
+## 6a. Addendum (2026-09-01, from SPEC-OP-035): a materially clarifying consequence found
+
+Building `SPEC-OP-035`'s first genuinely cross-domain trace surfaced a real
+consequence of this spec's per-producing-domain tenant model that this
+traceability doc had not stated explicitly: **a single trace whose spans
+come from more than one producing domain gets split across more than one
+Tempo tenant** (the routing connector routes per-span-batch on
+`service.namespace`, not per-trace). Confirmed directly: a 5-span
+Identity/MFA→Ticket trace landed 3 spans under the
+`user-access-authentication` tenant and 2 under `ticket-workflow` — querying
+either tenant alone shows only its own real subset, not "the whole trace."
+This is not a bug — it is the correct, intended behavior of per-domain
+isolation — but it does mean the real "correlation entry point" for a
+cross-domain trace is per-tenant lookup by the same `trace_id`, not a single
+omniscient query (OSS Tempo has no cross-tenant query capability). Full
+reasoning and the decision to accept this rather than re-architect tenant
+isolation: `ADR-0011`.
+
 ## 6. Residual risks / honest limitations
 
 | Risk | Severity | Mitigation / owner |

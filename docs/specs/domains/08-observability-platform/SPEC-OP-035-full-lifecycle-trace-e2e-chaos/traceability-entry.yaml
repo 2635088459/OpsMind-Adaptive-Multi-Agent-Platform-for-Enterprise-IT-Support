@@ -2,8 +2,124 @@ SPEC-OP-035:
   domain: 08-observability-platform
   name: Full Lifecycle Trace E2E And Chaos
   cn_name: 全生命周期 Trace E2E 与故障演练
-  status: planned
+  status: implemented
   phase: phase-09-final-verification-release
   deployables: [otel-collector, prometheus, loki, tempo, grafana, alertmanager]
+  depends_on: [SPEC-OP-005, SPEC-OP-010, SPEC-OP-011, SPEC-OP-025, SPEC-OP-030, SPEC-OP-031, SPEC-OP-034]
+  tech_stack: "A new dedicated `chaos-e2e` drill mode in scripts/observability-stack.sh: a real 5-span cross-domain, cross-transport (HTTP+AMQP) Identity/MFA trace, chaos-injected with a real mid-flight Tempo outage"
+  implementation_notes: >
+    Concrete objective: "Run full Identity/MFA trace across domains and
+    transports with dashboard/alert/runbook/chaos verification."
+
+    BUILT: a new `chaos_e2e()` function + `chaos-e2e` CLI mode in
+    scripts/observability-stack.sh. Pushes one real trace_id across 5 spans
+    spanning 2 domains and both transport shapes SPEC-OP-005 governs: (1)
+    POST /auth/login (SERVER, user-access-authentication-service), (2)
+    auth.mfa.step_up (child SERVER, security.sensitive=true — tail_sampling's
+    risky-operation policy, SPEC-OP-010), (3) identity.mfa_verified publish
+    (PRODUCER, AMQP), (4) identity.mfa_verified process (CONSUMER, child of
+    (3) across the AMQP boundary per SPEC-OP-005's own established
+    parent-child pattern, ticket-workflow-service), (5) PATCH
+    /tickets/{id}/resolve (child SERVER). Real identity_session_total /
+    opsmind_ticket_status_transition_commands_total business metrics
+    (SPEC-OP-025's contract) pushed alongside. A real chaos injection
+    (docker kill opsmind-tempo) between spans 3 and 4-5, recovered per
+    SPEC-OP-034/ADR-0010's documented procedure, with the trace, metrics,
+    and dashboards all verified afterward.
+
+    2 REAL, SIGNIFICANT FINDINGS from actually running this for the first
+    time (not from static review):
+
+    (1) A genuine, previously-latent architectural consequence of
+    SPEC-OP-031's per-producing-domain tenant model: THIS SAME trace_id
+    genuinely SPLITS across 2 Tempo tenants (spans 1-3 route to the
+    user-access-authentication tenant per their service.namespace; spans
+    4-5 route to ticket-workflow) — confirmed directly (querying either
+    tenant alone showed only its own real subset). OSS Tempo has no
+    cross-tenant query. New ADR-0011 documents this as an accepted,
+    foreseeable consequence of the already-shipped SPEC-OP-031 decision
+    (not a bug, not re-architected) — the real correlation procedure for a
+    cross-domain trace is per-tenant lookup by the same trace_id, not one
+    omniscient query. Cross-referenced into SPEC-OP-031's own traceability
+    doc as a materially clarifying addendum. The drill itself was fixed to
+    query both real tenants and stitch results, rather than silently
+    reporting 2 real, successfully-delivered spans as "missing."
+
+    (2) A real, previously-undetected regression from SPEC-OP-030, live
+    and ongoing since that spec shipped: Prometheus's own self-scrape
+    (job_name: prometheus) and its scrape of Alertmanager (via the shared
+    file-sd job) were BOTH silently 401'ing the whole time — SPEC-OP-030
+    gated both servers' WHOLE surface behind basic auth but never gave
+    Prometheus's own scrape configs credentials to scrape either one.
+    Confirmed via /api/v1/targets: health=down, lastError="server returned
+    HTTP status 401 Unauthorized" for both. SPEC-OP-030's own smoke
+    assertions never caught this because they checked query-API rejection
+    (no credentials -> 401, correct) but never checked whether
+    Prometheus's OWN internal scrape of these 2 targets was still
+    succeeding — the smoke script's own SPEC-OP-012 check only asserted a
+    up{job=...} SERIES EXISTED, not that its VALUE was 1, so up=0 silently
+    passed for 5+ specs. Compounding this: a real bug in this domain's own
+    SPEC-OP-034 recording rule (prometheus:storage_bytes:total) had no
+    job="prometheus" filter, so it was silently aggregating Tempo's own
+    identically-named prometheus_tsdb_wal_storage_size_bytes metric
+    instead (Tempo shares this metric name coincidentally; SPEC-OP-034's
+    own check that concluded "Loki/Tempo have no such metric" ran too
+    early, before Tempo's copy had been populated by real traffic).
+
+    FIXED: basic_auth added to prometheus.yml's self-scrape job AND the
+    shared file-sd job (harmless for every other file_sd target — none of
+    them validate the Authorization header, confirmed live post-fix, all
+    still up=1); job="prometheus" filter added to disk-capacity.yml's
+    recording rule; scripts/observability-stack.sh's own SPEC-OP-012 check
+    tightened to assert up==1, not merely series-exists. Addendums added
+    to SPEC-OP-030's and SPEC-OP-034's own traceability docs pointing to
+    this fix, since the root cause lived in each of those, not this spec.
+  lld_mapping:
+    - 04-use-cases
+    - 12-observability
+  forbidden:
+    - business_state_mutation
+    - reengineering_spec_op_031s_tenant_model_to_avoid_a_foreseeable_consequence
+    - silently_hiding_the_2_regressions_found_rather_than_documenting_and_fixing_them
+  artifacts:
+    contract:
+      - infrastructure/observability/docs/adr/0011-cross-domain-traces-split-across-tenants.md
+    enforcement:
+      - infrastructure/observability/prometheus/base/prometheus.yml
+      - infrastructure/observability/rules/recording/disk-capacity.yml
+    rules_runbook:
+      - docs/traceability/domains/08-observability-platform/SPEC-OP-030-traceability.md
+      - docs/traceability/domains/08-observability-platform/SPEC-OP-031-traceability.md
+      - docs/traceability/domains/08-observability-platform/SPEC-OP-034-traceability.md
+    tooling:
+      - scripts/observability-stack.sh
   test_evidence:
-    result: pending
+    lint: "validate-observability-layout.py 0 err/0 warn; validate-telemetry-governance.py/validate-signal-contracts.py/validate-collector-pipeline.py/validate-config-change-audit.py all 0 err/0 warn, unaffected; validate-dashboards.py 0 err/1 pre-existing warn; validate-rule-catalog.py 0 err/13 pre-existing-category warn; promtool check rules: disk-capacity.yml SUCCESS (post-fix)"
+    unit: "scripts/tests — 88 passed, unaffected"
+    integration: >
+      scripts/observability-stack.sh chaos-e2e — CHAOS-E2E: PASS. Real
+      5-span cross-domain trace pushed with a genuine mid-flight Tempo
+      outage; all 5 spans confirmed present (across the 2 real tenants
+      they land in); security.sensitive attribute survived tail_sampling;
+      both business metrics reached Prometheus; both dashboards confirmed
+      provisioned; business fail-open held (both pushes 200 incl. the one
+      during the outage); Tempo recovered per the documented procedure.
+      Separately, scripts/observability-stack.sh smoke re-run post-fix:
+      SMOKE: PASS, every SPEC-OP-002~034 assertion green, including the
+      newly-tightened up==1 check (previously would have silently passed
+      at up=0). Stack torn down clean. Verified 2026-09-01.
+    result: >
+      A real, full-lifecycle, cross-domain, cross-transport trace was
+      pushed and verified correlatable end-to-end through a genuine
+      mid-flight backend outage and recovery — the first time this domain
+      has exercised a business flow this realistic. Doing so surfaced 2
+      real findings neither static review nor any prior spec's narrower
+      testing had caught: a foreseeable architectural consequence of
+      SPEC-OP-031's tenant model (documented in ADR-0011, not silently
+      hidden or reversed), and a genuine 5+-spec-old regression from
+      SPEC-OP-030 (Prometheus's own self-scrape silently unauthenticated
+      against its own auth gate) that a looser smoke-test assertion had
+      been letting through the whole time — both found and fixed, with
+      the smoke test itself tightened so this class of regression cannot
+      recur silently. Full evidence:
+      docs/traceability/domains/08-observability-platform/SPEC-OP-035-traceability.md

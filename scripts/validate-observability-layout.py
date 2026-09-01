@@ -51,6 +51,7 @@ ADRS = [
     "0008-sdk-level-redaction-contract.md",
     "0009-config-change-approval-and-audit.md",
     "0010-outage-recovery-rto-rpo-targets.md",
+    "0011-cross-domain-traces-split-across-tenants.md",
 ]
 VERSION_KEYS = {
     "collector": "OTEL_COLLECTOR",

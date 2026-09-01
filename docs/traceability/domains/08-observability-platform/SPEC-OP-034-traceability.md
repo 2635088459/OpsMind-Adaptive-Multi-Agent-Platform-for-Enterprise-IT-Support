@@ -168,6 +168,22 @@ avoid duplicating existing, already-real evidence.
   own build) plus the new disk-capacity assertion.
 - Stack torn down clean.
 
+## 5a. Addendum (2026-09-01, from SPEC-OP-035): this spec's own recording rule had a real bug
+
+`prometheus:storage_bytes:total` (§4) was built without a `job="prometheus"`
+label filter. `SPEC-OP-035` discovered Tempo emits a metric of the exact
+same name (`prometheus_tsdb_wal_storage_size_bytes`) — real, non-zero, once
+enough trace traffic had passed through it (this spec's own check ran too
+early, before Tempo's copy had ever been populated, and concluded
+"Loki/Tempo have no such metric," which was not fully accurate). Without
+the job filter, this rule was silently aggregating whichever component's
+identically-named metric happened to exist, not specifically Prometheus's
+own storage. Compounded by a separate, bigger regression from `SPEC-OP-030`
+(Prometheus's own self-scrape had been silently 401'ing the whole time,
+so `job="prometheus"` data for this metric wasn't even landing until that
+was also fixed). Both fixed under `SPEC-OP-035` — see that spec's own
+traceability doc for the full account.
+
 ## 6. Residual risks / honest limitations
 
 | Risk | Severity | Mitigation / owner |
