@@ -16,6 +16,7 @@ container entirely, are unaffected either way).
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from agentruntime.application.ports_in import (
@@ -42,6 +43,7 @@ from agentruntime.application.ports_out import (
     AuditRecordRepository,
     CheckpointRepository,
     CommandIdempotencyRepository,
+    ConversationReasoningPort,
     OutboxRepository,
     PoisonEventRepository,
     ProcessedEventRepository,
@@ -112,6 +114,7 @@ from agentruntime.application.services.workflow_lifecycle import (
 )
 from agentruntime.application.services.workflow_query import WorkflowQueryService
 from agentruntime.application.telemetry import RuntimeTelemetry
+from agentruntime.infrastructure.attachment_client import HttpAttachmentClient
 from agentruntime.infrastructure.capability_policy import StaticCapabilityPolicyAdapter
 from agentruntime.infrastructure.clock import SystemClockAdapter
 from agentruntime.infrastructure.conversation_reasoning import (
@@ -207,6 +210,52 @@ def _build_memory_adapters() -> _PersistenceAdapters:
     )
 
 
+logger = logging.getLogger("agentruntime.container")
+
+
+def _build_conversation_reasoning_port(settings: Settings) -> ConversationReasoningPort:
+    """Settings.conversation_reasoning_mode="static" (default) keeps
+    StaticConversationReasoningAdapter — every hermetic test in this service relies on
+    it. "anthropic"/"openai" each wire their own real adapter — same import-lazily/
+    degrade-to-safe-default shape evaluation-improvement-service's own
+    `_build_quality_judge()` already established in this platform for the anthropic
+    SDK; the openai branch mirrors it exactly for this service's own first use of that
+    SDK.
+    """
+
+    if settings.conversation_reasoning_mode == "anthropic":
+        try:
+            import anthropic
+
+            from agentruntime.infrastructure.conversation_reasoning import AnthropicConversationReasoningAdapter
+
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else anthropic.Anthropic()
+            return AnthropicConversationReasoningAdapter(client, settings.conversation_reasoning_anthropic_model)
+        except Exception:
+            logger.warning(
+                "conversation_reasoning_mode=anthropic but the Anthropic client could not be constructed; falling back to the static placeholder",
+                exc_info=True,
+            )
+            return StaticConversationReasoningAdapter()
+
+    if settings.conversation_reasoning_mode == "openai":
+        try:
+            import openai
+
+            from agentruntime.infrastructure.conversation_reasoning import OpenAIConversationReasoningAdapter
+
+            client = openai.OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else openai.OpenAI()
+            return OpenAIConversationReasoningAdapter(client, settings.conversation_reasoning_openai_model)
+        except Exception:
+            logger.warning(
+                "conversation_reasoning_mode=openai but the OpenAI client could not be constructed; falling back to the static placeholder",
+                exc_info=True,
+            )
+            return StaticConversationReasoningAdapter()
+
+    return StaticConversationReasoningAdapter()
+
+
 def _build_postgres_adapters(settings: Settings) -> _PersistenceAdapters:
     engine = build_engine(settings.sqlalchemy_url)
     session_factory = build_session_factory(engine)
@@ -254,7 +303,13 @@ class Container:
             settings.ticket_workflow_base_url, token_provider=self.outbound_service_token_provider,
         )
         self.knowledge_retrieval_client = HttpKnowledgeRetrievalClient(settings.memory_knowledge_base_url)
-        self.conversation_reasoning_port = StaticConversationReasoningAdapter()
+        self.conversation_reasoning_port = _build_conversation_reasoning_port(settings)
+        # SPEC-ARO-039's own multimodal follow-up. Same outbound service identity as
+        # ticket_workflow_client's own triage_ticket() call — see AttachmentClientPort's
+        # own docstring for why.
+        self.attachment_client = HttpAttachmentClient(
+            settings.attachment_service_base_url, token_provider=self.outbound_service_token_provider,
+        )
         self.governance_approval_client = HttpGovernanceApprovalClient(
             settings.policy_approval_governance_base_url, token_provider=self.outbound_service_token_provider,
         )
@@ -358,6 +413,7 @@ class Container:
             self.ticket_workflow_client, self.complete_workflow_service,
             settings.escalation_default_category_id, settings.escalation_default_support_queue_id,
             settings.escalation_default_priority, settings.escalation_default_team_name,
+            attachment_client_port=self.attachment_client,
         )
         self.action_confirmation_service = ActionConfirmationService(
             self.workflow_instance_repository, self.agent_task_repository, self.checkpoint_repository,

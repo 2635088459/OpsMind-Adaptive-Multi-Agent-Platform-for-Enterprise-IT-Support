@@ -1,6 +1,6 @@
 # SPEC-SC-020 — Trace Propagation Coverage
 
-> Domain: `10-support-console` | Phase: 08 — Security and Release Hardening | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 08 — Security and Release Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-020`, the final spec of domain 10's roadmap — closes out this domain's release-readiness phase and, alongside `SPEC-EP-023`, completes the entire 43-spec Feature Spec roadmap across both frontend domains.

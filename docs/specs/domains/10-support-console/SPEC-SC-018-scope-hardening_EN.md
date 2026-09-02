@@ -1,6 +1,6 @@
 # SPEC-SC-018 — Scope Hardening
 
-> Domain: `10-support-console` | Phase: 08 — Security and Release Hardening | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 08 — Security and Release Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-018`, the domain-10 analogue of `SPEC-EP-021`, made more consequential here by SPEC-SC-006's genuine 3-domain aggregation surface.

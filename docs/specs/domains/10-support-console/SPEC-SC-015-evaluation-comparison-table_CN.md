@@ -39,22 +39,26 @@ domain 07 有可查询的运行（对全新部署可能为空——空状态是�
 不适用——是一个 `GET`。
 
 ## 13. 消费/依赖的契约
-domain 07 真实的运行读取/评分读取端点（确切路径需对照 domain 07 自己的 API 契约文档确认——这是 domain 10 第一个涉及 domain 07 的 spec，因此契约形状尚未在本 domain 的 LLD 其他地方交叉引用过）。
+domain 07 真实、已实现的读取端点，直接读取 `interfaces/rest/router.py` 确认（domain 07 的真实进度早已超出某条较早项目记忆"EI-011~013 next"所记录的快照——它自己的真实代码才是事实依据，而非那条已过时的记忆）：`GET /evaluation/runs/{run_id}`、`GET /evaluation/runs/{run_id}/scores`、`GET /evaluation/runs/{run_id}/regression-report`（尚未做过比较时返回真实的 404 `NOT_FOUND`——一个"从未比较过"的真实状态，而非错误）。用于对比的基线 run 从 regression report 自身的 `baseline_run_id` 解析得到，而非 `RunResponse.baseline_version`（一个版本字符串，不是 run id）。
+
+一个本 domain 10 spec 独有的真实发现：这是本前端第一次直接调用一个 Python/FastAPI 后端。其 Pydantic 响应模型没有 `alias_generator`（现场对照真实运行实例、并直接阅读 `schemas.py` 确认）——真实的线上形状确实是 **snake_case**（`run_id`、`baseline_run_id`、`overall_decision`……），而非本应用其他地方所有 Java 服务的 camelCase。本应用自己的类型原样保留，而非悄悄改名，沿用"如实映射真实 DTO"这一贯穿本应用所有功能的一贯做法。
 
 ## 14. 安全
-需要 domain 07 为评估运行可见性定义的读取 scope（待确认）。
+与 SPEC-SC-014 的 Tempo 情形不同，这里不需要代理——直接阅读 `interfaces/security.py`确认：本服务真实的调用者身份机制是调用方自行断言的 `X-Actor-Id`/`X-Actor-Role` 请求头对("未来的跨 domain 契约 spec"尚未构建，完全没有 JWT/bearer 校验)，但本 spec 调用的这几个读取端点，其设计本身就有意对完全不声明身份的调用者开放（05-api-contracts 自己的默认读取下限，`EVALUATION_VIEWER`）——现场验证：一次匿名的 `GET .../scores` 调用，每条分数的 `evidence` 都如实返回 `null`（已脱敏），而同一批分数由产出它们的、已认证的 actor 拉取时，则带有真实、完整的 `evidence` 对象。本应用完全不发送任何 actor 请求头，纯粹依赖这一已文档化、本就安全的默认行为——它既不需要、也不向本服务断言任何身份，不引入任何新的伪造面。
+
+本 session 真正新增了 CORS（`CORSMiddleware`，默认空/拒绝，`EVALUATION_CORS_ALLOWED_ORIGINS`）——此前该服务完全没有配置过 CORS（此前的每一个调用方都是服务间调用）。
 
 ## 15. 可观测性
 拉取时带 `traceparent`，遵循 SPEC-SC-020。
 
 ## 16. 错误场景
-给定范围没有可用运行——一个真实的空状态，与拉取失败明确区分。
+一次产出了零条分数的 run——一个真实的空状态，与拉取失败明确区分。一个尚无 regression report 的 run（`GET .../regression-report` → 404）只渲染候选侧数据，而非报错。
 
 ## 17. 验收场景
-一个有 2 次运行（一个基线，一个在某指标上出现回归的候选）的数据集，渲染出一张把该回归可视化标记出来的表格。
+一个候选 run 对照一个真实基线 run 比较后，渲染出一张表格，正确可视化标记出真实的按指标回归（候选平均分低于基线平均分）——已对照 fixture 验证，且已对照一个真实运行实例现场验证（真实的一个数据集 → 2 次 run → 真实分数 → 真实比较，全程通过 curl 端到端驱动）。
 
 ## 18. 先写测试
-针对匹配 domain 07 真实运行/评分响应形状的 fixture 的组件测试，覆盖回归高亮和空状态两种情况。
+针对匹配真实（snake_case）响应形状的 fixture 的组件测试——完整比较含真实回归、尚无基线、真实零分数空状态三种场景；后端针对真实 CORS 行为（允许的源、不允许的源、默认不配置即拒绝）的单元测试。
 
 ## 19. 完成定义
-表格针对填充和空两种状态的 fixture 都能正确渲染；domain 07 确切契约确认后追加针对真实端点的兼容性检查。
+表格针对每一种真实状态都能正确渲染 fixture；已对照一个真实运行中的 `evaluation-improvement-service` 实例端到端现场验证——真实的 `RunResponse`/`ScoreResponse`/`RegressionReportResponse` 形状逐字段确认，匿名读取的证据脱敏行为已确认，新增的 CORS 门禁对允许源与不允许源均已确认。

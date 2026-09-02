@@ -1,6 +1,6 @@
 # SPEC-SC-015 — Evaluation Comparison Table
 
-> Domain: `10-support-console` | Phase: 06 — Observability Surfaces | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 06 — Observability Surfaces | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-015`, implements the LangSmith/evaluation half of `UC-SC-07`, matching the mockup's evaluation/canary comparison table section.
@@ -39,22 +39,26 @@ The table must reflect real scoring data — no fabricated or illustrative-only 
 N/A — a `GET`.
 
 ## 13. Consumed/Depended-on Contracts
-Domain 07's real run-read/scoring-read endpoints (exact paths to be confirmed against domain 07's own API contract doc — this is the first domain-10 spec touching domain 07, so the contract shape is not yet cross-referenced elsewhere in this domain's LLD).
+Domain 07's real, already-implemented reads, confirmed by reading `interfaces/rest/router.py` directly (domain 07's actual build is far past the "EI-011~013 next" snapshot an earlier project memory note carried — its own real code is the ground truth, not that stale note): `GET /evaluation/runs/{run_id}`, `GET /evaluation/runs/{run_id}/scores`, `GET /evaluation/runs/{run_id}/regression-report` (404 `NOT_FOUND` when no comparison has run yet — a genuine "never compared" state, not an error). The baseline run to compare against is resolved from the regression report's own `baseline_run_id`, not from `RunResponse.baseline_version` (a version string, not a run id).
+
+A real, first-of-its-kind finding for this domain-10 spec: this is the first Python/FastAPI backend this frontend has ever called. Its Pydantic response models have no `alias_generator` (confirmed by reading `schemas.py` directly and live against a real running instance) — the wire shape is genuinely **snake_case** (`run_id`, `baseline_run_id`, `overall_decision`...), not camelCase like every Java service this app talks to elsewhere. Preserved as-is in this app's own types rather than silently renamed, the same "mirror the real DTO" discipline every other feature here already follows.
 
 ## 14. Security
-Requires whatever read scope domain 07 defines for evaluation-run visibility (to be confirmed).
+No proxy needed here, unlike SPEC-SC-014's Tempo situation — confirmed by reading `interfaces/security.py` directly: this service's real caller-identity mechanism is a caller-asserted `X-Actor-Id`/`X-Actor-Role` header pair ("a future cross-domain-contracts spec" not yet built, no JWT/bearer validation at all), but the specific reads this spec calls are DELIBERATELY, and by design, open to a caller who asserts no identity at all (05-api-contracts's own default read floor, `EVALUATION_VIEWER`) — live-verified: an anonymous `GET .../scores` call correctly comes back with `evidence: null` on every score (redacted), while the same scores fetched by the authenticated actor who produced them carry a real, populated `evidence` object. This app sends no actor headers at all, relying purely on that documented, already-safe default — it does not assert or need any identity to this service, and introduces no new spoofing surface.
+
+CORS was added for real this session (`CORSMiddleware`, empty/deny by default, `EVALUATION_CORS_ALLOWED_ORIGINS`) — this service had none at all before (every prior consumer was server-to-server).
 
 ## 15. Observability
 `traceparent` on the fetch, per SPEC-SC-020.
 
 ## 16. Error Scenarios
-No runs available for the given scope — a genuine empty state, distinct from a fetch failure.
+A run that produced zero scores — a genuine empty state, distinct from a fetch failure. A run with no regression report yet (`GET .../regression-report` → 404) renders candidate-only, not an error.
 
 ## 17. Acceptance Scenarios
-A dataset with 2 runs (one baseline, one candidate showing a regression on one metric) renders a table with that regression visually flagged.
+A candidate run compared against a real baseline run renders a table with a real per-dimension regression (candidate average below baseline average) visually flagged — verified against fixtures AND live against a real running instance (a real dataset → 2 runs → real scores → real comparison, driven end-to-end via curl).
 
 ## 18. Tests First
-A component test against a fixture matching domain 07's real run/scoring response shape, covering both the regression-highlight and empty-state cases.
+Component tests against fixtures matching the real (snake_case) response shapes — full comparison with a real regression, no-baseline-yet, and genuine-empty-scores; a backend unit test for the real CORS behavior (allowed origin, non-allowed origin, deny-by-default with no origins configured).
 
 ## 19. Definition of Done
-The table renders correctly from fixtures for both populated and empty states; a compatibility check against domain 07's real endpoint is added once its exact contract is confirmed.
+The table renders correctly from fixtures for every real state; live-verified end-to-end against a real running `evaluation-improvement-service` instance — real `RunResponse`/`ScoreResponse`/`RegressionReportResponse` shapes confirmed byte-for-byte, the anonymous-read evidence-redaction behavior confirmed, and the new CORS gate confirmed for both an allowed and a non-allowed origin.

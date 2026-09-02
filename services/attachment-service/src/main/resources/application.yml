@@ -1,0 +1,71 @@
+spring:
+  application:
+    name: attachment-service
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  servlet:
+    multipart:
+      # A rejected multipart over this hard ceiling never reaches
+      # AttachmentValidationService at all — set comfortably above
+      # opsmind.attachment.max-size-bytes's own real limit (25 MB, matching
+      # employee-portal's own client-side MAX_FILE_SIZE_BYTES) so the real
+      # server-side check is what actually produces the specific,
+      # employee-visible "too large" rejection, not a generic container-level 413.
+      max-file-size: 30MB
+      max-request-size: 30MB
+  # Same per-service-schema Flyway scoping every other Java service in this
+  # platform already uses, for the same reason (see ticket-workflow-service's own
+  # application.yml comment): a shared flyway_schema_history table collides the
+  # moment two services' own migrations run against the same database.
+  flyway:
+    schemas: attachment
+    default-schema: attachment
+
+opsmind:
+  attachment:
+    # SPEC-EP-011 §"Design References": these values are "sourced from the shared
+    # attachments capability's own contract" — this IS that contract, now real.
+    # Matches employee-portal's own client-side ALLOWED_MIME_TYPES/
+    # MAX_FILE_SIZE_BYTES exactly (validation.ts) — real enforcement lives here
+    # (server-side); the client-side copy is advisory-only, per that spec's own
+    # §14 Security note.
+    allowed-mime-types: image/png,image/jpeg,image/webp,application/pdf
+    max-size-bytes: 26214400 # 25 MiB
+    storage-bucket: opsmind-attachments
+    cors:
+      # Empty/deny by default — an operator opts specific frontend origins in.
+      allowed-origins: ${ATTACHMENT_CORS_ALLOWED_ORIGINS:}
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+  health:
+    liveness-state:
+      enabled: true
+    readiness-state:
+      enabled: true
+
+logging:
+  level:
+    root: INFO
+    com.opsmind.attachment: INFO

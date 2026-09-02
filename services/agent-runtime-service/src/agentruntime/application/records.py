@@ -342,6 +342,21 @@ class ApprovalRequestRef:
 
 
 @dataclass(frozen=True, slots=True)
+class AttachmentContent:
+    """SPEC-ARO-039's own multimodal follow-up: the real attachment-service
+    GET /api/v1/attachments/{ref}/content response, reshaped to just what
+    ConversationReasoningPort.decide() needs to build a real multimodal prompt.
+    attachment_ref is carried alongside so a fetch failure (AttachmentFetchFailedException)
+    can be logged against the specific ref that failed, without SendMessageService
+    needing to thread that correlation through separately.
+    """
+
+    attachment_ref: str
+    content: bytes
+    mime_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReasoningOutcome:
     """SPEC-ARO-039 api-contract: the discriminated union a ConversationReasoningPort
     decides between — `kind` names exactly one of "text" / "proposed_action" /

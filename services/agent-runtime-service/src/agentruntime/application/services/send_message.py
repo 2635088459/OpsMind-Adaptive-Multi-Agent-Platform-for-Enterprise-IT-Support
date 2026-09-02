@@ -34,6 +34,7 @@ from agentruntime.application.commands import (
     SendMessageCommand,
 )
 from agentruntime.application.exceptions import (
+    AttachmentFetchFailedException,
     ConversationAccessDeniedException,
     ConversationNotFoundException,
     EscalationRoutingNotConfiguredException,
@@ -41,6 +42,7 @@ from agentruntime.application.exceptions import (
 )
 from agentruntime.application.ports_out import (
     AgentTaskRepository,
+    AttachmentClientPort,
     CheckpointRepository,
     ClockPort,
     CommandIdempotencyRepository,
@@ -51,6 +53,7 @@ from agentruntime.application.ports_out import (
 )
 from agentruntime.application.records import (
     AgentTaskRecord,
+    AttachmentContent,
     CheckpointRecord,
     ReasoningOutcome,
     WorkflowInstanceRecord,
@@ -96,6 +99,7 @@ class SendMessageService:
         escalation_support_queue_id: str,
         escalation_priority: str,
         escalation_team_name: str,
+        attachment_client_port: AttachmentClientPort | None = None,
     ) -> None:
         self._workflow_instance_repository = workflow_instance_repository
         self._agent_task_repository = agent_task_repository
@@ -104,6 +108,11 @@ class SendMessageService:
         self._knowledge_retrieval_port = knowledge_retrieval_port
         self._conversation_reasoning_port = conversation_reasoning_port
         self._ticket_workflow_client = ticket_workflow_client
+        # SPEC-ARO-039's own multimodal follow-up. Optional/None-able (unlike every
+        # other collaborator here) so every existing caller that predates this
+        # follow-up — every hermetic test's own fixture included — keeps constructing
+        # this service unchanged; None degrades to "fetch nothing," never a crash.
+        self._attachment_client_port = attachment_client_port
         self._complete_workflow_service = complete_workflow_service
         self._escalation_category_id = escalation_category_id
         self._escalation_support_queue_id = escalation_support_queue_id
@@ -175,13 +184,33 @@ class SendMessageService:
         ))
 
         snippets = self._knowledge_retrieval_port.search(command.text, workflow.id, command.requester_subject)
-        outcome = self._conversation_reasoning_port.decide(command.text, snippets)
+        attachments = self._fetch_attachments(command.attachment_refs)
+        outcome = self._conversation_reasoning_port.decide(command.text, snippets, attachments)
 
         if outcome.kind == "proposed_action":
             return self._enter_awaiting_confirmation(claimed, outcome, now)
         if outcome.kind == "escalation":
             return self._escalate(workflow, claimed, command, outcome, now)
         return self._complete_as_text(claimed, outcome, now)
+
+    def _fetch_attachments(self, attachment_refs: tuple[str, ...]) -> list[AttachmentContent]:
+        """SPEC-ARO-039's own multimodal follow-up. Fail-open per ref, not per turn —
+        SendMessageCommand's own docstring already says attachment_refs are "consumed
+        as-is... this command does not validate them itself," so a stale/bad ref is a
+        real, expected possibility, not a reason to fail the whole message turn (the
+        same posture ConversationReasoningPort's own adapters already apply to a failed
+        LLM call).
+        """
+
+        if not attachment_refs or self._attachment_client_port is None:
+            return []
+        fetched: list[AttachmentContent] = []
+        for ref in attachment_refs:
+            try:
+                fetched.append(self._attachment_client_port.fetch_content(ref))
+            except AttachmentFetchFailedException:
+                logger.warning("failed to fetch attachment %s; continuing this message turn without it", ref, exc_info=True)
+        return fetched
 
     def _complete_as_text(self, claimed: AgentTaskRecord, outcome: ReasoningOutcome, now: datetime) -> MessageTurnView:
         result_payload = json.dumps({"kind": "text", "text": outcome.text})

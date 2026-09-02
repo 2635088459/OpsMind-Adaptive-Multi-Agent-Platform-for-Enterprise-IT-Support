@@ -32,6 +32,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from tool_gateway.api.security import UntrustedCallerException
 from tool_gateway.application.exceptions import (
     ApprovalLinkageMismatchException,
     CapabilityNotRegisteredException,
@@ -126,6 +127,13 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ActiveExecutionAlreadyExistsException)
     async def handle_active_execution_exists(request: Request, exc: ActiveExecutionAlreadyExistsException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body("TOOL_REQUEST_STATE_CONFLICT", "An execution attempt is already active for this tool request.", request).model_dump())
+
+    @app.exception_handler(UntrustedCallerException)
+    async def handle_untrusted_caller(request: Request, exc: UntrustedCallerException) -> JSONResponse:
+        # SPEC-SC-018/020 follow-up: INV-TG-001 — submit/decide/cancel are reserved
+        # for a trusted SERVICE caller. 403, same "you are not allowed" semantics
+        # as RAW_OUTPUT_FORBIDDEN/APPROVAL_LINKAGE_MISMATCH below.
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content=_body("UNTRUSTED_CALLER", str(exc), request).model_dump())
 
     @app.exception_handler(RawOutputForbiddenException)
     async def handle_raw_output_forbidden(request: Request, exc: RawOutputForbiddenException) -> JSONResponse:

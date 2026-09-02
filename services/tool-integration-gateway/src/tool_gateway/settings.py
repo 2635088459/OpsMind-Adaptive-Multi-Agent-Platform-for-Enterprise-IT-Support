@@ -75,6 +75,20 @@ class Settings(BaseSettings):
     connector_degrade_after_failures: int = 3
     connector_disable_after_failures: int = 5
 
+    # SPEC-SC-018/020 follow-up: support-console (domain 10) is this service's first
+    # browser caller — empty/deny by default, mirrors evaluation-improvement-
+    # service's own cors_allowed_origins field exactly. Deliberately GET-only, and
+    # deliberately never includes X-Caller-Id/X-Caller-Type in the allowed request
+    # headers (see main.py's own CORSMiddleware config) — a cross-origin page can
+    # therefore never complete a write call here (POST isn't an allowed method at
+    # all) nor spoof a SERVICE-caller identity through a real browser (the header a
+    # forged caller-type would need is never let through CORS preflight).
+    cors_allowed_origins: str = ""
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

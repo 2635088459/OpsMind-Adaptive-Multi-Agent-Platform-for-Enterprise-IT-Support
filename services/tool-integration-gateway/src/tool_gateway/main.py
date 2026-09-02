@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from tool_gateway.adapters.observability.otel_setup import configure_observability
 from tool_gateway.api.admin_routes import router as admin_router
@@ -32,8 +33,21 @@ def _configure_logging() -> None:
 
 def create_app() -> FastAPI:
     _configure_logging()
-    configure_observability(get_settings())
+    settings = get_settings()
+    configure_observability(settings)
     app = FastAPI(title="tool-integration-gateway", version="0.1.0")
+
+    # SPEC-SC-018/020 follow-up: real, empty/deny-by-default CORS — see
+    # Settings.cors_allowed_origins's own docstring for why GET-only and why
+    # X-Caller-Id/X-Caller-Type are deliberately excluded from allow_headers.
+    if settings.cors_allowed_origins_list:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allowed_origins_list,
+            allow_methods=["GET", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "traceparent"],
+            allow_credentials=False,
+        )
 
     register_exception_handlers(app)
 

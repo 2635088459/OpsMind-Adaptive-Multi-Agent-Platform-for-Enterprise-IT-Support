@@ -257,6 +257,24 @@ class GovernanceApprovalRequestFailedException(RuntimeError):
         self.reason = reason
 
 
+class AttachmentFetchFailedException(RuntimeError):
+    """SPEC-ARO-039's own multimodal follow-up: the outbound call to
+    attachment-service's real GET /api/v1/attachments/{ref}/content did not succeed
+    (unreachable, 404, or a malformed response). Unlike TicketCreationFailedException/
+    TicketTriageFailedException, SendMessageService does not let this fail the whole
+    message turn — attachment_refs are caller-supplied and already "consumed as-is"
+    (SendMessageCommand's own docstring), so one bad or unreachable ref degrades that
+    single attachment out of the reasoning call rather than blocking the turn, the same
+    fail-open posture ConversationReasoningPort's own adapters already apply to a failed
+    LLM call.
+    """
+
+    def __init__(self, attachment_ref: str, reason: str) -> None:
+        super().__init__(f"fetching attachment {attachment_ref} failed: {reason}")
+        self.attachment_ref = attachment_ref
+        self.reason = reason
+
+
 class ActionNotFoundException(RuntimeError):
     """SPEC-ARO-040: raised when an actionId (an AgentTaskId) does not resolve to any
     AgentTask belonging to the named conversation, or does not belong to that

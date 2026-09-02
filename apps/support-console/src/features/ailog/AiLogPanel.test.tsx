@@ -24,6 +24,28 @@ describe("AiLogPanel — SPEC-SC-006/007/019", () => {
     useAuthStore.setState({ status: "authenticated", accessToken: "fake-token", error: null });
   });
 
+  it("SPEC-SC-020: all concurrent aggregation calls share one common trace — a real finding, self-caught: authedFetch defaults to a fresh, unrelated trace per call", async () => {
+    const traceparents: string[] = [];
+    server.use(
+      http.get(TIMELINE_URL, ({ request }) => {
+        traceparents.push(request.headers.get("traceparent") ?? "");
+        return HttpResponse.json(timelineResponse());
+      }),
+      http.get(AUDIT_URL, ({ request }) => {
+        traceparents.push(request.headers.get("traceparent") ?? "");
+        return HttpResponse.json([]);
+      }),
+    );
+
+    renderWithProviders(<AiLogPanel ticketId="ticket-1" toolRequestId={null} />);
+    await screen.findByTestId("ai-log-empty");
+
+    expect(traceparents).toHaveLength(2);
+    const traceIds = traceparents.map((tp) => tp.split("-")[1]);
+    expect(traceIds[0]).toBe(traceIds[1]);
+    expect(traceIds[0]).toMatch(/^[0-9a-f]{32}$/);
+  });
+
   it("SPEC-SC-006: merges all 3 sources into one chronologically-ordered timeline", async () => {
     server.use(
       http.get(TIMELINE_URL, () => HttpResponse.json(timelineResponse([timelineItem("2026-01-01T00:10:00Z", "second event")]))),

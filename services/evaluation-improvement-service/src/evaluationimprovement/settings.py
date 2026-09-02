@@ -95,6 +95,18 @@ class Settings(BaseSettings):
     policy_approval_timeout_seconds: float = 30.0
     policy_approval_service_token: str | None = None
 
+    # SPEC-SC-015: support-console (domain 10) is the first browser caller this
+    # service has ever had — every other consumer so far (agent-runtime-service,
+    # policy-approval-governance-service) is a server-to-server client, so no
+    # CORS middleware existed at all until now. Empty/deny by default (the same
+    # INV-UA-002-style default every other service's own CORS config in this
+    # platform uses), comma-separated real origins opted in per environment.
+    cors_allowed_origins: str = ""
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

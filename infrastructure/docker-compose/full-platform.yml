@@ -98,6 +98,9 @@ services:
       TICKET_WORKFLOW_BASE_URL: http://ticket-workflow-service:8080
       MEMORY_KNOWLEDGE_BASE_URL: http://memory-knowledge-service:8010
       POLICY_APPROVAL_GOVERNANCE_BASE_URL: http://policy-approval-governance-service:8086
+      # SPEC-ARO-039's own multimodal follow-up: real attachment bytes for the
+      # real gpt-5-mini/Claude vision models, fetched via HttpAttachmentClient.
+      ATTACHMENT_SERVICE_BASE_URL: http://attachment-service:8090
       # SPEC-ARO-043's own real outbound service identity (triage/approval calls,
       # never the create-ticket call — that one forwards the employee's own
       # token, see HttpTicketWorkflowClient's own docstring). Reuses
@@ -109,6 +112,13 @@ services:
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/opsmind/protocol/openid-connect/token
       AGENT_RUNTIME_SERVICE_CLIENT_ID: integration-test-client
       AGENT_RUNTIME_SERVICE_CLIENT_SECRET: integration-test-secret
+      # ConversationReasoningPort's real LLM adapters — "static" (safe default, no key
+      # needed) keeps StaticConversationReasoningAdapter; "anthropic" (+ a real
+      # ANTHROPIC_API_KEY) or "openai" (+ a real OPENAI_API_KEY) wire the matching real
+      # adapter instead.
+      CONVERSATION_REASONING_MODE: ${CONVERSATION_REASONING_MODE:-static}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -123,6 +133,8 @@ services:
       memory-knowledge-service:
         condition: service_healthy
       policy-approval-governance-service:
+        condition: service_healthy
+      attachment-service:
         condition: service_healthy
 
   memory-knowledge-service:
@@ -171,6 +183,8 @@ services:
       # rather than silently leaving a stale default in place.
       AGENT_RUNTIME_BASE_URL: http://agent-runtime-service:8000
       POLICY_APPROVAL_BASE_URL: http://policy-approval-governance-service:8086
+      # SPEC-SC-015: support-console's own Evaluation Comparison Table.
+      CORS_ALLOWED_ORIGINS: ${EVALUATION_CORS_ALLOWED_ORIGINS:-http://localhost:5174}
     ports:
       - "8011:8011"
     depends_on:
@@ -195,6 +209,8 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       EVENT_PUBLISHER_ADAPTER: rabbitmq
+      # SPEC-SC-018/020 follow-up: support-console's own AiLogPanel (SPEC-SC-006 3rd source).
+      CORS_ALLOWED_ORIGINS: ${TOOL_GATEWAY_CORS_ALLOWED_ORIGINS:-http://localhost:5174}
     ports:
       - "8020:8020"
     depends_on:
@@ -234,6 +250,15 @@ services:
       KEYCLOAK_CLIENT_SECRET: user-access-secret
       # SPEC-SC-001: domain 10's own support-console real Keycloak client.
       SUPPORT_CONSOLE_CLIENT_SECRET: support-console-secret
+      # SPEC-SC-014: reaches Tempo (a SEPARATE Compose project,
+      # observability-stack.yml, deliberately not joined as a network
+      # dependency here — see TempoQueryProperties's own javadoc) via the
+      # host's own published port. host.docker.internal is Docker Desktop's
+      # own host-loopback DNS name (this repo's actual dev environment);
+      # on plain Linux Docker this also needs `extra_hosts:
+      # ["host.docker.internal:host-gateway"]` added below, or this
+      # property pointed at a real reachable address instead.
+      TEMPO_QUERY_BASE_URL: http://host.docker.internal:3200
     ports:
       - "8087:8087"
     depends_on:
@@ -269,6 +294,42 @@ services:
       rabbitmq:
         condition: service_healthy
       keycloak:
+        condition: service_healthy
+
+  attachment-service:
+    # SPEC-EP-010/011's own "shared attachments capability", chartered but never
+    # built until now — real Postgres metadata + real MinIO (local-platform.yml's
+    # own shared minio container, see its own comment) object storage. Consumed
+    # by employee-portal's real POST /api/v1/attachments and by
+    # agent-runtime-service's own multimodal follow-up (GET .../content).
+    build:
+      context: ../../services/attachment-service
+    container_name: opsmind-attachment-service
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-ticket_workflow}
+      DB_USERNAME: ${DB_USERNAME:-ticket_workflow}
+      DB_PASSWORD: ${DB_PASSWORD:-ticket_workflow}
+      SERVER_PORT: "8090"
+      KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+      ATTACHMENT_CORS_ALLOWED_ORIGINS: ${ATTACHMENT_CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174}
+      # Points at local-platform.yml's own shared minio container over the
+      # in-network hostname/port, not the host-mapped one.
+      ATTACHMENT_STORAGE_ENDPOINT: http://minio:9000
+      ATTACHMENT_STORAGE_ACCESS_KEY: ${ATTACHMENT_STORAGE_ACCESS_KEY:-opsmind-minio}
+      ATTACHMENT_STORAGE_SECRET_KEY: ${ATTACHMENT_STORAGE_SECRET_KEY:-opsmind-minio-secret}
+      ATTACHMENT_STORAGE_REGION: ${ATTACHMENT_STORAGE_REGION:-us-east-1}
+    ports:
+      - "8090:8090"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      minio:
         condition: service_healthy
 
   policy-approval-governance-service:

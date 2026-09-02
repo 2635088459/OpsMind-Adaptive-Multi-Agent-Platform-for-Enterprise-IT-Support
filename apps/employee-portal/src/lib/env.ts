@@ -14,5 +14,5 @@ export const AGENT_RUNTIME_BASE_URL: string = import.meta.env.VITE_AGENT_RUNTIME
 /** ticket-workflow-service — ticket/api/publicapi (PublicTicketQueryController, ConfirmResolutionController, RequesterReopenTicketController). */
 export const TICKET_WORKFLOW_BASE_URL: string = import.meta.env.VITE_TICKET_WORKFLOW_BASE_URL ?? "http://localhost:8080";
 
-/** SPEC-EP-010: the new shared attachments capability — chartered but not yet designed/built anywhere in this platform (empty default, deliberately never fabricated). */
-export const ATTACHMENTS_BASE_URL: string = import.meta.env.VITE_ATTACHMENTS_BASE_URL ?? "";
+/** attachment-service — SPEC-EP-010/011's own shared attachments capability, now real (AttachmentController, port 8090). */
+export const ATTACHMENTS_BASE_URL: string = import.meta.env.VITE_ATTACHMENTS_BASE_URL ?? "http://localhost:8090";

@@ -57,6 +57,32 @@ public final class StubHttpServer implements AutoCloseable {
         return this;
     }
 
+    /**
+     * Routes on a request header value (e.g. Tempo's real {@code
+     * X-Scope-OrgID} multi-tenancy header, SPEC-SC-014/SPEC-OP-031) rather
+     * than path — a header value with no entry in {@code
+     * headerValueToJsonBody} answers a real 404 with an empty body, mirroring
+     * Tempo's own real "tenant queried, trace not found under it" response.
+     */
+    public StubHttpServer routeByHeader(String path, String headerName, Map<String, String> headerValueToJsonBody) {
+        server.createContext(path, exchange -> {
+            String headerValue = exchange.getRequestHeaders().getFirst(headerName);
+            String body = headerValue == null ? null : headerValueToJsonBody.get(headerValue);
+            if (body == null) {
+                exchange.sendResponseHeaders(404, -1);
+                exchange.close();
+                return;
+            }
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
+        });
+        return this;
+    }
+
     public StubHttpServer start() {
         server.start();
         return this;

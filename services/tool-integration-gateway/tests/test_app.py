@@ -26,7 +26,15 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # coverage against a real Postgres.
     monkeypatch.setattr("tool_gateway.container.get_settings", lambda: Settings(tool_gateway_persistence="memory"))
     get_container.cache_clear()
-    return TestClient(create_app())
+    # SPEC-SC-018/020 follow-up: submit/decide/cancel now require a real
+    # X-Caller-Id/X-Caller-Type SERVICE caller (api.security.require_service_caller)
+    # — every test in this file exercises the one real intended caller
+    # (agent-runtime-service), so these are set as this client's own default
+    # headers rather than repeated at every one of the many call sites below.
+    # The negative cases (missing/wrong caller, and the read endpoint's own
+    # deliberately-open-to-anonymous behavior) get their own dedicated tests
+    # in test_caller_authorization.py, using a client without these defaults.
+    return TestClient(create_app(), headers={"X-Caller-Id": "agent-runtime-service", "X-Caller-Type": "SERVICE"})
 
 
 def test_health(client: TestClient) -> None:

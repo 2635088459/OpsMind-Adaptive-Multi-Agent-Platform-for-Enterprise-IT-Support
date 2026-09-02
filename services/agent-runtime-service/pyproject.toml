@@ -42,6 +42,13 @@ dependencies = [
     # a real Keycloak client_credentials JWT (see infrastructure.outbound_identity) —
     # promoted from the dev-only test-client dependency it was before this phase.
     "httpx>=0.28",
+    # ConversationReasoningPort's real LLM adapters (AnthropicConversationReasoningAdapter/
+    # OpenAIConversationReasoningAdapter, alongside StaticConversationReasoningAdapter) —
+    # both imported lazily behind Settings.conversation_reasoning_mode, mirroring
+    # evaluation-improvement-service's own AnthropicQualityJudge seam for the anthropic
+    # SDK; the openai SDK is this service's own first use of it.
+    "anthropic>=0.69",
+    "openai>=3.0",
 ]
 
 [dependency-groups]

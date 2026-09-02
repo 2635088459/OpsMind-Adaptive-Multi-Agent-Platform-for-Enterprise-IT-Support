@@ -98,7 +98,7 @@ import java.util.Set;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({OidcIssuerProperties.class, BrowserLoginProperties.class, KeycloakAdminProperties.class, StepUpVerificationProperties.class, BrowserCorsProperties.class})
+@EnableConfigurationProperties({OidcIssuerProperties.class, BrowserLoginProperties.class, KeycloakAdminProperties.class, StepUpVerificationProperties.class, BrowserCorsProperties.class, TempoQueryProperties.class})
 public class SecurityConfig {
 
     /**
@@ -196,6 +196,13 @@ public class SecurityConfig {
      * entry points, never gated), this path requires a real authenticated
      * principal — {@code permitAll()} would let an anonymous cross-origin
      * caller probe it for a 401-vs-200 timing/shape signal for no reason.
+     *
+     * <p>SPEC-SC-014: also carries {@link
+     * com.opsmind.identity.api.browser.TraceWaterfallController}'s own
+     * {@code /api/v1/observability/traces/{traceId}} — same reasoning as
+     * the browser-token endpoint (needs the real session, {@code
+     * securityFilterChain} never sees it); registration-level authorization
+     * (support-console only) is enforced in the controller itself, not here.
      */
     @Bean
     @Order(1)
@@ -212,7 +219,8 @@ public class SecurityConfig {
             .securityMatcher(new OrRequestMatcher(
                 PathPatternRequestMatcher.withDefaults().matcher("/oauth2/**"),
                 PathPatternRequestMatcher.withDefaults().matcher("/login/**"),
-                PathPatternRequestMatcher.withDefaults().matcher("/api/v1/session/browser-token")
+                PathPatternRequestMatcher.withDefaults().matcher("/api/v1/session/browser-token"),
+                PathPatternRequestMatcher.withDefaults().matcher("/api/v1/observability/traces/*")
             ))
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))

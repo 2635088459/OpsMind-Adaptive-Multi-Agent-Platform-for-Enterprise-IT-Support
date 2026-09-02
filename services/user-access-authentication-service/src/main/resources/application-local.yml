@@ -70,7 +70,19 @@ spring:
             # tickets:read:queue/tickets:timeline:internal added after a real live 403
             # (SPEC-SC-003/006 grounding): TicketViewPolicy/TicketTimelineViewPolicy both
             # require them for SUPPORT_VIEW, distinct from the ticket:* write scopes below.
-            scope: openid,profile,email,ticket:triage,ticket:resolve,ticket:close,ticket:request-approval,ticket:transition,ticket:assign-route,ticket:assign,governance:audit:read,tickets:read:queue,tickets:timeline:internal
+            # SPEC-SC-018 (scope-hardening audit): ticket:close/ticket:request-approval/
+            # ticket:assign-route removed — confirmed by reading ticket-workflow-service's
+            # own REQUIRED_SCOPE constants directly that they gate 3 real endpoints
+            # (CloseTicketController, RequestApprovalController, the heavier
+            # UpdateTicketAssignmentController reassignment variant) that no call site in
+            # this console actually calls (SPEC-SC-011 deliberately uses the simpler
+            # TicketAssignmentController instead; SPEC-SC-012's own "Send for approval"
+            # uses the generic status-transition endpoint with a caller-supplied
+            # approvalReference, not RequestApprovalController's own agent/workflow-
+            # originated approval-request creation, which has no human-suppliable
+            # workflowId/actionId/actionType to fill in). Carrying an unused scope is a
+            # real, avoidable increase in this token's own blast radius if it ever leaks.
+            scope: openid,profile,email,ticket:triage,ticket:resolve,ticket:transition,ticket:assign,governance:audit:read,tickets:read:queue,tickets:timeline:internal
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             provider: opsmind
         provider:

@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     # service's own real uvicorn default (memoryknowledge.main.run()).
     memory_knowledge_base_url: str = "http://localhost:8010"
 
+    # SPEC-ARO-039's own multimodal follow-up: the real attachment-service base URL
+    # HttpAttachmentClient calls GET /api/v1/attachments/{ref}/content against. 8090 is
+    # that service's own real Spring Boot default (application.yml sets no server.port
+    # override there either, but its own local-platform docker-compose wiring maps it
+    # to 8090 — see full-platform.yml's own attachment-service block).
+    attachment_service_base_url: str = "http://localhost:8090"
+
     # SPEC-ARO-041 (phase-10): a real categoryId/supportQueueId from 02-ticket-workflow's
     # own reference-data catalog — no seed data for either exists anywhere in this
     # platform yet (confirmed by reading ticket-workflow-service's own migrations
@@ -131,6 +138,24 @@ class Settings(BaseSettings):
     # cookie-based, so `allow_credentials` stays False — no cookie ever needs to cross
     # this boundary.
     cors_allowed_origins: str = ""
+
+    # SPEC-ARO-039 follow-up: "static" (default) keeps StaticConversationReasoningAdapter
+    # — every hermetic test in this service relies on it, the same reason
+    # evaluation-improvement-service's own llm_judge_mode/langsmith_mode both default
+    # away from a real network call. "anthropic"/"openai" each wire their own real
+    # adapter — requires that provider's own api key, and only takes effect if that
+    # provider's own package actually imports and its client constructs successfully
+    # (see container.py's own `_build_conversation_reasoning_port()`). Both model
+    # defaults are deliberately faster/cheaper than evaluation-improvement-service's
+    # own default judge model: this call runs synchronously inside a human's own
+    # inline chat request (SendMessageService), where latency directly affects the
+    # employee waiting on a reply, unlike that service's own offline batch-grading
+    # use case.
+    conversation_reasoning_mode: Literal["static", "anthropic", "openai"] = "static"
+    anthropic_api_key: str | None = None
+    conversation_reasoning_anthropic_model: str = "claude-sonnet-5"
+    openai_api_key: str | None = None
+    conversation_reasoning_openai_model: str = "gpt-5-mini"
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

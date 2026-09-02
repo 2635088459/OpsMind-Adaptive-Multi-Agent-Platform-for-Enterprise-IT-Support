@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from tool_gateway.api.schemas import ApprovalDecisionRequest, CancelToolRequestRequest, SubmitToolRequestRequest, ToolRequestResponse
+from tool_gateway.api.security import optional_caller, require_service_caller
 from tool_gateway.application.commands import (
     CancelToolRequestCommand,
     CreateToolRequestCommand,
@@ -47,6 +48,7 @@ def _to_response(view: ToolRequestView) -> ToolRequestResponse:
 @router.post("/tool-requests", response_model=ToolRequestResponse)
 def submit_tool_request(
     request: SubmitToolRequestRequest,
+    caller: str = Depends(require_service_caller),
     create_port: CreateToolRequestUseCase = Depends(get_create_tool_request_port),
     evaluate_port: EvaluateToolRequestUseCase = Depends(get_evaluate_tool_request_port),
 ) -> ToolRequestResponse:
@@ -76,6 +78,7 @@ def submit_tool_request(
 @router.post("/tool-requests/{tool_request_id}/approval-decisions", response_model=ToolRequestResponse)
 def record_approval_decision(
     tool_request_id: str, request: ApprovalDecisionRequest,
+    caller: str = Depends(require_service_caller),
     port: ApproveToolRequestUseCase = Depends(get_approve_tool_request_port),
 ) -> ToolRequestResponse:
     """04-use-cases UC-TG-003 steps 4-5. Directly callable for now — see
@@ -93,6 +96,7 @@ def record_approval_decision(
 @router.post("/tool-requests/{tool_request_id}/cancel", response_model=ToolRequestResponse)
 def cancel_tool_request(
     tool_request_id: str, request: CancelToolRequestRequest,
+    caller: str = Depends(require_service_caller),
     port: CancelToolRequestUseCase = Depends(get_cancel_tool_request_port),
 ) -> ToolRequestResponse:
     """04-use-cases UC-TG-006."""
@@ -105,6 +109,13 @@ def cancel_tool_request(
 
 @router.get("/tool-requests/{tool_request_id}", response_model=ToolRequestResponse)
 def find_tool_request(
-    tool_request_id: str, port: ToolRequestQueryUseCase = Depends(get_tool_request_query_port),
+    tool_request_id: str,
+    caller: tuple[str, str] = Depends(optional_caller),
+    port: ToolRequestQueryUseCase = Depends(get_tool_request_query_port),
 ) -> ToolRequestResponse:
+    """SPEC-SC-006/018: the one read a human browser session (support-console's own
+    AiLogPanel) legitimately needs — deliberately left open to an unauthenticated
+    caller (``optional_caller``'s own default), matching this platform's established
+    read-floor convention; only submit/decide/cancel above require a real service caller.
+    """
     return _to_response(port.find_tool_request(tool_request_id))

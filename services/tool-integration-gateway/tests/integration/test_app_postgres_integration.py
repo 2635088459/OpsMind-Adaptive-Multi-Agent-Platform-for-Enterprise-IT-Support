@@ -29,7 +29,7 @@ def client(migrated_engine, monkeypatch: pytest.MonkeyPatch):
     )
     monkeypatch.setattr("tool_gateway.container.get_settings", lambda: settings)
     get_container.cache_clear()
-    return TestClient(create_app())
+    return TestClient(create_app(), headers={"X-Caller-Id": "agent-runtime-service", "X-Caller-Type": "SERVICE"})
 
 
 def _register_connector(client: TestClient, capability: str, risk_level: str = "LOW", is_mutating: bool = False) -> str:
@@ -175,7 +175,7 @@ def test_connector_list_survives_a_container_rebuild_against_real_postgres(clien
     connector_id = _register_connector(client, "slack.notifyChannel", is_mutating=True)
 
     get_container.cache_clear()
-    new_client = TestClient(create_app())
+    new_client = TestClient(create_app(), headers={"X-Caller-Id": "agent-runtime-service", "X-Caller-Type": "SERVICE"})
     listed = new_client.get("/internal/tool-gateway/v1/connectors")
     assert listed.status_code == 200
     assert any(c["connector_id"] == connector_id for c in listed.json())
@@ -236,7 +236,7 @@ def test_approval_linkage_survives_a_container_rebuild_against_real_postgres(cli
     assert approval_request_id is not None
 
     get_container.cache_clear()
-    new_client = TestClient(create_app())
+    new_client = TestClient(create_app(), headers={"X-Caller-Id": "agent-runtime-service", "X-Caller-Type": "SERVICE"})
 
     mismatched = new_client.post("/internal/tool-gateway/v1/events/approval-granted", json={
         "event_id": f"evt-{uuid.uuid4()}", "approval_request_id": str(uuid.uuid4()), "tool_request_id": body["tool_request_id"],
@@ -271,7 +271,7 @@ def test_allowed_requester_types_survives_a_container_rebuild_against_real_postg
     assert register_response.status_code == 200
 
     get_container.cache_clear()
-    new_client = TestClient(create_app())
+    new_client = TestClient(create_app(), headers={"X-Caller-Id": "agent-runtime-service", "X-Caller-Type": "SERVICE"})
 
     denied = new_client.post("/internal/tool-gateway/v1/tool-requests", json={
         "idempotency_key": f"idem-{uuid.uuid4()}", "requested_by_type": "AGENT", "requested_by_id": "triage-agent",
@@ -317,7 +317,7 @@ def test_connector_consecutive_health_check_failures_survives_a_container_rebuil
         )
 
     get_container.cache_clear()
-    new_client = TestClient(create_app())
+    new_client = TestClient(create_app(), headers={"X-Caller-Id": "agent-runtime-service", "X-Caller-Type": "SERVICE"})
     reloaded = new_client.get(f"/internal/tool-gateway/v1/connectors/{connector_id}")
     assert reloaded.status_code == 200
     body = reloaded.json()

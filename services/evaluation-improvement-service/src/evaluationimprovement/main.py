@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from evaluationimprovement.infrastructure.observability import configure_observability
 from evaluationimprovement.interfaces.admin.router import router as admin_router
@@ -29,8 +30,21 @@ def _configure_logging() -> None:
 
 def create_app() -> FastAPI:
     _configure_logging()
-    configure_observability(get_settings())
+    settings = get_settings()
+    configure_observability(settings)
     app = FastAPI(title="evaluation-improvement-service", version="0.1.0")
+
+    # SPEC-SC-015: support-console's own Evaluation Comparison Table is the first
+    # browser caller of this service — empty/deny by default, an operator opts
+    # specific frontend origins in (settings.cors_allowed_origins).
+    if settings.cors_allowed_origins_list:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allowed_origins_list,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "traceparent"],
+            allow_credentials=False,
+        )
 
     register_exception_handlers(app)
 

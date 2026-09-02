@@ -18,6 +18,13 @@ export interface AuthedRequestInit extends Omit<RequestInit, "headers"> {
  * Deliberately reads `useAuthStore.getState()` directly rather than taking
  * the token as a parameter — every call site would otherwise have to thread
  * it through, and the token's only real source of truth is this one store.
+ *
+ * SPEC-SC-020: a caller-supplied `traceparent` in `init.headers` wins over
+ * generating a fresh one — every call site keeps getting a fresh root span
+ * by default (the common case, unchanged), but `useAiLog`'s own 3 concurrent
+ * SPEC-SC-006 calls need to share one common parent span rather than
+ * producing 3 disconnected traces, which is only possible if this function
+ * can be told "use this one instead."
  */
 export async function authedFetch(url: string, init: AuthedRequestInit = {}): Promise<Response> {
   const { accessToken } = useAuthStore.getState();
@@ -28,7 +35,7 @@ export async function authedFetch(url: string, init: AuthedRequestInit = {}): Pr
   const headers: Record<string, string> = {
     ...init.headers,
     Authorization: `Bearer ${accessToken}`,
-    traceparent: newTraceparent(),
+    traceparent: init.headers?.traceparent ?? newTraceparent(),
   };
   if (init.idempotencyKey) {
     headers["Idempotency-Key"] = init.idempotencyKey;

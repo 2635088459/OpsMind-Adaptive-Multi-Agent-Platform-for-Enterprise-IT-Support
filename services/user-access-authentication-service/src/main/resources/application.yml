@@ -47,6 +47,15 @@ app:
       # Empty/deny by default (INV-UA-002) — an operator opts specific
       # frontend origins in per environment. See profile-specific files.
       allowed-origins: ${IDENTITY_CORS_ALLOWED_ORIGINS:}
+    observability:
+      tempo:
+        # SPEC-SC-014. See TempoQueryProperties's own javadoc for why this
+        # defaults to host.docker.internal rather than joining the
+        # observability stack's own Compose network directly. `tenants` is
+        # deliberately left unset here — its own compact constructor
+        # supplies the real default list; an empty env-var placeholder
+        # would bind as a single blank-string entry, not an empty list.
+        base-url: ${TEMPO_QUERY_BASE_URL:}
 
 management:
   endpoints:

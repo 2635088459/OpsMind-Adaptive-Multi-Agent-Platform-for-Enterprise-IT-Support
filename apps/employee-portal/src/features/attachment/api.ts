@@ -1,11 +1,11 @@
 /**
- * SPEC-EP-010 §13: `POST /api/v1/attachments` — the new independent shared
- * attachments capability, chartered but not yet designed anywhere in this
- * platform (confirmed: no such endpoint exists in any backend service's
- * own router). MSW-mocked for this domain's own tests per that spec's own
- * Definition of Done; this app has no real base URL to call yet, so a
- * production call here would genuinely fail until that capability exists —
- * an honest, explicitly-flagged gap, not a silently-fabricated success.
+ * SPEC-EP-010 §13: `POST /api/v1/attachments` — the shared attachments
+ * capability, chartered here but built as its own real service
+ * (attachment-service, AttachmentController) since this domain doesn't own
+ * it. MSW-mocked for this domain's own tests per that spec's own Definition
+ * of Done; ATTACHMENTS_BASE_URL now points at the real running service, and
+ * the real response shape ({ref}) matches this contract exactly, so no
+ * other change was needed here.
  */
 import { authedFetch } from "@/lib/httpClient";
 import { ATTACHMENTS_BASE_URL } from "@/lib/env";

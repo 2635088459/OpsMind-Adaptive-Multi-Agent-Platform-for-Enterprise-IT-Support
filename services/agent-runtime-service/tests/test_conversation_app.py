@@ -427,7 +427,7 @@ def test_confirm_action_with_a_high_risk_proposal_creates_a_real_governance_appr
         })
 
     container.governance_approval_client._http_client = httpx.Client(transport=httpx.MockTransport(approval_handler))
-    container.conversation_reasoning_port.decide = lambda message_text, knowledge_snippets: ReasoningOutcome(
+    container.conversation_reasoning_port.decide = lambda message_text, knowledge_snippets, attachments=None: ReasoningOutcome(
         kind="proposed_action", action_summary="Delete production data", action_risk_level="HIGH",
     )
 

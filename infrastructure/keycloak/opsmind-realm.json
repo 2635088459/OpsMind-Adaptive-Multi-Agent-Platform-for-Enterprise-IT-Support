@@ -400,6 +400,21 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "employee-test-client",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "serviceAccountsEnabled": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email"
+      ]
     }
   ],
   "roles": {

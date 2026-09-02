@@ -73,7 +73,7 @@ class _FakeConversationReasoningPort:
     def __init__(self) -> None:
         self.next_outcome = ReasoningOutcome(kind="proposed_action", action_summary="Reset your password", action_risk_level="LOW")
 
-    def decide(self, message_text, knowledge_snippets) -> ReasoningOutcome:
+    def decide(self, message_text, knowledge_snippets, attachments=None) -> ReasoningOutcome:
         return self.next_outcome
 
 

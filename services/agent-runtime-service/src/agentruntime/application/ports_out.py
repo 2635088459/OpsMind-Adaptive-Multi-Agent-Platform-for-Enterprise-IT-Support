@@ -13,6 +13,7 @@ from agentruntime.application.commands import WorkflowDefinitionInput
 from agentruntime.application.records import (
     AgentTaskRecord,
     ApprovalRequestRef,
+    AttachmentContent,
     AuditRecordEntry,
     CheckpointRecord,
     CommandIdempotencyRecord,
@@ -442,13 +443,45 @@ class GovernanceApprovalClientPort(Protocol):
 
 class ConversationReasoningPort(Protocol):
     """SPEC-ARO-039: decides which of the 3 response shapes a message turn produces.
-    No real LLM/LangGraph integration exists anywhere in this codebase yet (confirmed
-    by grepping the whole service and the frozen technology-baseline's own "Agent
-    Orchestration: LangGraph ... Provisional" status) — the shipped adapter
-    (infrastructure.conversation_reasoning.StaticConversationReasoningAdapter) is a
-    deliberately simple, honestly-labeled placeholder for that future integration,
-    mirroring LoggingToolGatewayPort/NoOpTicketSnapshotPort/StaticCapabilityPolicyAdapter's
-    own "safe, real, swappable placeholder until the genuine adapter lands" precedent.
+    Three real adapters now exist behind this port
+    (infrastructure.conversation_reasoning): StaticConversationReasoningAdapter, a
+    deliberately simple keyword-based placeholder (the default, and every hermetic
+    test's own fixture); AnthropicConversationReasoningAdapter, a genuine LLM call via
+    the same real `anthropic` SDK/structured-output mechanism
+    evaluation-improvement-service's own AnthropicQualityJudge already established in
+    this codebase; and OpenAIConversationReasoningAdapter, this service's own first use
+    of the `openai` SDK, built against the identical `ConversationDecision` schema —
+    gated behind Settings.conversation_reasoning_mode="anthropic"/"openai" respectively.
+    Real LangGraph orchestration remains out of scope (this single-turn `decide()`
+    signature has no multi-step-plan concept for LangGraph to orchestrate; the frozen
+    technology-baseline still lists that as "Provisional").
+
+    attachments (SPEC-ARO-039's own multimodal follow-up): real bytes SendMessageService
+    already fetched via AttachmentClientPort, for the real gpt-5-mini/Claude vision
+    models both real adapters below can now see. Only image/* attachments become real
+    vision content blocks — non-image attachments (e.g. application/pdf) are fetched but
+    not otherwise passed to the model, a deliberately narrow, self-flagged scope rather
+    than a silently-fabricated one (see conversation_reasoning.py's own
+    `_image_attachments()` docstring). StaticConversationReasoningAdapter ignores this
+    parameter entirely — it never looks at message content beyond its own keyword match.
     """
 
-    def decide(self, message_text: str, knowledge_snippets: list[KnowledgeSnippet]) -> ReasoningOutcome: ...
+    def decide(
+        self, message_text: str, knowledge_snippets: list[KnowledgeSnippet], attachments: list[AttachmentContent] | None = None,
+    ) -> ReasoningOutcome: ...
+
+
+class AttachmentClientPort(Protocol):
+    """SPEC-ARO-039's own multimodal follow-up: fetches one already-uploaded
+    attachment's real bytes back from attachment-service (SPEC-EP-010/011's own shared
+    attachments capability) — GET /api/v1/attachments/{ref}/content. The one real
+    adapter behind this port (infrastructure.attachment_client.HttpAttachmentClient)
+    authenticates via the same SPEC-ARO-043 outbound service identity
+    triage_ticket() already uses, not the employee's own token — SendMessageCommand
+    carries no forwarded bearer token of its own (see that command's own docstring),
+    and attachment-service's own SecurityConfig accepts any authenticated caller on its
+    read endpoints today (a real, self-flagged gap in that service, not fabricated
+    per-owner authorization here).
+    """
+
+    def fetch_content(self, attachment_ref: str) -> AttachmentContent: ...

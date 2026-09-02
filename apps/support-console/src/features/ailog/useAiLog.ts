@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchGovernanceAuditEntries, fetchTimelineEntries, fetchToolRequestEntries } from "@/features/ailog/api";
 import { ApiError } from "@/lib/apiError";
+import { newTraceContext } from "@/lib/trace";
 import type { AiLogEntry, SourceName, SourceStatus } from "@/features/ailog/types";
 
 /**
@@ -14,6 +15,14 @@ import type { AiLogEntry, SourceName, SourceStatus } from "@/features/ailog/type
  * (possibly-fine) data. The merge into one chronological list happens here,
  * client-side, over whichever sources currently have data — never via
  * `Promise.all`, which would let one rejection blank the whole panel (§9).
+ *
+ * SPEC-SC-020: a real finding self-caught during that spec's own audit —
+ * `authedFetch` generates a brand-new, unrelated trace for every call by
+ * default, so these 3 concurrent fan-out calls produced 3 disconnected
+ * traces rather than one followable "load this ticket's AI log" operation.
+ * One `TraceContext` is created per `ticketId` (stable across re-renders and
+ * scoped retries alike) and its `traceparent()` is passed to all 3 sources,
+ * so a real backend now sees one shared trace-id with 3 sibling spans.
  */
 function classifyError(error: unknown): SourceStatus {
   if (error instanceof ApiError && error.status === 403) {
@@ -28,11 +37,14 @@ export interface AiLogSourceQuery {
 }
 
 export function useAiLog(ticketId: string, toolRequestId: string | null) {
-  const timelineQuery = useQuery({ queryKey: ["ai-log", "timeline", ticketId], queryFn: () => fetchTimelineEntries(ticketId) });
-  const governanceQuery = useQuery({ queryKey: ["ai-log", "governance-audit", ticketId], queryFn: () => fetchGovernanceAuditEntries(ticketId) });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ticketId isn't read inside newTraceContext(), but a new ticket is deliberately a new logical operation/trace; the lint rule can't see that intent from the callback body alone.
+  const traceContext = useMemo(() => newTraceContext(), [ticketId]);
+
+  const timelineQuery = useQuery({ queryKey: ["ai-log", "timeline", ticketId], queryFn: () => fetchTimelineEntries(ticketId, traceContext.traceparent()) });
+  const governanceQuery = useQuery({ queryKey: ["ai-log", "governance-audit", ticketId], queryFn: () => fetchGovernanceAuditEntries(ticketId, traceContext.traceparent()) });
   const toolRequestQuery = useQuery({
     queryKey: ["ai-log", "tool-request", toolRequestId],
-    queryFn: () => fetchToolRequestEntries(toolRequestId as string),
+    queryFn: () => fetchToolRequestEntries(toolRequestId as string, traceContext.traceparent()),
     enabled: toolRequestId !== null,
   });
 

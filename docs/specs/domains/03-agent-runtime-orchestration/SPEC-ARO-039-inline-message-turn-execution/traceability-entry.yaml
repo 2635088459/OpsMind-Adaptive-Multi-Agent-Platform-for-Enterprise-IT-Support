@@ -53,6 +53,111 @@ SPEC-ARO-039:
     guards), a domain-level test for the new AWAITING_USER_CONFIRMATION transition, an
     infrastructure test for the knowledge-retrieval client's graceful degradation on
     all 3 failure modes, and full app-level HTTP tests through the real FastAPI app.
+
+    Follow-up (2026-09-02): a real LLM adapter now exists behind ConversationReasoningPort
+    — AnthropicConversationReasoningAdapter (infrastructure.conversation_reasoning),
+    gated by Settings.conversation_reasoning_mode="anthropic" (default stays "static";
+    every hermetic test still runs against the placeholder). Uses the identical real
+    `anthropic` SDK/structured-output mechanism (`client.messages.parse()` + a Pydantic
+    output schema) evaluation-improvement-service's own AnthropicQualityJudge already
+    established in this platform, not a new one-off integration — same untyped `client:
+    object` DI seam, same import-lazily/degrade-to-placeholder-on-any-failure container
+    wiring (`_build_conversation_reasoning_port`), same fail-open-never-fabricate
+    posture on a failed call. Deliberately scoped to the exact same 3-outcome decision
+    space the placeholder already covers (text / one real LOW-risk password-reset
+    proposed_action / escalation) — the system prompt explicitly tells the model no
+    other self-service action exists yet, since tool-integration-gateway's own real
+    dispatch from this service is still LoggingToolGatewayPort (a separate, un-widened
+    placeholder). Real LangGraph orchestration remains explicitly out of scope — this
+    port's single-turn `decide(message_text, knowledge_snippets)` signature carries no
+    conversation history and no multi-step-plan concept for LangGraph to orchestrate;
+    widening it would be a separate, larger change to this spec's own port contract and
+    its one caller (SendMessageService), not attempted here.
+
+    Live-verified: `agent-runtime-service` was rebuilt with the new `anthropic` runtime
+    dependency and confirmed healthy, defaulting to the static placeholder unchanged (no
+    functional regression). A genuine end-to-end call against the real Anthropic API was
+    NOT demonstrated — this environment has no real ANTHROPIC_API_KEY configured; the
+    mode-toggle/mapping logic itself is covered by unit tests against a duck-typed fake
+    client (mirroring evaluation-improvement-service's own AnthropicQualityJudge test
+    style exactly), and a container-level test confirms both modes construct the
+    expected adapter.
+
+    Follow-up (2026-09-02, same day): a second real provider,
+    OpenAIConversationReasoningAdapter, added alongside the Anthropic one rather than
+    replacing it — Settings.conversation_reasoning_mode is now
+    "static"/"anthropic"/"openai". This service's own first use of the `openai` SDK
+    (`client.chat.completions.parse(response_format=...)`, confirmed against the real
+    installed package: the parsed object lives at `response.choices[0].message.parsed`
+    — a different real shape than Anthropic's own `response.parsed_output`, so this
+    adapter has its own dedicated fakes in its own test file rather than reusing the
+    Anthropic ones). Both adapters share the identical `ConversationDecision` Pydantic
+    schema and the same `_to_outcome()`/`_build_prompt()`/system-prompt helpers — the 2
+    providers differ only in call shape, never in what's being asked of the model.
+    Model-name settings were split into
+    conversation_reasoning_anthropic_model/conversation_reasoning_openai_model (was one
+    shared field) once a second real provider needed its own default. Same
+    import-lazily/degrade-to-static-placeholder-on-any-failure container wiring and the
+    same fail-open-to-plain-text posture as the Anthropic adapter. Live-verified:
+    `agent-runtime-service` rebuilt again with the new `openai` runtime dependency
+    alongside `anthropic`, confirmed healthy, still defaulting to the static placeholder
+    unchanged. Same honest limitation as the Anthropic follow-up above: no real
+    OPENAI_API_KEY exists in this environment, so a genuine live OpenAI call was not
+    demonstrated — covered by the same class of duck-typed-fake unit tests plus a
+    container-level test for the "openai" branch.
+
+    Follow-up (2026-09-02, multimodal): the gap this spec's own llm-integration-report
+    identified — `attachment_refs` was captured but never reached either LLM adapter,
+    because no attachment storage/read-back capability existed anywhere in the
+    platform — is now closed. A brand-new service, attachment-service (Java/Spring
+    Boot, port 8090), was built to implement SPEC-EP-010/EP-011's own "shared
+    attachments capability" (chartered in 09-employee-portal, never designed/built
+    until now): real Postgres metadata (`attachment.attachments`) + real MinIO
+    object storage (frozen technology-baseline's own "S3-compatible; MinIO locally,"
+    never wired into any compose file before this), `POST /api/v1/attachments`
+    matching employee-portal's already-built MSW-mocked contract exactly ({ref}), plus
+    a new `GET /api/v1/attachments/{id}/content` read-back endpoint this spec's own
+    follow-up needed (not named in SPEC-EP-010's own text). MinIO added to
+    local-platform.yml as shared infra; attachment-service added to full-platform.yml.
+
+    On this service's own side: a new AttachmentClientPort/HttpAttachmentClient
+    (mirrors HttpTicketWorkflowClient's shape exactly, same SPEC-ARO-043 outbound
+    service identity as triage_ticket() — SendMessageCommand carries no forwarded
+    employee bearer token of its own). SendMessageService now fetches each
+    attachment_ref via this port before calling decide(), fail-open per ref (a stale
+    or unreachable ref is dropped with a warning, never fails the whole turn — the
+    command's own already-documented "consumed as-is, not validated" posture). Both
+    real ConversationReasoningPort adapters now turn image/* attachments into real
+    vision content blocks (Anthropic: `{"type":"image","source":{"type":"base64",
+    ...}}`; OpenAI: `{"type":"image_url","image_url":{"url":"data:...;base64,..."}}`)
+    — deliberately narrowed to images only: OpenAI's `chat.completions.parse()` has no
+    inline-base64-PDF content-block type (only Anthropic's Messages API has a native
+    "document" block for that), and giving one provider a capability the other
+    genuinely lacks would make the mode toggle a silent behavior change, not just a
+    provider swap. StaticConversationReasoningAdapter ignores attachments entirely,
+    unchanged.
+
+    Live-verified: attachment-service's own full `mvn verify` (unit + ArchUnit layer
+    rules + Testcontainers Postgres+MinIO integration test) is green; the real Docker
+    image was built and booted against the real shared MinIO/Postgres/Keycloak
+    containers, real bucket auto-created live, Flyway migrated live; a real signed
+    Keycloak JWT (client_credentials, integration-test-client) drove a real curl
+    upload → real Postgres row + real MinIO object → byte-for-byte content
+    round-trip, a real 422 UNSUPPORTED_MIME_TYPE rejection, and a real 401 on no
+    auth. employee-portal's ATTACHMENTS_BASE_URL now points at this real service
+    (zero other frontend code changes needed — the contract already matched).
+    agent-runtime-service's own 559-test unit suite (11 new: HttpAttachmentClient
+    against httpx.MockTransport, SendMessageService's fetch/fail-open wiring, both
+    adapters' real image-block construction) and its 3 import-linter layer contracts
+    are green; the whole container was rebuilt with the new wiring and reconfirmed
+    healthy inside the full docker-compose graph (attachment-service added as a real
+    dependency). Not demonstrated: a full live conversation → real-attachment →
+    real-LLM-vision round trip — this environment has no employee-role Keycloak user
+    to drive StartConversationCommand's own real ticket-creation call, and no real
+    ANTHROPIC_API_KEY/OPENAI_API_KEY is configured (same honest limitation as the two
+    LLM follow-ups above); the plumbing on both sides of that gap is real and unit/
+    component-tested, but that one specific end-to-end path was not itself observed
+    live.
   lld_mapping:
     - 03-state-machine
     - 04-use-cases

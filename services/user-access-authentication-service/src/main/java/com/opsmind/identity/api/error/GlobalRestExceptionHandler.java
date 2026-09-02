@@ -12,6 +12,9 @@ import com.opsmind.identity.application.exception.StepUpBindingMismatchException
 import com.opsmind.identity.application.exception.StepUpChallengeNotFoundException;
 import com.opsmind.identity.application.exception.StepUpEvidenceRejectedException;
 import com.opsmind.identity.application.exception.TokenReplayDetectedException;
+import com.opsmind.identity.application.exception.TraceAccessDeniedException;
+import com.opsmind.identity.application.exception.TraceNotFoundException;
+import com.opsmind.identity.application.exception.TraceQueryUnavailableException;
 import com.opsmind.identity.application.exception.UserIdentityNotEligibleException;
 import com.opsmind.identity.application.exception.UserIdentityNotFoundException;
 import com.opsmind.identity.application.exception.UserSessionNotFoundException;
@@ -166,6 +169,24 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(IdpUnavailableException.class)
     public ResponseEntity<ErrorResponse> handleIdpUnavailable(IdpUnavailableException ex, HttpServletRequest request) {
         return build(HttpStatus.SERVICE_UNAVAILABLE, "IDP_UNAVAILABLE", "The identity provider is currently unavailable.", true, request);
+    }
+
+    /** SPEC-SC-014: the trace-waterfall proxy is support-console-only. */
+    @ExceptionHandler(TraceAccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleTraceAccessDenied(TraceAccessDeniedException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, "TRACE_ACCESS_DENIED", "This session is not authorized to query traces.", false, request);
+    }
+
+    /** SPEC-SC-014 §16: a real, clean absence — not found under any queried tenant (e.g. outside Tempo's retention window). */
+    @ExceptionHandler(TraceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleTraceNotFound(TraceNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "TRACE_NOT_FOUND", "The trace was not found.", false, request);
+    }
+
+    /** SPEC-SC-014: every queried tenant failed to respond (Tempo/network unreachable) — retryable, distinct from a genuine not-found. */
+    @ExceptionHandler(TraceQueryUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleTraceQueryUnavailable(TraceQueryUnavailableException ex, HttpServletRequest request) {
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "TRACE_QUERY_UNAVAILABLE", "The trace store is currently unavailable.", true, request);
     }
 
     /** Covers every domain-rule violation (illegal state transition) uniformly via its own {@code code()}; 409 since it is a state conflict, not a validation error. */
