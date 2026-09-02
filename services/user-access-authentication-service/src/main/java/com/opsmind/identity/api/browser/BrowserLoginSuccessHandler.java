@@ -95,7 +95,15 @@ public class BrowserLoginSuccessHandler implements AuthenticationSuccessHandler 
             ResponseCookie cookie = ResponseCookie.from(properties.sessionCookieName(), session.userSessionId())
                 .httpOnly(true).secure(true).sameSite("Lax").path("/").maxAge(properties.sessionTtl()).build();
             response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
-            response.sendRedirect(properties.successRedirectUri());
+            // SPEC-SC-001: "support-console" is domain 10's own distinct registration
+            // (BrowserLoginProperties#supportConsoleSuccessRedirectUri's own javadoc) —
+            // every other registration (including SPEC-UA-018's own "opsmind-stepup",
+            // which never reaches this success handler at all — see
+            // StepUpVerificationSuccessHandler) lands on the original employee-portal target.
+            String destination = "support-console".equals(clientId)
+                ? properties.supportConsoleSuccessRedirectUri()
+                : properties.successRedirectUri();
+            response.sendRedirect(destination);
         } catch (UserIdentityNotEligibleException e) {
             // Already denied and audited by ManageSessionUseCase#start itself (INV-UA-002).
             response.sendRedirect(properties.failureRedirectUri());

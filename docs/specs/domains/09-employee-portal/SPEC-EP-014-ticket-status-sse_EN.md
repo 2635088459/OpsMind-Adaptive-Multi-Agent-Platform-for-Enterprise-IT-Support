@@ -1,6 +1,6 @@
 # SPEC-EP-014 — Ticket Status SSE
 
-> Domain: `09-employee-portal` | Phase: 05 — Escalation and Ticket Status | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 05 — Escalation and Ticket Status | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-014`, implements `UC-EP-05`'s live-update half.

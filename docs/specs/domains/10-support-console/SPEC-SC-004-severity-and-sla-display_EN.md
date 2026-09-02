@@ -1,6 +1,6 @@
 # SPEC-SC-004 — Severity and SLA Display
 
-> Domain: `10-support-console` | Phase: 02 — Ticket Queue View | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 02 — Ticket Queue View | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-004`, a rendering-detail extension of SPEC-SC-003.

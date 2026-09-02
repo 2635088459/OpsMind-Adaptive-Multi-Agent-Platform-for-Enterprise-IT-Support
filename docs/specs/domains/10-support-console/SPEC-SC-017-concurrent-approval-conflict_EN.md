@@ -1,6 +1,6 @@
 # SPEC-SC-017 — Concurrent Approval Conflict
 
-> Domain: `10-support-console` | Phase: 07 — Concurrency Hardening | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 07 — Concurrency Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-017`, hardening SPEC-SC-009's grant/deny action against the real 3-way replay/conflict check built in `SPEC-PG-011`.
@@ -15,7 +15,7 @@ Prove SPEC-SC-009's grant/deny UI correctly surfaces the already-decided-differe
 Two admins/agents viewing the same `ApprovalCard` (SPEC-SC-008) and racing to decide it.
 
 ## 5. Scope
-A dedicated test scenario proving SPEC-SC-009 handles all 3 of `SPEC-PG-011`'s replay-check outcomes correctly: same-decision-idempotent-replay (safe, same key), same-decision-different-key (should still succeed per the backend's replay semantics — to confirm against `SPEC-PG-011`'s own spec precisely), and differing-decision (rejected, surfaced honestly).
+A dedicated test scenario proving SPEC-SC-009 handles both of `SPEC-PG-011`'s real replay-check outcomes correctly. **Correction found live against `ApprovalService#decide`'s own code** (not just its spec prose): the `sameAttempt` check is a strict AND of `commandIdempotencyKey`, outcome, AND `decidedBy` all matching the existing decision — there are only 2 outcomes, not the 3 originally assumed here. A mismatch on ANY one of the three (including a *matching* outcome submitted with a different key or by a different actor) is still a conflict. The 2 real outcomes: same-decision-idempotent-replay (exact 3-way match — safe, returns the existing decision unchanged) and any-mismatch-is-a-conflict (covers both a differing outcome AND a same-outcome/different-key or -actor case alike, rejected and surfaced honestly).
 
 ## 6. Non-goals
 Any new backend replay logic (already real and already the most rigorously specified contract this domain consumes, per project memory's description of `SPEC-PG-011`).

@@ -18,7 +18,19 @@ public record BrowserLoginProperties(
     Duration sessionTtl,
     String sessionCookieName,
     String successRedirectUri,
-    String failureRedirectUri
+    String failureRedirectUri,
+    /**
+     * SPEC-SC-001: domain 10's own support-console logs in through a second,
+     * distinct registration ("support-console") — a single fixed {@code
+     * successRedirectUri} can only ever point at one frontend's own origin,
+     * so {@link BrowserLoginSuccessHandler} picks between this and the field
+     * above by checking which registration the completed login actually
+     * used, per this class's own already-anticipated comment on {@code
+     * successRedirectUri} ("each app's own login entry point sets state to
+     * route back to itself if needed" — resolved here by registration id
+     * instead, simpler and sufficient for exactly 2 known frontends).
+     */
+    String supportConsoleSuccessRedirectUri
 ) {
 
     public BrowserLoginProperties {
@@ -27,5 +39,8 @@ public record BrowserLoginProperties(
         sessionCookieName = (sessionCookieName == null || sessionCookieName.isBlank()) ? "OPSMIND_SESSION" : sessionCookieName;
         successRedirectUri = (successRedirectUri == null || successRedirectUri.isBlank()) ? "/" : successRedirectUri;
         failureRedirectUri = (failureRedirectUri == null || failureRedirectUri.isBlank()) ? "/login?error" : failureRedirectUri;
+        supportConsoleSuccessRedirectUri = (supportConsoleSuccessRedirectUri == null || supportConsoleSuccessRedirectUri.isBlank())
+            ? successRedirectUri
+            : supportConsoleSuccessRedirectUri;
     }
 }

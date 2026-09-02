@@ -1,6 +1,6 @@
 # SPEC-EP-023 — Trace Propagation Coverage
 
-> Domain: `09-employee-portal` | Phase: 08 — Security and Release Hardening | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 08 — Security and Release Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-023`, the final spec of domain 09's roadmap — closes out this domain's release-readiness phase.

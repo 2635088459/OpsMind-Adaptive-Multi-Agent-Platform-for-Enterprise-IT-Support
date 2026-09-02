@@ -82,9 +82,14 @@ class CreateTicketIdempotencyReplayTest {
 
     @Test
     void shouldReturnStoredResultWithoutCreatingAnythingWhenReplayed() {
+        // Real, pre-existing test-fixture staleness found live: resolutionCycleId
+        // became a required field of the stored/replayed body (deserializeResult)
+        // after this fixture was written, but this string was never updated —
+        // a real NullPointerException (UUID.fromString(null)) on every replay
+        // until this fixture includes it.
         String storedBody = """
-            {"ticketId":"%s","displayId":"INC-2048","status":"NEW","createdAt":"2026-07-23T16:30:00Z","version":0}
-            """.formatted(UUID.randomUUID()).strip();
+            {"ticketId":"%s","displayId":"INC-2048","status":"NEW","createdAt":"2026-07-23T16:30:00Z","version":0,"resolutionCycleId":"%s"}
+            """.formatted(UUID.randomUUID(), UUID.randomUUID()).strip();
 
         when(idempotencyRepository.reserve(any())).thenReturn(
             new IdempotencyReservationOutcome.Replayed(201, storedBody)

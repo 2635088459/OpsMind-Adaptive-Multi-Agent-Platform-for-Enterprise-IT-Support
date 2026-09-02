@@ -1,6 +1,6 @@
 # SPEC-SC-016 — Concurrent Triage Conflict
 
-> Domain: `10-support-console` | Phase: 07 — Concurrency Hardening | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 07 — Concurrency Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-016`, a targeted hardening spec applying SPEC-SC-013's shared conflict-handling utility specifically to the triage flow, with a scenario unique to this domain: the agent (AI) itself may re-triage a ticket via `SPEC-ARO-041` concurrently with a human's manual triage attempt.

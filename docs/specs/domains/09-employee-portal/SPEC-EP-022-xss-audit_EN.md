@@ -1,6 +1,6 @@
 # SPEC-EP-022 — XSS Audit
 
-> Domain: `09-employee-portal` | Phase: 08 — Security and Release Hardening | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 08 — Security and Release Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-022`, a security-hardening pass specific to this domain's unusual risk surface: rendering LLM-authored and user-uploaded content.

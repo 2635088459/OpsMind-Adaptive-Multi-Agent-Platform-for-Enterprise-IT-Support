@@ -1,6 +1,6 @@
 # SPEC-EP-002 — Session State Machine（会话状态机）
 
-> Domain: `09-employee-portal` | Phase: 01 — 登录与会话 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 01 — 登录与会话 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-002`。

@@ -1,6 +1,6 @@
 # SPEC-EP-013 — Ticket Status Panel
 
-> Domain: `09-employee-portal` | Phase: 05 — Escalation and Ticket Status | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 05 — Escalation and Ticket Status | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-013`, implements `UC-EP-05`'s initial render.

@@ -31,6 +31,10 @@ opsmind:
       response-due: PT4H
       resolution-due: PT24H
       auto-close-due: P7D
+  portal:
+    cors:
+      # Empty/deny by default — an operator opts specific frontend origins in per environment.
+      allowed-origins: ${PORTAL_CORS_ALLOWED_ORIGINS:}
 
 server:
   shutdown: graceful

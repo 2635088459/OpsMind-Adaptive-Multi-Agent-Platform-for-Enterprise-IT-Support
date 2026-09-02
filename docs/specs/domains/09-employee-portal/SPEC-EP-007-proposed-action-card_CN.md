@@ -1,6 +1,6 @@
 # SPEC-EP-007 — Proposed Action Card（方案提议卡片）
 
-> Domain: `09-employee-portal` | Phase: 03 — 自助方案确认 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 03 — 自助方案确认 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-007`。

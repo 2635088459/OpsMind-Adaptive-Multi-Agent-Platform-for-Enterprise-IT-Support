@@ -1,6 +1,6 @@
 # SPEC-EP-003 — Draft Preservation on Expiry（过期时的草稿保存）
 
-> Domain: `09-employee-portal` | Phase: 01 — 登录与会话 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 01 — 登录与会话 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-003`，BI-EP-006 的直接实现。

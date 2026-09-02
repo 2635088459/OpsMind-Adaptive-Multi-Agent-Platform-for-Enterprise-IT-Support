@@ -1,6 +1,6 @@
 # SPEC-SC-005 — Queue Polling
 
-> Domain: `10-support-console` | Phase: 02 — Ticket Queue View | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 02 — Ticket Queue View | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-005`, keeps SPEC-SC-003's queue current.

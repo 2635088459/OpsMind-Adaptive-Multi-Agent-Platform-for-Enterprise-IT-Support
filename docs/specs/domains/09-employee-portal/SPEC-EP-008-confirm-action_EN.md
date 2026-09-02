@@ -1,6 +1,6 @@
 # SPEC-EP-008 — Confirm Action
 
-> Domain: `09-employee-portal` | Phase: 03 — Self-service Action Confirmation | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 03 — Self-service Action Confirmation | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-008`, implements `UC-EP-03`'s confirm path.

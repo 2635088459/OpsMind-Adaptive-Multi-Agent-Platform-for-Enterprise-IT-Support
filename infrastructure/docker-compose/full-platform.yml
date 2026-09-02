@@ -85,12 +85,44 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       EVENT_PUBLISHER_ADAPTER: rabbitmq
+      # domain 09/10's own frontends call conversation_router directly from these
+      # origins (Settings.cors_allowed_origins's own docstring) — same local-dev
+      # ports as user-access-authentication-service's own CORS allow-list.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:5174}
+      # Real bug found live 2026-09-02, phase-10's own first real multi-container
+      # bring-up: every one of these Settings fields defaults to localhost (correct
+      # for a bare-metal/host run) but this container's own "localhost" is itself,
+      # not a sibling container — SPEC-ARO-038's own create_ticket() call failed
+      # with a real ECONNREFUSED until these were pointed at the real in-network
+      # hostnames, mirroring every other service's own KEYCLOAK_ISSUER_URI pattern.
+      TICKET_WORKFLOW_BASE_URL: http://ticket-workflow-service:8080
+      MEMORY_KNOWLEDGE_BASE_URL: http://memory-knowledge-service:8010
+      POLICY_APPROVAL_GOVERNANCE_BASE_URL: http://policy-approval-governance-service:8086
+      # SPEC-ARO-043's own real outbound service identity (triage/approval calls,
+      # never the create-ticket call — that one forwards the employee's own
+      # token, see HttpTicketWorkflowClient's own docstring). Reuses
+      # integration-test-client rather than registering a new dedicated
+      # "agent-runtime-service" Keycloak client that does not exist anywhere in
+      # this realm yet — its own scope grant (tickets:create, ticket:triage,
+      # ticket:resolve, ...) and actor_type=SUPPORT_AGENT mapping already match
+      # exactly what an automated agent identity needs.
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/opsmind/protocol/openid-connect/token
+      AGENT_RUNTIME_SERVICE_CLIENT_ID: integration-test-client
+      AGENT_RUNTIME_SERVICE_CLIENT_SECRET: integration-test-secret
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      ticket-workflow-service:
+        condition: service_healthy
+      memory-knowledge-service:
+        condition: service_healthy
+      policy-approval-governance-service:
         condition: service_healthy
 
   memory-knowledge-service:
@@ -200,6 +232,8 @@ services:
       # round trip is reached via localhost, not the in-network hostname.
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
       KEYCLOAK_CLIENT_SECRET: user-access-secret
+      # SPEC-SC-001: domain 10's own support-console real Keycloak client.
+      SUPPORT_CONSOLE_CLIENT_SECRET: support-console-secret
     ports:
       - "8087:8087"
     depends_on:

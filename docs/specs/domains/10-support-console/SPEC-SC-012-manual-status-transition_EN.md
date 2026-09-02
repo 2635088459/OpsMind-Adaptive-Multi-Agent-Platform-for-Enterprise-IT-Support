@@ -1,6 +1,6 @@
 # SPEC-SC-012 — Manual Status Transition
 
-> Domain: `10-support-console` | Phase: 05 — Manual Ticket Operations | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 05 — Manual Ticket Operations | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-012`, implements `UC-SC-06`.

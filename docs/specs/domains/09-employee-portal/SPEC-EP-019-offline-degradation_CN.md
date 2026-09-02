@@ -1,6 +1,6 @@
 # SPEC-EP-019 — Offline Degradation（离线降级）
 
-> Domain: `09-employee-portal` | Phase: 07 — 韧性与降级 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 07 — 韧性与降级 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-019`，针对员工自身网络不可用的强化。

@@ -1,6 +1,6 @@
 # SPEC-SC-006 — AI Log Aggregation
 
-> Domain: `10-support-console` | Phase: 03 — AI Transparency Panel | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 03 — AI Transparency Panel | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-006`, implements `UC-SC-02`, the domain's single most architecturally distinct spec.

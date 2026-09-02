@@ -1,6 +1,6 @@
 # SPEC-EP-006 — Turn State Machine（轮次状态机）
 
-> Domain: `09-employee-portal` | Phase: 02 — 对话核心 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 02 — 对话核心 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-006`。

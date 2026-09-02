@@ -1,6 +1,6 @@
 # SPEC-EP-004 — Create Conversation
 
-> Domain: `09-employee-portal` | Phase: 02 — Conversation Core | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 02 — Conversation Core | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-004`, implements `UC-EP-01`.

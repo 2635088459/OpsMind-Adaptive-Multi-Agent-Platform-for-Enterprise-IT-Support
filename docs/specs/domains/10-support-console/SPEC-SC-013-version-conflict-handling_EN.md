@@ -1,6 +1,6 @@
 # SPEC-SC-013 — Version Conflict Handling
 
-> Domain: `10-support-console` | Phase: 05 — Manual Ticket Operations | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 05 — Manual Ticket Operations | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-013`, a cross-cutting hardening spec closing out Phase 05, covering SPEC-SC-010/011/012's shared concurrency risk.

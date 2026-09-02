@@ -20,6 +20,13 @@ spring:
 server:
   port: ${SERVER_PORT:8086}
 
+opsmind:
+  portal:
+    cors:
+      # Local dev origins for both frontend apps' own Vite dev servers, same as
+      # ticket-workflow-service/agent-runtime-service/user-access-authentication-service.
+      allowed-origins: ${PORTAL_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}
+
 management:
   otlp:
     metrics:

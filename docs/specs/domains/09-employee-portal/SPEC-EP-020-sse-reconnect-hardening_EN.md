@@ -1,6 +1,6 @@
 # SPEC-EP-020 — SSE Reconnect Hardening
 
-> Domain: `09-employee-portal` | Phase: 07 — Resilience and Degradation | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 07 — Resilience and Degradation | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-020`, hardening SPEC-EP-014's basic SSE connection.

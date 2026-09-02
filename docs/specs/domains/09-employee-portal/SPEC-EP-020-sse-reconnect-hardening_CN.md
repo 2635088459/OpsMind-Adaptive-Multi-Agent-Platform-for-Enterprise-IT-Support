@@ -1,6 +1,6 @@
 # SPEC-EP-020 — SSE Reconnect Hardening（SSE 重连强化）
 
-> Domain: `09-employee-portal` | Phase: 07 — 韧性与降级 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 07 — 韧性与降级 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-020`，对 SPEC-EP-014 基础 SSE 连接的强化。

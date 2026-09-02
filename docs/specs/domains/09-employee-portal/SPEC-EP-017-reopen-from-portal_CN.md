@@ -1,6 +1,6 @@
 # SPEC-EP-017 — Reopen From Portal（从门户重开工单）
 
-> Domain: `09-employee-portal` | Phase: 06 — 解决反馈闭环 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 06 — 解决反馈闭环 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-017`，是 SPEC-EP-016 中"没有，问题还在"的后续。

@@ -1,6 +1,6 @@
 # SPEC-EP-023 — Trace Propagation Coverage（追踪传播覆盖）
 
-> Domain: `09-employee-portal` | Phase: 08 — 安全与发布加固 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 08 — 安全与发布加固 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-023`，domain 09 roadmap 的最后一个 spec——收尾本 domain 的发布就绪阶段。

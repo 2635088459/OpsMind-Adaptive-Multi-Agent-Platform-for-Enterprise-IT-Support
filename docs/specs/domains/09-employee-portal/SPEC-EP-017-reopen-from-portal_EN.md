@@ -1,6 +1,6 @@
 # SPEC-EP-017 — Reopen From Portal
 
-> Domain: `09-employee-portal` | Phase: 06 — Resolution Feedback Loop | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 06 — Resolution Feedback Loop | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-017`, the "No, still an issue" continuation of SPEC-EP-016.

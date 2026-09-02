@@ -1,6 +1,6 @@
 # SPEC-EP-001 — OIDC Login Redirect
 
-> Domain: `09-employee-portal` | Phase: 01 — Login and Session | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 01 — Login and Session | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-001`, implements the login precondition of `UC-EP-01`.

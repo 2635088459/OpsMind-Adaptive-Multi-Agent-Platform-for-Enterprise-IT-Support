@@ -1,6 +1,6 @@
 # SPEC-SC-019 — Partial Authorization Visibility
 
-> Domain: `10-support-console` | Phase: 08 — Security and Release Hardening | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 08 — Security and Release Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-019`, a security-hardening spec unique to this domain's aggregation architecture, extending SPEC-SC-007's honest-degradation principle specifically to the authorization dimension.

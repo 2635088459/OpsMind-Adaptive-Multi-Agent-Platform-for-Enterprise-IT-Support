@@ -1,6 +1,6 @@
 # SPEC-SC-001 — OIDC Login Redirect
 
-> Domain: `10-support-console` | Phase: 01 — Authenticated Session Foundation | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 01 — Authenticated Session Foundation | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-001`, the support-console analogue of `SPEC-EP-001` — same underlying real OIDC/Keycloak flow, distinct app/client registration.

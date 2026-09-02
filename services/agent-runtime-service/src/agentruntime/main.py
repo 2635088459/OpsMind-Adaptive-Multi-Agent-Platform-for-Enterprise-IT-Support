@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from agentruntime.infrastructure.observability import configure_observability
 from agentruntime.interfaces.admin.router import router as admin_router
@@ -36,8 +37,19 @@ def _configure_logging() -> None:
 
 def create_app() -> FastAPI:
     _configure_logging()
-    configure_observability(get_settings())
+    settings = get_settings()
+    configure_observability(settings)
     app = FastAPI(title="agent-runtime-service", version="0.1.0")
+
+    # domain 09's own frontend (real browser origin) calls conversation_router
+    # directly — see Settings.cors_allowed_origins's own docstring. Empty by
+    # default (no middleware effect at all until configured).
+    allowed_origins = settings.cors_allowed_origins_list
+    if allowed_origins:
+        app.add_middleware(
+            CORSMiddleware, allow_origins=allowed_origins, allow_credentials=False,
+            allow_methods=["*"], allow_headers=["*"],
+        )
 
     register_exception_handlers(app)
 

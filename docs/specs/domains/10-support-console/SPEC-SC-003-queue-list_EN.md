@@ -1,6 +1,6 @@
 # SPEC-SC-003 — Queue List
 
-> Domain: `10-support-console` | Phase: 02 — Ticket Queue View | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 02 — Ticket Queue View | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-003`, implements `UC-SC-01`.

@@ -87,6 +87,14 @@ public class TicketTimelineController {
         HttpHeaders headers = new HttpHeaders();
         headers.set(HttpHeaders.CACHE_CONTROL, "private, no-store");
         headers.setPragma("no-cache");
+        // Real bug found live (SPEC-EP-013/016/017): once real CORS support was added
+        // (SecurityConfiguration#corsConfigurationSource), Spring's own CORS filter
+        // additionally sets its own Vary: Origin/Access-Control-Request-Method/
+        // Access-Control-Request-Headers -- BEFORE this line runs, on every response
+        // for a CORS-configured path -- so the final header carries multiple Vary
+        // values, this one appended last. This call's own intent (the response also
+        // varies by actor identity) is preserved either way; Cache-Control: no-store
+        // already forbids any cache from storing the response at all regardless.
         headers.set(HttpHeaders.VARY, "Authorization");
 
         return new ResponseEntity<>(body, headers, HttpStatus.OK);

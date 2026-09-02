@@ -1,6 +1,6 @@
 # SPEC-EP-015 — Resume Conversation（恢复对话）
 
-> Domain: `09-employee-portal` | Phase: 05 — 转人工与 Ticket 状态 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 05 — 转人工与 Ticket 状态 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-015`，实现 `UC-EP-06`。

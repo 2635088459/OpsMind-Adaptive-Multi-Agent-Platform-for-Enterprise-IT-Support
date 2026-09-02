@@ -1,6 +1,6 @@
 # SPEC-EP-005 — Send Message（发送消息）
 
-> Domain: `09-employee-portal` | Phase: 02 — 对话核心 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 02 — 对话核心 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-005`，实现 `UC-EP-02`。

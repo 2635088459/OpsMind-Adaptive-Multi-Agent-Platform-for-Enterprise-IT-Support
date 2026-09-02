@@ -1,6 +1,6 @@
 # SPEC-EP-016 — Confirm Resolution（确认已解决）
 
-> Domain: `09-employee-portal` | Phase: 06 — 解决反馈闭环 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 06 — 解决反馈闭环 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-016`，一个新的 use case，用于在问题看起来已解决后闭环。

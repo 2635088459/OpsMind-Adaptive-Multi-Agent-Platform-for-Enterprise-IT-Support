@@ -1,6 +1,6 @@
 # SPEC-EP-010 — Attachment Upload（附件上传）
 
-> Domain: `09-employee-portal` | Phase: 04 — 证据文件切片 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 04 — 证据文件切片 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-010`，实现 `UC-EP-02` 的附件部分。

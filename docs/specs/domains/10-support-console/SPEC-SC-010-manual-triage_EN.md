@@ -1,6 +1,6 @@
 # SPEC-SC-010 — Manual Triage
 
-> Domain: `10-support-console` | Phase: 05 — Manual Ticket Operations | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 05 — Manual Ticket Operations | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-010`, implements `UC-SC-04`.

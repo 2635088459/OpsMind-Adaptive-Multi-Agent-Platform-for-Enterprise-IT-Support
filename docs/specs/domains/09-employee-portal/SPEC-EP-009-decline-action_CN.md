@@ -1,6 +1,6 @@
 # SPEC-EP-009 — Decline Action（拒绝方案）
 
-> Domain: `09-employee-portal` | Phase: 03 — 自助方案确认 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 03 — 自助方案确认 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-009`，实现 `UC-EP-03` 的拒绝路径。

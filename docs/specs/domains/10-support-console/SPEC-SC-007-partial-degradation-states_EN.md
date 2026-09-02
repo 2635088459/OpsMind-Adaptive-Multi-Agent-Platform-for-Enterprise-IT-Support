@@ -1,6 +1,6 @@
 # SPEC-SC-007 — Partial Degradation States
 
-> Domain: `10-support-console` | Phase: 03 — AI Transparency Panel | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 03 — AI Transparency Panel | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-007`, the honest-failure-handling half of SPEC-SC-006.

@@ -1,6 +1,6 @@
 # SPEC-EP-011 — Attachment Validation
 
-> Domain: `09-employee-portal` | Phase: 04 — Evidence File Slice | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 04 — Evidence File Slice | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-011`, the `VALIDATING` state's own behavior in `03-state-machine` §3.2.

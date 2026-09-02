@@ -1,6 +1,6 @@
 # SPEC-EP-021 — Scope Hardening
 
-> Domain: `09-employee-portal` | Phase: 08 — Security and Release Hardening | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 08 — Security and Release Hardening | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-021`, a security-hardening pass across every spec written so far in this domain.

@@ -85,7 +85,10 @@ class TicketTimelineControllerTest {
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "private, no-store"))
             .andExpect(header().string("Pragma", "no-cache"))
-            .andExpect(header().string("Vary", "Authorization"))
+            // SPEC-EP-013/016/017's own real CORS support adds 3 Vary values of its own
+            // ahead of the controller's -- this asserts the complete real header, not
+            // just the first token (a plain header().string(...) only ever sees that one).
+            .andExpect(header().stringValues("Vary", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers", "Authorization"))
             .andExpect(jsonPath("$.ticketId").value(TICKET_ID.toString()))
             .andExpect(jsonPath("$.displayId").value("INC-2048"))
             .andExpect(jsonPath("$.viewType").value("EMPLOYEE_PUBLIC_VIEW"))

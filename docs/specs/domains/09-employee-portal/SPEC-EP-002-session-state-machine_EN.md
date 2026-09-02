@@ -1,6 +1,6 @@
 # SPEC-EP-002 — Session State Machine
 
-> Domain: `09-employee-portal` | Phase: 01 — Login and Session | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 01 — Login and Session | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-002`.

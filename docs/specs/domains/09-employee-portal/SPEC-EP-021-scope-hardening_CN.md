@@ -1,6 +1,6 @@
 # SPEC-EP-021 — Scope Hardening（权限范围加固）
 
-> Domain: `09-employee-portal` | Phase: 08 — 安全与发布加固 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 08 — 安全与发布加固 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-021`，对本 domain 目前为止所有 spec 的一次安全加固审计。

@@ -1,6 +1,6 @@
 # SPEC-SC-009 — Grant Deny Action
 
-> Domain: `10-support-console` | Phase: 04 — Approval Handling | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 04 — Approval Handling | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-009`, implements `UC-SC-03`'s action half.

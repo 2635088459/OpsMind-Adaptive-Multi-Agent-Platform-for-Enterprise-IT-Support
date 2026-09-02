@@ -1,6 +1,6 @@
 # SPEC-EP-018 — Agent Unavailable Fallback（Agent 不可用兜底）
 
-> Domain: `09-employee-portal` | Phase: 07 — 韧性与降级 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 07 — 韧性与降级 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-018`，一个韧性阶段的 spec，没有自己专属的 use case——它是对 SPEC-EP-005/006 针对特定后端故障模式的强化。

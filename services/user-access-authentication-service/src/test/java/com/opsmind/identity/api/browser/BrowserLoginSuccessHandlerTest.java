@@ -53,10 +53,14 @@ class BrowserLoginSuccessHandlerTest {
     private final ProvisionUserUseCase provisionUserUseCase = mock(ProvisionUserUseCase.class);
     private final ManageSessionUseCase manageSessionUseCase = mock(ManageSessionUseCase.class);
     private final HashingPort hashingPort = new Sha256HashingAdapter();
-    private final BrowserLoginProperties properties = new BrowserLoginProperties("tenant-x", Duration.ofHours(2), "MY_COOKIE", "/home", "/login?error");
+    private final BrowserLoginProperties properties = new BrowserLoginProperties("tenant-x", Duration.ofHours(2), "MY_COOKIE", "/home", "/login?error", "/support-console-home");
     private final BrowserLoginSuccessHandler handler = new BrowserLoginSuccessHandler(provisionUserUseCase, manageSessionUseCase, hashingPort, properties);
 
     private OAuth2AuthenticationToken authenticationWithClaims(Map<String, Object> extraClaims) {
+        return authenticationWithClaims(extraClaims, "opsmind");
+    }
+
+    private OAuth2AuthenticationToken authenticationWithClaims(Map<String, Object> extraClaims, String registrationId) {
         Map<String, Object> claims = new java.util.LinkedHashMap<>();
         claims.put("iss", "https://idp.example/realms/opsmind");
         claims.put("sub", "sub-1");
@@ -66,7 +70,7 @@ class BrowserLoginSuccessHandlerTest {
             "sub", "sub-1", "preferred_username", "alice", "name", "Alice", "email", "alice@example.com"
         ));
         DefaultOidcUser oidcUser = new DefaultOidcUser(List.of(new SimpleGrantedAuthority("ROLE_USER")), idToken, userInfo, "sub");
-        return new OAuth2AuthenticationToken(oidcUser, oidcUser.getAuthorities(), "opsmind");
+        return new OAuth2AuthenticationToken(oidcUser, oidcUser.getAuthorities(), registrationId);
     }
 
     private UserSession aSession() {
@@ -129,6 +133,21 @@ class BrowserLoginSuccessHandlerTest {
         handler.onAuthenticationSuccess(new MockHttpServletRequest(), new MockHttpServletResponse(), authenticationWithClaims(Map.of()));
 
         assertThat(captureStartCommand().acr()).isEqualTo("urn:mace:acr:0");
+    }
+
+    @Test
+    void redirectsToTheSupportConsoleTargetWhenLoggedInThroughItsOwnRegistration() throws Exception {
+        when(provisionUserUseCase.link(any())).thenReturn(UserIdentity.link(
+            UUID.randomUUID().toString(), new TenantId("tenant-x"), new ExternalSubject("https://idp.example/realms/opsmind", "sub-1"),
+            null, null, null, IdentityType.HUMAN, NOW
+        ));
+        when(manageSessionUseCase.start(any())).thenReturn(aSession());
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        handler.onAuthenticationSuccess(new MockHttpServletRequest(), response, authenticationWithClaims(Map.of(), "support-console"));
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("/support-console-home");
+        assertThat(captureStartCommand().clientId()).isEqualTo("support-console");
     }
 
     @Test

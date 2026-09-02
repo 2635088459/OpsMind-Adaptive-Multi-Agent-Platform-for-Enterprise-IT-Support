@@ -38,8 +38,6 @@ import java.time.Instant;
 @RestController
 public class BrowserSessionTokenController {
 
-    private static final String REGISTRATION_ID = "opsmind";
-
     private final OAuth2AuthorizedClientService authorizedClientService;
     private final Clock clock;
 
@@ -50,7 +48,15 @@ public class BrowserSessionTokenController {
 
     @GetMapping("/api/v1/session/browser-token")
     public ResponseEntity<BrowserSessionTokenView> browserToken(OAuth2AuthenticationToken authentication) {
-        OAuth2AuthorizedClient client = authorizedClientService.loadAuthorizedClient(REGISTRATION_ID, authentication.getName());
+        // SPEC-SC-001: domain 10's own support-console logs in through a second,
+        // distinct client registration ("support-console", alongside domain 09's
+        // own "opsmind") — reading the registration id straight off the
+        // authenticated principal (rather than a hardcoded "opsmind" constant,
+        // this endpoint's own original scope) is what makes this endpoint
+        // correctly relay whichever client the caller actually authenticated
+        // through, without needing a second, near-duplicate controller.
+        String registrationId = authentication.getAuthorizedClientRegistrationId();
+        OAuth2AuthorizedClient client = authorizedClientService.loadAuthorizedClient(registrationId, authentication.getName());
         OAuth2AccessToken accessToken = client == null ? null : client.getAccessToken();
         if (accessToken == null) {
             // The session survived but the authorized client did not (e.g. evicted from an

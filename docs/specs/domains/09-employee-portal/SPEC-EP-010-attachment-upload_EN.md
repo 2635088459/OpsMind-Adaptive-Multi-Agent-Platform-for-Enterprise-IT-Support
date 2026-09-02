@@ -1,6 +1,6 @@
 # SPEC-EP-010 — Attachment Upload
 
-> Domain: `09-employee-portal` | Phase: 04 — Evidence File Slice | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 04 — Evidence File Slice | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-010`, implements the attachment half of `UC-EP-02`.

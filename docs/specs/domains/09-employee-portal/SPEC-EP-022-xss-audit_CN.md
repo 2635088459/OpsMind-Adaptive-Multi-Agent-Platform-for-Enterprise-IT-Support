@@ -1,6 +1,6 @@
 # SPEC-EP-022 — XSS Audit（XSS 审计）
 
-> Domain: `09-employee-portal` | Phase: 08 — 安全与发布加固 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 08 — 安全与发布加固 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-022`，针对本 domain 特有的高风险面——渲染 LLM 生成内容和用户上传内容——的一次安全加固审计。

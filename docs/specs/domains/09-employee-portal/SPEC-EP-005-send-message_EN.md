@@ -1,6 +1,6 @@
 # SPEC-EP-005 — Send Message
 
-> Domain: `09-employee-portal` | Phase: 02 — Conversation Core | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 02 — Conversation Core | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-005`, implements `UC-EP-02`.

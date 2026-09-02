@@ -1,6 +1,6 @@
 # SPEC-EP-007 — Proposed Action Card
 
-> Domain: `09-employee-portal` | Phase: 03 — Self-service Action Confirmation | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 03 — Self-service Action Confirmation | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-007`.

@@ -4,10 +4,38 @@
   "sslRequired": "none",
   "clientScopes": [
     {
+      "name": "basic",
+      "protocol": "openid-connect",
+      "description": "Real bug found live 2026-09-02: same root cause as 'profile' below (a declared clientScopes array drops Keycloak's built-ins) but for the mapper that puts sub into a browser login's access token.",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "id",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "sub",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
       "name": "profile",
       "protocol": "openid-connect",
       "description": "Real bug found live 2026-09-01: a declared clientScopes array replaces Keycloak's built-in defaults rather than supplementing them, so profile/email must be added back explicitly.",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "username",
@@ -28,7 +56,10 @@
     {
       "name": "email",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "email",
@@ -64,42 +95,115 @@
       "name": "tickets:create",
       "protocol": "openid-connect",
       "description": "Real client scope (not a hardcoded-claim mapper -- Keycloak's own reserved `scope` claim accounting silently overrides a hardcoded mapper targeting it, found live 2026-09-01) so `tickets:create` lands in the token's `scope` claim.",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:triage",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:resolve",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:close",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:request-approval",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:transition",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:assign-route",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     },
     {
       "name": "ticket:assign",
       "protocol": "openid-connect",
-      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"}
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "governance:audit:read",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "roles",
+      "protocol": "openid-connect",
+      "description": "SPEC-SC-002: exposes the user's real realm roles (support_agent/support_admin) as realm_access.roles -- UI-gating convenience only, never a security boundary (this domain's own honest framing).",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "tickets:read:queue",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "tickets:timeline:internal",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
     }
   ],
   "users": [
@@ -116,6 +220,43 @@
           "value": "test-password",
           "temporary": false
         }
+      ]
+    },
+    {
+      "username": "support.agent",
+      "email": "support.agent@opsmind.dev",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Support",
+      "lastName": "Agent",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "test-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "support_agent"
+      ]
+    },
+    {
+      "username": "support.admin",
+      "email": "support.admin@opsmind.dev",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Support",
+      "lastName": "Admin",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "test-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "support_agent",
+        "support_admin"
       ]
     }
   ],
@@ -134,8 +275,15 @@
         "http://localhost:8087/login/oauth2/code/opsmind",
         "http://localhost:8087/login/oauth2/code/opsmind-stepup"
       ],
-      "webOrigins": ["http://localhost:8087"],
-      "defaultClientScopes": ["profile", "email", "tickets:create"]
+      "webOrigins": [
+        "http://localhost:8087"
+      ],
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email",
+        "tickets:create"
+      ]
     },
     {
       "clientId": "integration-test-client",
@@ -188,6 +336,82 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "support-console",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "support-console-secret",
+      "standardFlowEnabled": true,
+      "serviceAccountsEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "authorizationServicesEnabled": false,
+      "redirectUris": [
+        "http://localhost:8087/login/oauth2/code/support-console"
+      ],
+      "webOrigins": [
+        "http://localhost:8087"
+      ],
+      "defaultClientScopes": [
+        "basic",
+        "profile",
+        "email",
+        "roles",
+        "ticket:triage",
+        "ticket:resolve",
+        "ticket:close",
+        "ticket:request-approval",
+        "ticket:transition",
+        "ticket:assign-route",
+        "ticket:assign",
+        "governance:audit:read",
+        "tickets:read:queue",
+        "tickets:timeline:internal"
+      ],
+      "protocolMappers": [
+        {
+          "name": "actor-type-support-agent",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "actor_type",
+            "claim.value": "IT_SUPPORT",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "support-teams-network",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "support_teams",
+            "claim.value": "network-support-team",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
     }
-  ]
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "support_agent",
+        "description": "SPEC-SC-002: a support-console agent -- queue/triage/assign/transition UI, no admin-only affordances."
+      },
+      {
+        "name": "support_admin",
+        "description": "SPEC-SC-002: a support-console admin -- everything support_agent has plus admin-only affordances (e.g. reassignment across teams, reconciliation triggers)."
+      }
+    ]
+  }
 }

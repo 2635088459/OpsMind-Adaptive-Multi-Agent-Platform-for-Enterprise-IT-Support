@@ -56,6 +56,23 @@ spring:
             authorization-grant-type: authorization_code
             scope: openid,profile,email
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+          # SPEC-SC-001: domain 10's own support-console — a real, distinct Keycloak
+          # client (not the same "opsmind" client under a second name), since it needs
+          # its own scope set (governance:audit:read plus the whole ticket:* support
+          # surface) and its own realm-role-based agent/admin distinction
+          # (SPEC-SC-002), neither of which the employee-portal's own client should
+          # carry (least privilege — an employee's own token should never be able to
+          # read governance audit records).
+          support-console:
+            client-id: ${SUPPORT_CONSOLE_CLIENT_ID:support-console}
+            client-secret: ${SUPPORT_CONSOLE_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            # tickets:read:queue/tickets:timeline:internal added after a real live 403
+            # (SPEC-SC-003/006 grounding): TicketViewPolicy/TicketTimelineViewPolicy both
+            # require them for SUPPORT_VIEW, distinct from the ticket:* write scopes below.
+            scope: openid,profile,email,ticket:triage,ticket:resolve,ticket:close,ticket:request-approval,ticket:transition,ticket:assign-route,ticket:assign,governance:audit:read,tickets:read:queue,tickets:timeline:internal
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            provider: opsmind
         provider:
           opsmind:
             issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
@@ -81,6 +98,9 @@ app:
       # here — only one frontend can be "the" post-login landing page per registration;
       # each app's own login entry point sets state to route back to itself if needed.
       success-redirect-uri: ${IDENTITY_LOGIN_SUCCESS_REDIRECT_URI:http://localhost:5173/}
+      # SPEC-SC-001: support-console's own dev-server port (5174), also already
+      # present in cors.allowed-origins above.
+      support-console-success-redirect-uri: ${IDENTITY_LOGIN_SUPPORT_CONSOLE_SUCCESS_REDIRECT_URI:http://localhost:5174/}
       failure-redirect-uri: ${IDENTITY_LOGIN_FAILURE_REDIRECT_URI:/login?error}
     oidc:
       # SPEC-UA-004: the fixed, per-issuer allow-list `jwtDecoder` (SecurityConfig)

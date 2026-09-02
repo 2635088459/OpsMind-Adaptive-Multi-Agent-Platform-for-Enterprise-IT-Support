@@ -121,6 +121,21 @@ class Settings(BaseSettings):
     confirm_bounded_wait_timeout_seconds: float = 2.0
     confirm_bounded_wait_poll_interval_seconds: float = 0.1
 
+    # domain 09 (employee-portal)'s own frontend calls conversation_router's endpoints
+    # directly from a genuinely different browser origin (its own Vite dev server, no
+    # reverse proxy in front of either side yet) — without CORS this browser call is
+    # blocked outright, no response ever reaches the page's own JS. Comma-separated,
+    # empty/deny-by-default like every other cross-cutting default in this service;
+    # an operator opts specific frontend origins in. Unlike user-access-authentication-
+    # service's own BFF cookie relay, this endpoint is Bearer-token-authenticated, not
+    # cookie-based, so `allow_credentials` stays False — no cookie ever needs to cross
+    # this boundary.
+    cors_allowed_origins: str = ""
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

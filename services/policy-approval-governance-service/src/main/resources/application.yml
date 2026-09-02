@@ -27,6 +27,12 @@ spring:
 server:
   shutdown: graceful
 
+opsmind:
+  portal:
+    cors:
+      # Empty/deny by default — an operator opts specific frontend origins in per environment.
+      allowed-origins: ${PORTAL_CORS_ALLOWED_ORIGINS:}
+
 management:
   endpoints:
     web:

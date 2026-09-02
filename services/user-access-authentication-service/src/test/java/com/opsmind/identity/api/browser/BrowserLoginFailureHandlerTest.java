@@ -28,7 +28,7 @@ class BrowserLoginFailureHandlerTest {
     private final Instant now = Instant.parse("2026-01-01T00:00:00Z");
     private final AuditPort auditPort = mock(AuditPort.class);
     private final ClockPort clock = () -> now;
-    private final BrowserLoginProperties properties = new BrowserLoginProperties("tenant-x", Duration.ofHours(2), "MY_COOKIE", "/home", "/login?error");
+    private final BrowserLoginProperties properties = new BrowserLoginProperties("tenant-x", Duration.ofHours(2), "MY_COOKIE", "/home", "/login?error", "/support-console-home");
     private final BrowserLoginFailureHandler handler = new BrowserLoginFailureHandler(auditPort, clock, properties);
 
     @Test

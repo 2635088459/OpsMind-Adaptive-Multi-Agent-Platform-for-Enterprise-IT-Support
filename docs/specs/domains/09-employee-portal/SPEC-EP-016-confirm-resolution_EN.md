@@ -1,6 +1,6 @@
 # SPEC-EP-016 — Confirm Resolution
 
-> Domain: `09-employee-portal` | Phase: 06 — Resolution Feedback Loop | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 06 — Resolution Feedback Loop | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-016`, a new use case for closing the loop once an issue appears resolved.

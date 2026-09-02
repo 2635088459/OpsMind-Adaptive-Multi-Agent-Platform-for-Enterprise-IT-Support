@@ -1,6 +1,6 @@
 # SPEC-SC-008 — Approval Card
 
-> Domain: `10-support-console` | Phase: 04 — Approval Handling | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 04 — Approval Handling | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-008`, implements `UC-SC-03`'s render half.

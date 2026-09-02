@@ -1,6 +1,6 @@
 # SPEC-SC-002 — Role Scope Verification
 
-> Domain: `10-support-console` | Phase: 01 — Authenticated Session Foundation | Status: Spec Planning
+> Domain: `10-support-console` | Phase: 01 — Authenticated Session Foundation | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-SC-002`, hardening SPEC-SC-001 with real role-based UI gating.

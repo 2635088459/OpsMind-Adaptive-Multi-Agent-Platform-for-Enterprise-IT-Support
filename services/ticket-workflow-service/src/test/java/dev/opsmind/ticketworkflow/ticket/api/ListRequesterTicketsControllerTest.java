@@ -65,7 +65,10 @@ class ListRequesterTicketsControllerTest {
                     .authorities(new SimpleGrantedAuthority("SCOPE_tickets:read:self"))))
             .andExpect(status().isOk())
             .andExpect(header().string("Cache-Control", "private, no-store"))
-            .andExpect(header().string("Vary", "Authorization"))
+            // SPEC-EP-013/016/017's own real CORS support adds 3 Vary values of its own
+            // ahead of the controller's -- this asserts the complete real header, not
+            // just the first token (a plain header().string(...) only ever sees that one).
+            .andExpect(header().stringValues("Vary", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers", "Authorization"))
             .andExpect(jsonPath("$.items[0].ticketId").value(ticketId.toString()))
             .andExpect(jsonPath("$.items[0].title").value("Cannot sign in to Housing Portal"))
             .andExpect(jsonPath("$.page.limit").value(20))

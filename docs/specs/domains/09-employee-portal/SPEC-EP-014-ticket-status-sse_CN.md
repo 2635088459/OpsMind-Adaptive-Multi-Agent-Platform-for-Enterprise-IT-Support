@@ -1,6 +1,6 @@
 # SPEC-EP-014 — Ticket Status SSE（工单状态实时推送）
 
-> Domain: `09-employee-portal` | Phase: 05 — 转人工与 Ticket 状态 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 05 — 转人工与 Ticket 状态 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-014`，实现 `UC-EP-05` 的实时更新一半。

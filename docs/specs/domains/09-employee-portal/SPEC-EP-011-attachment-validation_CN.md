@@ -1,6 +1,6 @@
 # SPEC-EP-011 — Attachment Validation（附件校验）
 
-> Domain: `09-employee-portal` | Phase: 04 — 证据文件切片 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 04 — 证据文件切片 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-011`，`03-state-machine` §3.2 中 `VALIDATING` 状态自身的行为。

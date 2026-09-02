@@ -1,6 +1,6 @@
 # SPEC-EP-018 — Agent Unavailable Fallback
 
-> Domain: `09-employee-portal` | Phase: 07 — Resilience and Degradation | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 07 — Resilience and Degradation | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-018`, a resilience-phase spec with no dedicated use case of its own — it hardens SPEC-EP-005/006 against a specific backend failure mode.

@@ -1,6 +1,6 @@
 # SPEC-EP-004 — Create Conversation（创建会话）
 
-> Domain: `09-employee-portal` | Phase: 02 — 对话核心 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 02 — 对话核心 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-004`，实现 `UC-EP-01`。

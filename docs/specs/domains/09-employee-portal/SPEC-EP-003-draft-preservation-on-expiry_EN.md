@@ -1,6 +1,6 @@
 # SPEC-EP-003 — Draft Preservation on Expiry
 
-> Domain: `09-employee-portal` | Phase: 01 — Login and Session | Status: Spec Planning
+> Domain: `09-employee-portal` | Phase: 01 — Login and Session | Status: Implemented
 
 ## 1. Spec Identity
 `SPEC-EP-003`, the direct implementation of BI-EP-006.

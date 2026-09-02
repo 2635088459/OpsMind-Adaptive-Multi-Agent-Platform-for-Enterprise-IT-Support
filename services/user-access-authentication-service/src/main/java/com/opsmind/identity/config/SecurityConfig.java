@@ -115,7 +115,10 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(properties.allowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "If-Match", IdentityRequestContext.CORRELATION_ID_HEADER));
+        // "traceparent" added (SPEC-EP-023): a real bug found live during that spec's
+        // own audit — fetchBrowserSessionToken() attaching a real W3C traceparent
+        // header would otherwise be silently blocked by this very allow-list.
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "If-Match", IdentityRequestContext.CORRELATION_ID_HEADER, "traceparent"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

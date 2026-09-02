@@ -1,6 +1,6 @@
 # SPEC-EP-001 — OIDC Login Redirect（OIDC 登录跳转）
 
-> Domain: `09-employee-portal` | Phase: 01 — 登录与会话 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 01 — 登录与会话 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-001`，实现 `UC-EP-01` 的登录前置条件。

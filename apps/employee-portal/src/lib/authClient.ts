@@ -1,4 +1,5 @@
 import { BFF_BASE_URL } from "@/lib/env";
+import { newTraceparent } from "@/lib/trace";
 
 /**
  * The real access token relayed by user-access-authentication-service's own
@@ -36,12 +37,18 @@ export function beginLogin(): void {
  * Returns `null` for a genuinely unauthenticated caller (401) — anything
  * else (network failure, 5xx) is thrown, since those are not "please log
  * in," they are "something is actually broken."
+ *
+ * SPEC-EP-023: a real bug found live during that spec's own audit — this
+ * was the one real network call site in the app not going through
+ * `authedFetch` (it runs before any access token exists at all) and so
+ * never got a `traceparent`. "No network call in this app is untraceable"
+ * is an absolute invariant, not conditioned on being authenticated yet.
  */
 export async function fetchBrowserSessionToken(): Promise<BrowserSessionToken | null> {
   const response = await fetch(`${BFF_BASE_URL}/api/v1/session/browser-token`, {
     method: "GET",
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", traceparent: newTraceparent() },
   });
 
   if (response.status === 401) {

@@ -1,6 +1,6 @@
 # SPEC-EP-012 — Escalation Notice（转人工通知）
 
-> Domain: `09-employee-portal` | Phase: 05 — 转人工与 Ticket 状态 | 状态：Spec Planning
+> Domain: `09-employee-portal` | Phase: 05 — 转人工与 Ticket 状态 | 状态：Implemented
 
 ## 1. Spec 身份
 `SPEC-EP-012`，实现 `UC-EP-04` 面向员工的一半。

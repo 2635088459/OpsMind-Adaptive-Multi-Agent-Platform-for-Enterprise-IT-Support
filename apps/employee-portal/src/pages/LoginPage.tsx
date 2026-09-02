@@ -9,7 +9,11 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-ink">OpsMind</h1>
-        <p className="mt-1 text-sm text-ink-muted">Sign in to reach the employee support portal.</p>
+        <p className="mt-1 text-sm text-ink-muted">
+          {status === "session_expired"
+            ? "Your session has ended. Sign in again to continue."
+            : "Sign in to reach the employee support portal."}
+        </p>
 
         {error ? (
           <p role="alert" className="mt-4 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
