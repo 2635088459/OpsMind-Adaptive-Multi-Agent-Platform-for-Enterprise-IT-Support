@@ -14,21 +14,30 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from agentruntime.application.exceptions import (
+    ActionNotAwaitingConfirmationException,
+    ActionNotFoundException,
     AgentTaskNotFoundException,
     AgentTaskVersionConflictException,
     AutomationNotAllowedException,
     CapabilityNotAuthorizedException,
     CheckpointNotFoundException,
     ClaimTokenMismatchException,
+    ConversationAccessDeniedException,
+    ConversationNotFoundException,
     DefinitionVersionMismatchException,
     DuplicateActiveWorkflowInstanceException,
+    EscalationRoutingNotConfiguredException,
+    GovernanceApprovalRequestFailedException,
     IdempotencyKeyReusedException,
+    OutboundAuthenticationException,
     PauseCheckpointNotFoundException,
     PoisonEventNotFoundException,
     PoisonRuntimeEventException,
     StalePauseGenerationException,
     StaleRuntimeEventException,
     StaleWorkflowVersionException,
+    TicketCreationFailedException,
+    TicketTriageFailedException,
     ToolRequestNotFoundException,
     WorkflowInstanceNotFoundException,
     WorkflowInstanceVersionConflictException,
@@ -185,6 +194,84 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def handle_definition_version_mismatch(request: Request, exc: DefinitionVersionMismatchException) -> JSONResponse:
         return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body(
             "DEFINITION_VERSION_MISMATCH", "The workflow instance is bound to a different definition version.", request
+        ).model_dump())
+
+    @app.exception_handler(TicketCreationFailedException)
+    async def handle_ticket_creation_failed(request: Request, exc: TicketCreationFailedException) -> JSONResponse:
+        """SPEC-ARO-038: the outbound call to 02-ticket-workflow did not succeed —
+        502, not 500: this service functioned correctly, a downstream dependency did
+        not.
+        """
+        logger.error("ticket creation failed: %s", exc.reason)
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content=_body(
+            "TICKET_CREATION_FAILED", "Could not create the ticket backing this conversation.", request
+        ).model_dump())
+
+    @app.exception_handler(OutboundAuthenticationException)
+    async def handle_outbound_authentication_failed(request: Request, exc: OutboundAuthenticationException) -> JSONResponse:
+        """SPEC-ARO-043 domain-rules: "fails closed" — this service could not obtain
+        its own outbound service identity token; 502, the same "we function, a
+        dependency does not" posture as TicketCreationFailedException.
+        """
+        logger.error("outbound authentication failed: %s", exc.reason)
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content=_body(
+            "OUTBOUND_AUTHENTICATION_FAILED", "Could not authenticate to a downstream service.", request
+        ).model_dump())
+
+    @app.exception_handler(TicketTriageFailedException)
+    async def handle_ticket_triage_failed(request: Request, exc: TicketTriageFailedException) -> JSONResponse:
+        """SPEC-ARO-041: the outbound call to 02-ticket-workflow's real triage endpoint
+        did not succeed — 502, the same "we function, a dependency did not" posture as
+        TicketCreationFailedException.
+        """
+        logger.error("ticket triage failed: %s", exc.reason)
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content=_body(
+            "TICKET_TRIAGE_FAILED", "Could not escalate this conversation's ticket.", request
+        ).model_dump())
+
+    @app.exception_handler(EscalationRoutingNotConfiguredException)
+    async def handle_escalation_routing_not_configured(request: Request, exc: EscalationRoutingNotConfiguredException) -> JSONResponse:
+        """SPEC-ARO-041: no real categoryId/supportQueueId is configured for this
+        deployment — 502, an operator-fixable deployment gap, not a client error.
+        """
+        logger.error("escalation routing is not configured")
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content=_body(
+            "ESCALATION_ROUTING_NOT_CONFIGURED", "Escalation routing is not configured for this deployment.", request
+        ).model_dump())
+
+    @app.exception_handler(GovernanceApprovalRequestFailedException)
+    async def handle_governance_approval_request_failed(request: Request, exc: GovernanceApprovalRequestFailedException) -> JSONResponse:
+        """SPEC-ARO-040: the outbound call to 06-policy-approval-governance did not
+        succeed — 502, the same "we function, a dependency did not" posture as
+        TicketTriageFailedException.
+        """
+        logger.error("governance approval request failed: %s", exc.reason)
+        return JSONResponse(status_code=status.HTTP_502_BAD_GATEWAY, content=_body(
+            "GOVERNANCE_APPROVAL_REQUEST_FAILED", "Could not create the governance approval request.", request
+        ).model_dump())
+
+    @app.exception_handler(ActionNotFoundException)
+    async def handle_action_not_found(request: Request, exc: ActionNotFoundException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=_body(
+            "ACTION_NOT_FOUND", "The action was not found.", request
+        ).model_dump())
+
+    @app.exception_handler(ActionNotAwaitingConfirmationException)
+    async def handle_action_not_awaiting_confirmation(request: Request, exc: ActionNotAwaitingConfirmationException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=_body(
+            "ACTION_NOT_AWAITING_CONFIRMATION", "This action is not awaiting confirmation.", request
+        ).model_dump())
+
+    @app.exception_handler(ConversationNotFoundException)
+    async def handle_conversation_not_found(request: Request, exc: ConversationNotFoundException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=_body(
+            "CONVERSATION_NOT_FOUND", "The conversation was not found.", request
+        ).model_dump())
+
+    @app.exception_handler(ConversationAccessDeniedException)
+    async def handle_conversation_access_denied(request: Request, exc: ConversationAccessDeniedException) -> JSONResponse:
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content=_body(
+            "CONVERSATION_ACCESS_DENIED", "This conversation does not belong to the calling employee.", request
         ).model_dump())
 
     @app.exception_handler(PauseCheckpointNotFoundException)

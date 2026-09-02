@@ -38,6 +38,8 @@ class WorkflowInstanceRow(Base):
         # migration itself as a partial unique index instead of listed here.
         # SPEC-ARO-006 05-api-contracts "GET /workflows/by-ticket/{ticketId}".
         Index("ix_workflow_instances_ticket_id", "ticket_id"),
+        # SPEC-ARO-042 api-contract: backs find_most_recent_by_requester_and_workflow_type.
+        Index("ix_workflow_instances_requester_subject", "requester_subject"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
@@ -65,6 +67,18 @@ class WorkflowInstanceRow(Base):
     # 07-data-model column; no application service reaches a terminal
     # workflow state yet (SPEC-ARO-001 never wired a CompleteWorkflowService).
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # SPEC-ARO-042 (phase-10 Conversational Intake): the requester subject (JWT `sub`)
+    # that owns this instance — only StartConversationService (SPEC-ARO-038) populates
+    # it; every pre-existing workflow_type leaves it NULL, matching those instances'
+    # lack of a single directly-identified human owner.
+    requester_subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # SPEC-ARO-041 (phase-10 Conversational Intake): the owning ticket's own
+    # optimistic-concurrency version, as last observed by this service — see
+    # WorkflowInstanceRecord.ticket_version's own docstring for the full rule.
+    ticket_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # SPEC-ARO-041: the owning ticket's real displayId, captured at conversation
+    # creation — see WorkflowInstanceRecord.ticket_display_id's own docstring.
+    ticket_display_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
 class AgentTaskRow(Base):

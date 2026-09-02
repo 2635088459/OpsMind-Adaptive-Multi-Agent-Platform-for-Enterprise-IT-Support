@@ -1,0 +1,62 @@
+SPEC-ARO-041:
+  domain: 03-agent-runtime-orchestration
+  name: Escalation Via Existing Triage
+  cn_name: 通过已有分诊转人工
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Pulled forward into the same pass as SPEC-ARO-039 rather than built later as
+    originally sequenced: SPEC-ARO-039's own escalation response shape needs a real
+    ticketId/displayId/assignedTeam, and rendering those honestly (never fabricated)
+    required this spec's own real triage call to already exist.
+
+    A real, consequential finding that reshaped this spec's own scope: reading
+    02-ticket-workflow's real TriageTicketRequest/TriageTicketApplicationService
+    directly (not assumed from this spec's own README, which had loosely described "a
+    category/team-routing hint") showed the real contract requires actual categoryId/
+    supportQueueId **UUIDs** from that service's own reference-data catalog, an If-Match
+    version header, and — checked directly — that catalog has **zero seed data for
+    either anywhere in this platform** (confirmed by reading ticket-workflow-service's
+    own migrations directly; no INSERT/seed script for categories or queues exists).
+    This service cannot safely invent a category/queue id that may not exist. Resolved
+    by adding 4 new Settings fields (escalation_default_category_id/
+    _support_queue_id/_priority/_team_name), all blank by default — SendMessageService's
+    escalation branch fails closed with a new EscalationRoutingNotConfiguredException
+    (502) until an operator configures real values from ticket-workflow's own catalog,
+    the same "safe blank default, real once configured" posture Settings.
+    keycloak_token_url already established.
+
+    The real TriageTicketResponse also carries no displayId and no human-readable team
+    name (confirmed by reading it directly) — so WorkflowInstanceRecord gained
+    ticket_version and ticket_display_id (captured once at SPEC-ARO-038's own
+    conversation-creation time, since that is the only place either value is honestly
+    available) via a real Alembic migration (9d3b6c2e5a71, folded together with both
+    columns since neither had been applied anywhere yet when written); the escalation
+    response's own assignedTeam field is an operator-supplied label for the one
+    configured queue, never fabricated from a backend response that doesn't carry one.
+
+    The real triage call authenticates via SPEC-ARO-043's own service identity (this
+    service's own automated-agent identity, not the employee's forwarded token —
+    TriageTicketController accepts any non-EMPLOYEE actor_type, confirmed by reading it
+    directly), tracked as a new HttpTicketWorkflowClient.triage_ticket() method sharing
+    the same httpx.Client as SPEC-ARO-038's own create_ticket() call. A new checkpoint
+    is not separately introduced for this branch — the escalation branch reuses
+    SendMessageService's own already-open request, writing the triage call, then
+    completing the AgentTask, then advancing WorkflowInstanceRecord.ticket_version, then
+    reusing the existing CompleteWorkflowService unchanged for the workflow-terminal
+    transition (domain-rules: "escalation is a workflow-instance-terminal event ...
+    never resumed to attempt further self-service on the same ticket") — no new
+    completion logic was written for this spec.
+
+    Verified with dedicated application-service tests (real triage call made with the
+    correct category/queue/priority/reason, workflow reaches COMPLETED with the
+    advanced ticket_version, zero tool_requests/approval_requests created for this
+    branch) and full app-level HTTP tests through the real FastAPI app, including the
+    escalation-routing-not-configured 502 path.
+  lld_mapping:
+    - 04-use-cases
+    - 05-api-contracts
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

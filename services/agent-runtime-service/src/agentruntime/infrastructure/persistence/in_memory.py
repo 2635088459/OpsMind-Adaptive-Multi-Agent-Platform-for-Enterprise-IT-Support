@@ -67,6 +67,17 @@ class InMemoryWorkflowInstanceRepository:
         matching.sort(key=lambda record: record.updated_at)
         return matching[:limit]
 
+    def find_most_recent_by_requester_and_workflow_type(
+        self, requester_subject: str, workflow_type: WorkflowType
+    ) -> WorkflowInstanceRecord | None:
+        matching = [
+            record for record in self._store.values()
+            if record.requester_subject == requester_subject and record.workflow_type == workflow_type
+        ]
+        if not matching:
+            return None
+        return max(matching, key=lambda record: record.created_at)
+
     def save(self, record: WorkflowInstanceRecord) -> WorkflowInstanceRecord:
         with self._lock:
             existing = self._store.get(record.id)

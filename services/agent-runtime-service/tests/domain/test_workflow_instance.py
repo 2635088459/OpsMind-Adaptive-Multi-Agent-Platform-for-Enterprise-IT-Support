@@ -7,8 +7,19 @@ import pytest
 
 from agentruntime.domain import workflow_instance
 from agentruntime.domain.enums import WorkflowState
-from agentruntime.domain.exceptions import InvalidWorkflowStateException, InvalidWorkflowTransitionException
-from agentruntime.domain.ids import DefinitionVersion, IdempotencyKey, TicketCycleId, TicketId, WorkflowDefinitionId, WorkflowInstanceId, WorkflowType
+from agentruntime.domain.exceptions import (
+    InvalidWorkflowStateException,
+    InvalidWorkflowTransitionException,
+)
+from agentruntime.domain.ids import (
+    DefinitionVersion,
+    IdempotencyKey,
+    TicketCycleId,
+    TicketId,
+    WorkflowDefinitionId,
+    WorkflowInstanceId,
+    WorkflowType,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -125,6 +136,21 @@ def test_wait_for_tool_from_running_increments_version() -> None:
 def test_wait_for_tool_requires_a_running_source_state() -> None:
     with pytest.raises(InvalidWorkflowTransitionException):
         workflow_instance.wait_for_tool(WORKFLOW_INSTANCE_ID, WorkflowState.PAUSED, 1, NOW)
+
+
+def test_wait_for_approval_from_running_increments_version() -> None:
+    """SPEC-ARO-040 (phase-10 Conversational Intake): the first real entry path into
+    WAITING_FOR_APPROVAL."""
+    event = workflow_instance.wait_for_approval(WORKFLOW_INSTANCE_ID, WorkflowState.RUNNING, 1, NOW)
+
+    assert event.to_state is WorkflowState.WAITING_FOR_APPROVAL
+    assert event.workflow_version == 2
+    assert event.from_state is WorkflowState.RUNNING
+
+
+def test_wait_for_approval_requires_a_running_source_state() -> None:
+    with pytest.raises(InvalidWorkflowTransitionException):
+        workflow_instance.wait_for_approval(WORKFLOW_INSTANCE_ID, WorkflowState.PAUSED, 1, NOW)
 
 
 def test_wake_from_tool_wait_from_waiting_for_tool_restores_running() -> None:

@@ -231,6 +231,7 @@ public class CreateTicketApplicationService implements CreateTicketUseCase {
             ticket.status(),
             ticket.createdAt(),
             ticket.version(),
+            resolutionCycleId,
             false
         );
 
@@ -311,6 +312,7 @@ public class CreateTicketApplicationService implements CreateTicketUseCase {
             body.put("status", result.status().name());
             body.put("createdAt", result.createdAt().toString());
             body.put("version", result.version());
+            body.put("resolutionCycleId", result.resolutionCycleId().toString());
             return objectMapper.writeValueAsString(body);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new IllegalStateException("failed to serialize create ticket result", e);
@@ -327,6 +329,7 @@ public class CreateTicketApplicationService implements CreateTicketUseCase {
                 TicketStatus.valueOf((String) body.get("status")),
                 Instant.parse((String) body.get("createdAt")),
                 ((Number) body.get("version")).longValue(),
+                UUID.fromString((String) body.get("resolutionCycleId")),
                 true
             );
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {

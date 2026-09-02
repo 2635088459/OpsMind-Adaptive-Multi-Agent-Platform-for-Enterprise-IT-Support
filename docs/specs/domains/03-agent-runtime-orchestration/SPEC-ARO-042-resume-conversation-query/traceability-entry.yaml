@@ -1,0 +1,55 @@
+SPEC-ARO-042:
+  domain: 03-agent-runtime-orchestration
+  name: Resume Conversation Query
+  cn_name: 恢复对话查询
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    This spec's own api-contract flagged a possible schema need up front, unconfirmed:
+    "if workflow_instances has no existing 'created-by subject' field to query against,
+    one may need to be added." Confirmed absent by reading the real Postgres model
+    directly (during SPEC-ARO-038's own build, since StartConversationService needed to
+    record ownership immediately) and added for real: requester_subject (nullable,
+    indexed), via Alembic migration e7c1a9b04d3f, threaded through
+    WorkflowInstanceRecord/StartWorkflowCommand/both Postgres and in-memory
+    repositories.
+
+    Implemented as a new ConversationQueryService (mirrors WorkflowQueryService's own
+    shape exactly — a plain read, no domain call, no idempotency guard) with two
+    methods: find_conversation() (GET /api/v1/conversations/{id}) and
+    find_most_recent_conversation() (GET /api/v1/conversations/most-recent, supporting
+    domain 09's own UC-EP-06). The "most recent" query is backed by a new repository
+    method, find_most_recent_by_requester_and_workflow_type() — deliberately not
+    filtered to non-terminal-only, since an escalated (terminal, per SPEC-ARO-041)
+    conversation must still be resumable read-only so the employee can see the
+    resulting ticket's status; this spec's own api-contract phrase "active/escalated
+    conversation" already implied spanning both states.
+
+    A real routing detail this spec's own README left to implementation ("an
+    equivalent query-by-identity shape decided during implementation"): the literal
+    path `/most-recent` is registered in the router *before* the parameterized
+    `/{conversation_id}` route — Starlette/FastAPI matches path routes in declaration
+    order, and registering them the other way around would have made every request to
+    `/most-recent` bind to conversation_id="most-recent" instead, failing UUID
+    validation with an unrelated 422 rather than ever reaching this endpoint.
+
+    Deliberately scoped ConversationDetailView to state/timestamps only, not a full
+    reconstructed message transcript — a real, explicitly flagged gap rather than a
+    silent omission: an AgentTaskRecord carries no durable copy of its own input text
+    (SPEC-ARO-007's own deferred inputPayload), and a CheckpointRecord is not
+    correlated to any specific AgentTaskId, so reconstructing "the user said X, the
+    agent replied Y" pairs precisely is not achievable from the data this domain
+    persists today without a further, separate schema change this spec does not make.
+
+    Verified with dedicated application-service tests (real state for its own owner,
+    denies a different employee, unknown-id 404, most-recent-returns-the-newest-one
+    using a real clock advance to disambiguate, most-recent-for-a-requester-with-none
+    404) and full app-level HTTP tests through the real FastAPI app for both endpoints.
+  lld_mapping:
+    - 04-use-cases
+    - 05-api-contracts
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

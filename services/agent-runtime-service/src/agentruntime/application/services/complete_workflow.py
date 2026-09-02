@@ -100,6 +100,8 @@ class CompleteWorkflowService:
             workflow_type=current.workflow_type, definition_id=current.definition_id, definition_version=current.definition_version,
             state=event.to_state, workflow_version=event.workflow_version, pause_generation=current.pause_generation,
             current_checkpoint_id=current_checkpoint_id, completed_at=now, created_at=current.created_at, updated_at=now,
+            requester_subject=current.requester_subject, ticket_version=current.ticket_version,
+            ticket_display_id=current.ticket_display_id,
         )
         saved = self._workflow_instance_repository.save(updated_record)
 

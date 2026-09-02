@@ -45,6 +45,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.io.IOException;
 import java.util.List;
@@ -95,8 +98,29 @@ import java.util.Set;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@EnableConfigurationProperties({OidcIssuerProperties.class, BrowserLoginProperties.class, KeycloakAdminProperties.class, StepUpVerificationProperties.class})
+@EnableConfigurationProperties({OidcIssuerProperties.class, BrowserLoginProperties.class, KeycloakAdminProperties.class, StepUpVerificationProperties.class, BrowserCorsProperties.class})
 public class SecurityConfig {
+
+    /**
+     * Backs {@code http.cors(...)} on both filter chains below. Origins come
+     * only from {@link BrowserCorsProperties} (empty/deny by default,
+     * INV-UA-002) — never a wildcard, since {@code allowCredentials(true)} is
+     * required for the session cookie {@link
+     * com.opsmind.identity.api.browser.BrowserSessionTokenController} relies
+     * on, and the CORS spec itself forbids combining a wildcard origin with
+     * credentials.
+     */
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource(BrowserCorsProperties properties) {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(properties.allowedOrigins());
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "If-Match", IdentityRequestContext.CORRELATION_ID_HEADER));
+        configuration.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
 
     @Bean
     @ConditionalOnMissingBean(JwtDecoder.class)
@@ -159,12 +183,23 @@ public class SecurityConfig {
      * plain PKCE-only resolver SPEC-UA-005 used alone) and the dispatching
      * success/failure handlers route each registration to its own real
      * flow without a second filter chain.
+     *
+     * <p>Also carries {@link
+     * com.opsmind.identity.api.browser.BrowserSessionTokenController}'s own
+     * {@code /api/v1/session/browser-token} — the one endpoint that needs to
+     * read back the very session {@code oauth2Login} establishes here,
+     * which {@link #securityFilterChain} (fully stateless) never creates or
+     * consults. Unlike {@code /oauth2/**}/{@code /login/**} (framework
+     * entry points, never gated), this path requires a real authenticated
+     * principal — {@code permitAll()} would let an anonymous cross-origin
+     * caller probe it for a 401-vs-200 timing/shape signal for no reason.
      */
     @Bean
     @Order(1)
     public SecurityFilterChain browserLoginFilterChain(
         HttpSecurity http, ClientRegistrationRepository clientRegistrationRepository,
-        BrowserAuthenticationSuccessDispatcher successHandler, BrowserAuthenticationFailureDispatcher failureHandler
+        BrowserAuthenticationSuccessDispatcher successHandler, BrowserAuthenticationFailureDispatcher failureHandler,
+        CorsConfigurationSource corsConfigurationSource, ObjectMapper objectMapper
     ) throws Exception {
         http
             // PathPatternRequestMatcher, not the String-varargs overload: the latter builds an
@@ -173,15 +208,32 @@ public class SecurityConfig {
             // in webEnvironment=NONE test contexts such as IdentityPersistenceIT.
             .securityMatcher(new OrRequestMatcher(
                 PathPatternRequestMatcher.withDefaults().matcher("/oauth2/**"),
-                PathPatternRequestMatcher.withDefaults().matcher("/login/**")
+                PathPatternRequestMatcher.withDefaults().matcher("/login/**"),
+                PathPatternRequestMatcher.withDefaults().matcher("/api/v1/session/browser-token")
             ))
+            .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
-            .authorizeHttpRequests(authorize -> authorize.anyRequest().permitAll())
+            .authorizeHttpRequests(authorize -> authorize
+                .requestMatchers("/oauth2/**", "/login/**").permitAll()
+                .anyRequest().authenticated())
             .oauth2Login(oauth2 -> oauth2
                 .authorizationEndpoint(authorization -> authorization
                     .authorizationRequestResolver(new StepUpAuthorizationRequestResolver(clientRegistrationRepository, "/oauth2/authorization")))
                 .successHandler(successHandler)
                 .failureHandler(failureHandler)
+            )
+            // Real bug found live (verified against a real running Keycloak/browser-token
+            // round trip): without this, oauth2Login()'s own default entry point for THIS
+            // chain is a 302 to /login (Spring's auto-generated provider-picker HTML) —
+            // fine for /oauth2/**+/login/** (permitAll, never triggers an entry point at
+            // all) but wrong for an unauthenticated fetch() to /api/v1/session/browser-token:
+            // a browser fetch follows that redirect silently and hands the SPA a 200 HTML
+            // page instead of a 401 it can branch on. Same plain-JSON shape as
+            // #securityFilterChain's own entry point below, not a redirect.
+            .exceptionHandling(handling -> handling
+                .authenticationEntryPoint((request, response, authException) -> writeError(
+                    response, objectMapper, request, HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "Authentication is required."
+                ))
             );
 
         return http.build();
@@ -189,9 +241,10 @@ public class SecurityConfig {
 
     @Bean
     @Order(2)
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper objectMapper, CorsConfigurationSource corsConfigurationSource) throws Exception {
         http
             .csrf(csrf -> csrf.disable())
+            .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()

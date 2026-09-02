@@ -207,3 +207,115 @@ class PoisonEventNotFoundException(RuntimeError):
 
     def __init__(self, id: object) -> None:
         super().__init__(f"poison event not found: {id}")
+
+
+class OutboundAuthenticationException(RuntimeError):
+    """SPEC-ARO-043 domain-rules: "if a token cannot be obtained, the outbound call fails
+    closed." Raised by OutboundServiceTokenProviderPort implementations (and by any
+    outbound client that catches a token-acquisition failure) — never allow a caller
+    to proceed unauthenticated or with a stale/expired token.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"could not obtain an outbound service token: {reason}")
+        self.reason = reason
+
+
+class TicketCreationFailedException(RuntimeError):
+    """SPEC-ARO-038 domain-rules: the outbound call to 02-ticket-workflow's real
+    POST /api/v1/tickets did not succeed. StartConversationService never proceeds to
+    create a WorkflowInstance when this is raised — "WorkflowInstance creation never
+    happens without a prior, successful, real ticket creation."
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"ticket creation failed: {reason}")
+        self.reason = reason
+
+
+class TicketTriageFailedException(RuntimeError):
+    """SPEC-ARO-041: the outbound call to 02-ticket-workflow's real
+    POST /{ticketId}/triage did not succeed. SendMessageService never claims escalation
+    succeeded when this is raised — mirrors TicketCreationFailedException's own
+    "we function correctly, a downstream dependency did not" posture.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"ticket triage failed: {reason}")
+        self.reason = reason
+
+
+class GovernanceApprovalRequestFailedException(RuntimeError):
+    """SPEC-ARO-040: the outbound call to 06-policy-approval-governance's real
+    request-approval endpoint did not succeed. SendMessageService's confirm path never
+    claims "awaiting-approval" when this is raised — mirrors TicketTriageFailedException's
+    own "we function, a dependency did not" posture.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"governance approval request failed: {reason}")
+        self.reason = reason
+
+
+class ActionNotFoundException(RuntimeError):
+    """SPEC-ARO-040: raised when an actionId (an AgentTaskId) does not resolve to any
+    AgentTask belonging to the named conversation, or does not belong to that
+    conversation at all.
+    """
+
+    def __init__(self, action_id: object) -> None:
+        super().__init__(f"action not found: {action_id}")
+
+
+class ActionNotAwaitingConfirmationException(RuntimeError):
+    """SPEC-ARO-040 domain-rules: "the same actionId can never be confirmed or
+    declined a second time with a new real side effect — a repeat returns the
+    current, real terminal state." Raised only when that current state cannot be
+    honestly rendered as one of the declared outcome shapes (e.g. the task never
+    entered AWAITING_USER_CONFIRMATION in the first place) — a genuine repeat of an
+    already-decided action is handled by returning its real current outcome instead
+    of raising this.
+    """
+
+    def __init__(self, action_id: object, current_state: object) -> None:
+        super().__init__(f"action {action_id} is in state {current_state}, not awaiting confirmation")
+
+
+class EscalationRoutingNotConfiguredException(RuntimeError):
+    """SPEC-ARO-041 domain-rules: real triage requires a real categoryId/supportQueueId
+    that exists in 02-ticket-workflow's own reference-data catalog — no seed data for
+    either exists anywhere in this platform yet (confirmed by reading ticket-workflow's
+    own migrations directly), so this service cannot safely invent one. Raised when
+    Settings.escalation_default_category_id/escalation_default_support_queue_id are
+    unconfigured — fails closed (a clear, visible error) rather than fabricating a
+    category/queue id that may not exist, or silently skipping escalation while still
+    claiming success.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "escalation routing is not configured (escalation_default_category_id / "
+            "escalation_default_support_queue_id) — an operator must configure real "
+            "category/support-queue ids from 02-ticket-workflow's own reference data"
+        )
+
+
+class ConversationNotFoundException(RuntimeError):
+    """SPEC-ARO-042: raised when a conversationId (== workflowInstanceId) does not
+    resolve to any Workflow Instance, or resolves to one whose workflow_type is not
+    conversational_intake (SPEC-ARO-037) — a workflow instance belonging to some other
+    workflow_type is never reshaped into a conversation view.
+    """
+
+    def __init__(self, conversation_id: object) -> None:
+        super().__init__(f"conversation not found: {conversation_id}")
+
+
+class ConversationAccessDeniedException(RuntimeError):
+    """SPEC-ARO-042 domain-rules: "a conversation belonging to a different employee is
+    never returned" — raised when the resolved Workflow Instance's own requester
+    subject does not match the calling employee's asserted identity.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("this conversation does not belong to the calling employee")

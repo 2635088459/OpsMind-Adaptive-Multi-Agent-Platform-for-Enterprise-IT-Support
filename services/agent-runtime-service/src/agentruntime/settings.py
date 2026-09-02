@@ -60,6 +60,67 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str = "localhost:4317"
     otel_service_name: str = "agent-runtime-service"
 
+    # SPEC-ARO-043 (phase-10 Conversational Intake): a real Keycloak client_credentials
+    # service identity for this service's own outbound calls to 02-ticket-workflow/
+    # 06-policy-approval-governance — structurally the same kind of client the
+    # 2026-09-01 integration verification's own "integration-test-client" was, but a
+    # real, production-grade identity owned by this service. "disabled" (not a live
+    # Keycloak URL) is the safe default for hermetic tests and local runs that never
+    # exercise SPEC-ARO-038/040/041's outbound calls, mirroring event_publisher_adapter's
+    # own "logging"-by-default reasoning — a caller that actually needs a token gets a
+    # clear OutboundAuthenticationException, never a silent unauthenticated call.
+    keycloak_token_url: str = "disabled"
+    agent_runtime_service_client_id: str = "agent-runtime-service"
+    agent_runtime_service_client_secret: str = ""
+    # SPEC-ARO-043 domain-rules: "the client secret is never committed to source —
+    # environment-injected only" — this field's default is deliberately blank, never a
+    # real-looking placeholder secret.
+
+    # SPEC-ARO-038 (phase-10): the real 02-ticket-workflow base URL this service's own
+    # outbound HTTP client calls POST /api/v1/tickets against. 8080 is Spring Boot's own
+    # unconfigured default (ticket-workflow-service's application.yml sets no
+    # server.port) — no service-container port mapping exists yet in this repo's own
+    # local-platform docker-compose (it wires shared infra only, not the services
+    # themselves), so this is a local-dev convenience default, override via env in any
+    # real multi-service deployment.
+    ticket_workflow_base_url: str = "http://localhost:8080"
+
+    # SPEC-ARO-039 (phase-10): the real 04-memory-knowledge base URL this service's own
+    # outbound HTTP client calls POST /internal/memory/v1/search against. 8010 is that
+    # service's own real uvicorn default (memoryknowledge.main.run()).
+    memory_knowledge_base_url: str = "http://localhost:8010"
+
+    # SPEC-ARO-041 (phase-10): a real categoryId/supportQueueId from 02-ticket-workflow's
+    # own reference-data catalog — no seed data for either exists anywhere in this
+    # platform yet (confirmed by reading ticket-workflow-service's own migrations
+    # directly), so this service cannot safely invent one. Blank (unconfigured) is the
+    # safe default; SendMessageService fails closed with
+    # EscalationRoutingNotConfiguredException rather than fabricate an id that may not
+    # exist. escalation_default_team_name is a human-readable label for that one
+    # configured queue (the real triage response carries no team name of its own to
+    # reuse — confirmed by reading TriageTicketResponse directly), operator-supplied,
+    # never fabricated by this service.
+    escalation_default_category_id: str = ""
+    escalation_default_support_queue_id: str = ""
+    escalation_default_priority: str = "MEDIUM"
+    escalation_default_team_name: str = ""
+
+    # SPEC-ARO-040 (phase-10): the real 06-policy-approval-governance base URL this
+    # service's own outbound HTTP client calls POST /api/v1/approval-requests against.
+    # 8080 is Spring Boot's own unconfigured default (same caveat as
+    # ticket_workflow_base_url's own comment — no per-service port mapping exists yet
+    # in this repo's own local-platform docker-compose).
+    policy_approval_governance_base_url: str = "http://localhost:8080"
+
+    # SPEC-ARO-040 domain-rules: "the bounded wait's timeout is a configurable value,
+    # not hardcoded, with its real default determined during phase implementation via
+    # load testing — never an indefinite block." These conservative defaults are a
+    # starting point, not a load-tested figure — no real tool executor exists anywhere
+    # in this platform yet to time against (see ActionConfirmationService's own
+    # docstring), so there is nothing to load-test against today.
+    confirm_bounded_wait_timeout_seconds: float = 2.0
+    confirm_bounded_wait_poll_interval_seconds: float = 0.1
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

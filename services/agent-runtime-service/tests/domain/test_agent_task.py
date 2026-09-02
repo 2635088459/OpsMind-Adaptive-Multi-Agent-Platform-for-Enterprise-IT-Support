@@ -205,6 +205,65 @@ def test_wait_for_tool_requires_a_claimed_or_running_source_state() -> None:
         agent_task.wait_for_tool(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.READY, 1, NOW)
 
 
+@pytest.mark.parametrize("state", [AgentTaskState.CLAIMED, AgentTaskState.RUNNING])
+def test_await_user_confirmation_from_an_active_claim_produces_the_awaiting_state(state: AgentTaskState) -> None:
+    """SPEC-ARO-039/040 (phase-10 Conversational Intake): a process_user_message task
+    whose reasoning produced a proposed_action outcome enters AWAITING_USER_CONFIRMATION
+    instead of COMPLETED.
+    """
+    event = agent_task.await_user_confirmation(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, state, 1, NOW)
+
+    assert event.to_state is AgentTaskState.AWAITING_USER_CONFIRMATION
+    assert event.task_version == 2
+
+
+def test_await_user_confirmation_requires_a_claimed_or_running_source_state() -> None:
+    with pytest.raises(InvalidAgentTaskTransitionException):
+        agent_task.await_user_confirmation(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.READY, 1, NOW)
+
+
+def test_dispatch_tool_from_confirmation_from_awaiting_confirmation_produces_waiting_tool() -> None:
+    """SPEC-ARO-040: confirming a low/medium-risk proposed action dispatches the real
+    tool request."""
+    event = agent_task.dispatch_tool_from_confirmation(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.AWAITING_USER_CONFIRMATION, 2, NOW)
+
+    assert event.to_state is AgentTaskState.WAITING_TOOL
+    assert event.task_version == 3
+
+
+@pytest.mark.parametrize("state", [AgentTaskState.CLAIMED, AgentTaskState.RUNNING, AgentTaskState.READY])
+def test_dispatch_tool_from_confirmation_rejects_any_state_other_than_awaiting_confirmation(state: AgentTaskState) -> None:
+    with pytest.raises(InvalidAgentTaskTransitionException):
+        agent_task.dispatch_tool_from_confirmation(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, state, 2, NOW)
+
+
+def test_await_approval_from_confirmation_from_awaiting_confirmation_produces_waiting_external() -> None:
+    """SPEC-ARO-040: confirming a high/critical-risk proposed action creates a real
+    governance approval request instead."""
+    event = agent_task.await_approval_from_confirmation(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.AWAITING_USER_CONFIRMATION, 2, NOW)
+
+    assert event.to_state is AgentTaskState.WAITING_EXTERNAL
+    assert event.task_version == 3
+
+
+def test_await_approval_from_confirmation_rejects_any_state_other_than_awaiting_confirmation() -> None:
+    with pytest.raises(InvalidAgentTaskTransitionException):
+        agent_task.await_approval_from_confirmation(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.CLAIMED, 2, NOW)
+
+
+def test_decline_from_awaiting_confirmation_produces_completed_with_a_declined_result() -> None:
+    event = agent_task.decline(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.AWAITING_USER_CONFIRMATION, 2, NOW)
+
+    assert event.to_state is AgentTaskState.COMPLETED
+    assert event.task_version == 3
+    assert event.result_payload == '{"kind": "declined"}'
+
+
+def test_decline_rejects_any_state_other_than_awaiting_confirmation() -> None:
+    with pytest.raises(InvalidAgentTaskTransitionException):
+        agent_task.decline(AGENT_TASK_ID, WORKFLOW_INSTANCE_ID, AgentTaskState.CLAIMED, 2, NOW)
+
+
 def test_complete_from_tool_result_requires_waiting_tool() -> None:
     """SPEC-ARO-020: only the task a tool.completed.v1 delivery is actually for — WAITING_
     TOOL — can complete this way."""

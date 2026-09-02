@@ -34,7 +34,15 @@ spring:
             client-id: ${KEYCLOAK_CLIENT_ID:user-access-authentication-service}
             client-secret: ${KEYCLOAK_CLIENT_SECRET:}
             authorization-grant-type: authorization_code
-            scope: openid,profile,email
+            # tickets:create added for the domain 09/10 frontend's own BFF token relay
+            # (BrowserSessionTokenController): the relayed access token is what the SPA
+            # sends onward as its own Bearer token to ticket-workflow-service's
+            # PublicTicketController, which requires SCOPE_tickets:create. Also needs
+            # adding to this client's defaultClientScopes in the realm import itself
+            # (infrastructure/keycloak/opsmind-realm.json) — a client only receives a
+            # scope Keycloak's own client config actually grants it, regardless of what
+            # is requested here.
+            scope: openid,profile,email,tickets:create
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
           # SPEC-UA-018: the same Keycloak client as `opsmind` above, registered
           # with a SECOND valid redirect-uri for real step-up re-authentication
@@ -54,6 +62,11 @@ spring:
 
 app:
   identity:
+    cors:
+      # Local dev origins for both frontend apps' own Vite dev servers (frontend
+      # product vision: domain 09 employee-portal, domain 10 support-console —
+      # neither is scaffolded yet, ports are this platform's own convention).
+      allowed-origins: ${IDENTITY_CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}
     login:
       # SPEC-UA-005. See BrowserLoginProperties's own javadoc for why
       # default-tenant-id is a fixed, server-side value rather than derived
@@ -61,7 +74,13 @@ app:
       default-tenant-id: ${IDENTITY_DEFAULT_TENANT_ID:opsmind}
       session-ttl: PT8H
       session-cookie-name: OPSMIND_SESSION
-      success-redirect-uri: ${IDENTITY_LOGIN_SUCCESS_REDIRECT_URI:/}
+      # Local dev only: lands the browser back on the employee-portal SPA's own dev
+      # server (Vite default port) rather than this service's bare "/", which serves
+      # no page of its own. support-console's own local port (5174) is added to
+      # identity.cors.allowed-origins below but is not a login success destination
+      # here — only one frontend can be "the" post-login landing page per registration;
+      # each app's own login entry point sets state to route back to itself if needed.
+      success-redirect-uri: ${IDENTITY_LOGIN_SUCCESS_REDIRECT_URI:http://localhost:5173/}
       failure-redirect-uri: ${IDENTITY_LOGIN_FAILURE_REDIRECT_URI:/login?error}
     oidc:
       # SPEC-UA-004: the fixed, per-issuer allow-list `jwtDecoder` (SecurityConfig)

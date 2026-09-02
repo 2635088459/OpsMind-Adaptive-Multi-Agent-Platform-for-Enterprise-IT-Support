@@ -113,6 +113,8 @@ class ConsumeApprovalService:
             workflow_type=workflow.workflow_type, definition_id=workflow.definition_id, definition_version=workflow.definition_version,
             state=event.to_state, workflow_version=event.workflow_version, pause_generation=workflow.pause_generation,
             current_checkpoint_id=checkpoint_id, completed_at=workflow.completed_at, created_at=workflow.created_at, updated_at=now,
+            requester_subject=workflow.requester_subject, ticket_version=workflow.ticket_version,
+            ticket_display_id=workflow.ticket_display_id,
         ))
 
         checkpoint_event = checkpoint.record(

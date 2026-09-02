@@ -1,0 +1,72 @@
+SPEC-ARO-038:
+  domain: 03-agent-runtime-orchestration
+  name: Start Conversation Creates Ticket
+  cn_name: 开始对话即创建工单
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    A real architectural correction against this spec's own original assumption, found
+    by reading 02-ticket-workflow's real PublicTicketController directly before writing
+    the outbound client: it records `jwt.getSubject()` as the new ticket's requesterId
+    with no "on behalf of" mechanism, so authenticating this call with SPEC-ARO-043's
+    own service-identity token (the design this spec's own README had assumed) would
+    have recorded agent-runtime-service itself as the requester — exactly the
+    domain-rules violation this spec warns against ("never a service-account identity
+    standing in for the employee"). Corrected design: the new
+    `POST /api/v1/conversations` endpoint requires and forwards the employee's own real
+    bearer token, obtained via a new unverified-decode-of-the-forwarded-JWT dependency
+    (interfaces/conversation/security.py) — an honest choice, not a weaker one: the same
+    raw token is forwarded to 02-ticket-workflow, whose own Spring Security boundary
+    performs the real signature/issuer verification when it is used there.
+
+    A second real cross-service gap found and fixed directly in ticket-workflow-service
+    itself (not just worked around): CreateTicketResponse never exposed
+    resolutionCycleId anywhere in its public API surface, even though
+    CreateTicketApplicationService already generates it internally at creation time —
+    a synchronous caller like this one, which must bind a new WorkflowInstance to
+    ticketId + ticketCycleId within the same request, had no way to read it. Added the
+    field for real (CreateTicketResult/CreateTicketResponse/PublicTicketApiMapper, both
+    the serialize/deserialize idempotency-replay JSON paths, and the 3 test call sites
+    that construct these records positionally), verified live:
+    `./mvnw -Denforcer.skip=true -Dtest=CreateTicketControllerTest,
+    CreateTicketSecurityTest test` → 5/5 green (this environment's default JAVA_HOME is
+    JDK 25, not the enforced 21; a real JDK 21.0.5 exists at a session-scratchpad path
+    found via a stray run's own surefire report).
+
+    WorkflowInstanceRecord gained 3 new fields to support this and the specs built
+    alongside it: requester_subject (SPEC-ARO-042's own flagged possible need,
+    confirmed absent and added via Alembic migration e7c1a9b04d3f), ticket_version and
+    ticket_display_id (SPEC-ARO-041's own need — see that spec's entry for why). Adding
+    them as defaulted fields surfaced a real bug: 6 pre-existing services
+    (pause/resume/cancel/fail/complete_workflow, consume_approval, consume_verification)
+    reconstruct a fresh WorkflowInstanceRecord rather than dataclasses.replace()-ing the
+    current one, and none carried the 3 new fields forward — silently wiping a
+    conversation's own identity the moment any of them touched it. Caught by a new
+    regression test (pausing/resuming a conversation, then asserting the 3 fields
+    survived) before it shipped; all 6 call sites fixed.
+
+    Placeholder title/description are sent to 02-ticket-workflow (domain 09's own
+    product design collects the real issue description on the first message, not at
+    conversation start, but CreateTicketRequest requires both non-blank) — a known,
+    durable gap: 02-ticket-workflow exposes no endpoint to update either field after
+    creation, confirmed by reading its own API surface directly rather than assumed.
+
+    StartConversationService wraps the whole flow in its own CommandIdempotencyGuard,
+    using a key *derived* from (not identical to) the caller's own idempotency_key for
+    the inner StartWorkflowCommand call — CommandIdempotencyRepository keys purely by
+    idempotency_key with no command_type component, so reusing the literal key for both
+    the outer and inner guard would have made them collide.
+
+    Verified with dedicated application-service tests (starts-for-real, idempotent
+    replay never re-calls create_ticket twice, reused-key-different-requester conflict,
+    failed-ticket-creation never creates a WorkflowInstance), infrastructure-adapter
+    tests against httpx.MockTransport, and full app-level HTTP tests through the real
+    FastAPI app (including the pause/resume field-survival regression test above).
+  lld_mapping:
+    - 04-use-cases
+    - 05-api-contracts
+    - 08-transaction-and-outbox
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

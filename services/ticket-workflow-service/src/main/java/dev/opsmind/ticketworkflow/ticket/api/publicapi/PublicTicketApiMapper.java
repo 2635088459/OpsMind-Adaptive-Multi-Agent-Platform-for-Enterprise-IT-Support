@@ -45,7 +45,8 @@ public class PublicTicketApiMapper {
             result.displayId().value(),
             result.status().name(),
             result.createdAt(),
-            result.version()
+            result.version(),
+            result.resolutionCycleId()
         );
     }
 }

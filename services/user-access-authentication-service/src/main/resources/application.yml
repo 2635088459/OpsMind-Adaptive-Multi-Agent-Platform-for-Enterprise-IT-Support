@@ -26,6 +26,27 @@ spring:
 
 server:
   shutdown: graceful
+  servlet:
+    session:
+      cookie:
+        # SPEC-EP-001's own BFF token-relay endpoint is called by the domain
+        # 09/10 frontend from a genuinely different origin (its own SPA dev
+        # server or CDN, never this service's own host) — a cross-origin
+        # fetch only carries this session cookie back if it is SameSite=None
+        # (Lax only survives top-level navigations, which the callback
+        # redirect is, but the later token-relay call from the SPA's own JS
+        # is not). Secure is required alongside None regardless of scheme;
+        # modern browsers treat http://localhost as a secure context for
+        # this purpose, so local dev needs no TLS to exercise it for real.
+        same-site: none
+        secure: true
+
+app:
+  identity:
+    cors:
+      # Empty/deny by default (INV-UA-002) — an operator opts specific
+      # frontend origins in per environment. See profile-specific files.
+      allowed-origins: ${IDENTITY_CORS_ALLOWED_ORIGINS:}
 
 management:
   endpoints:

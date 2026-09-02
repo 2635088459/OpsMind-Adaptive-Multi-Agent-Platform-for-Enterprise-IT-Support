@@ -83,6 +83,22 @@ class AgentTaskState(Enum):
     RUNNING = auto()
     WAITING_TOOL = auto()
     WAITING_EXTERNAL = auto()
+    """First given a real writer by SPEC-ARO-040 (phase-10 Conversational Intake): the
+    confirm-with-a-high-risk-action branch (agent_task.await_approval_from_confirmation())
+    enters this state while a real governance approval request is pending.
+    """
+
+    AWAITING_USER_CONFIRMATION = auto()
+    """SPEC-ARO-039/040 (phase-10 Conversational Intake): a `process_user_message` task
+    whose ConversationReasoningPort decided on a "proposed_action" outcome enters this
+    state instead of COMPLETED — pausing until the employee explicitly confirms or
+    declines it (SPEC-ARO-040's own confirm/decline endpoints). Distinct from
+    WAITING_EXTERNAL (that member is reserved for an approval/verification/input wait
+    triggered by an *external domain event*, per its own docstring) — this wait is
+    ended by a direct employee action against this same conversation, not an event
+    consumed from another service.
+    """
+
     COMPLETED = auto()
 
     FAILED_RETRYABLE = auto()
@@ -137,6 +153,22 @@ class CheckpointType(Enum):
 
     PRE_TOOL_CALL = auto()
     """Recorded immediately before a ToolRequest is dispatched through the Tool Gateway."""
+
+    PRE_KNOWLEDGE_RETRIEVAL = auto()
+    """SPEC-ARO-039 (phase-10 Conversational Intake): recorded immediately before
+    querying 04-memory-knowledge — the same "checkpoint before any external side
+    effect" invariant PRE_TOOL_CALL already enforces, but knowledge retrieval is not a
+    ToolRequest (02-business-invariants §"Tool Gateway Boundary" scopes that boundary to
+    Agent SDK tool calls specifically), so it gets its own, distinctly-named type
+    rather than overloading PRE_TOOL_CALL's own meaning.
+    """
+
+    PRE_APPROVAL_REQUEST = auto()
+    """SPEC-ARO-040 (phase-10 Conversational Intake): recorded immediately before
+    calling 06-policy-approval-governance's real request-approval endpoint — mirrors
+    PRE_KNOWLEDGE_RETRIEVAL's own reasoning (a real external call that is neither a
+    ToolRequest nor a knowledge-retrieval query gets its own distinctly-named type).
+    """
 
     WAIT_STATE = auto()
     """Recorded when a Workflow Instance enters a recoverable waiting state."""

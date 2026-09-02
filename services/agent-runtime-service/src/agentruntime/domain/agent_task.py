@@ -11,12 +11,14 @@ from datetime import datetime
 
 from agentruntime.domain.enums import AgentTaskState, WorkflowState
 from agentruntime.domain.events import (
+    AgentTaskAwaitingUserConfirmation,
     AgentTaskClaimed,
     AgentTaskCompleted,
     AgentTaskCreated,
     AgentTaskFailed,
     AgentTaskRetried,
     AgentTaskStaled,
+    AgentTaskWaitingForApproval,
     AgentTaskWaitingForTool,
 )
 from agentruntime.domain.exceptions import (
@@ -180,6 +182,108 @@ def wait_for_tool(
         to_state=AgentTaskState.WAITING_TOOL,
         task_version=current_version + 1,
         occurred_at=occurred_at,
+    )
+
+
+def await_user_confirmation(
+    agent_task_id: AgentTaskId,
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: AgentTaskState,
+    current_version: int,
+    occurred_at: datetime,
+) -> AgentTaskAwaitingUserConfirmation:
+    """SPEC-ARO-039/040 (phase-10 Conversational Intake): a `process_user_message` task
+    whose reasoning decided on a "proposed_action" outcome enters AWAITING_USER_CONFIRMATION
+    instead of COMPLETED. Reuses complete()/fail()'s own _require_active_claim() guard:
+    only a task still actively claimed (CLAIMED/RUNNING) — the same inline executor that
+    just claimed it within this same request — can enter this wait.
+    """
+    _require_active_claim(current_state)
+
+    return AgentTaskAwaitingUserConfirmation(
+        agent_task_id=agent_task_id,
+        workflow_instance_id=workflow_instance_id,
+        to_state=AgentTaskState.AWAITING_USER_CONFIRMATION,
+        task_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def dispatch_tool_from_confirmation(
+    agent_task_id: AgentTaskId,
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: AgentTaskState,
+    current_version: int,
+    occurred_at: datetime,
+) -> AgentTaskWaitingForTool:
+    """SPEC-ARO-040 (phase-10 Conversational Intake): confirming a low/medium-risk
+    proposed action dispatches the real tool request — the counterpart to
+    wait_for_tool() for a task entering this wait from AWAITING_USER_CONFIRMATION
+    rather than an active claim (SPEC-ARO-040 domain-rules: "a task in
+    AWAITING_USER_CONFIRMATION cannot be claimed/completed by the existing async worker
+    path — the same _require_active_claim()-style guard already used for WAITING_TOOL
+    applies here by the same reasoning" — this is that guard's own confirm-specific
+    counterpart, deliberately narrower than _require_active_claim()).
+    """
+    if current_state is not AgentTaskState.AWAITING_USER_CONFIRMATION:
+        raise InvalidAgentTaskTransitionException(current_state, "AWAITING_USER_CONFIRMATION")
+
+    return AgentTaskWaitingForTool(
+        agent_task_id=agent_task_id,
+        workflow_instance_id=workflow_instance_id,
+        to_state=AgentTaskState.WAITING_TOOL,
+        task_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def await_approval_from_confirmation(
+    agent_task_id: AgentTaskId,
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: AgentTaskState,
+    current_version: int,
+    occurred_at: datetime,
+) -> AgentTaskWaitingForApproval:
+    """SPEC-ARO-040: confirming a high/critical-risk proposed action creates a real
+    governance approval request instead — the task enters WAITING_EXTERNAL (its first
+    real writer; see that state's own docstring). Only reachable from
+    AWAITING_USER_CONFIRMATION, mirroring dispatch_tool_from_confirmation()'s own guard.
+    """
+    if current_state is not AgentTaskState.AWAITING_USER_CONFIRMATION:
+        raise InvalidAgentTaskTransitionException(current_state, "AWAITING_USER_CONFIRMATION")
+
+    return AgentTaskWaitingForApproval(
+        agent_task_id=agent_task_id,
+        workflow_instance_id=workflow_instance_id,
+        to_state=AgentTaskState.WAITING_EXTERNAL,
+        task_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def decline(
+    agent_task_id: AgentTaskId,
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: AgentTaskState,
+    current_version: int,
+    occurred_at: datetime,
+) -> AgentTaskCompleted:
+    """SPEC-ARO-040: decline is a genuine no-op — "zero tool dispatch, zero approval
+    request." Produces the same AgentTaskCompleted shape complete() does (the caller
+    supplies a `{"kind": "declined"}` result_payload — see SendMessageService's own
+    sibling completion paths for the convention), only reachable from
+    AWAITING_USER_CONFIRMATION.
+    """
+    if current_state is not AgentTaskState.AWAITING_USER_CONFIRMATION:
+        raise InvalidAgentTaskTransitionException(current_state, "AWAITING_USER_CONFIRMATION")
+
+    return AgentTaskCompleted(
+        agent_task_id=agent_task_id,
+        workflow_instance_id=workflow_instance_id,
+        to_state=AgentTaskState.COMPLETED,
+        task_version=current_version + 1,
+        occurred_at=occurred_at,
+        result_payload='{"kind": "declined"}',
     )
 
 

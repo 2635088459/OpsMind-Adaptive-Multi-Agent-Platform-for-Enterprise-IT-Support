@@ -1,0 +1,16 @@
+{
+  "name": "opsmind-frontend-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev:employee-portal": "pnpm --filter employee-portal dev",
+    "dev:support-console": "pnpm --filter support-console dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  }
+}

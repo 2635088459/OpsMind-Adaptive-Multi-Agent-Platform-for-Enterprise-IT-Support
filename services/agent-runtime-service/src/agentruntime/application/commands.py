@@ -64,6 +64,20 @@ class StartWorkflowCommand:
     ticket_cycle_id: TicketCycleId
     definition: WorkflowDefinitionInput
     idempotency_key: IdempotencyKey
+    # SPEC-ARO-042: the requester subject (JWT `sub`) that owns this Workflow Instance,
+    # when one exists — only StartConversationService (SPEC-ARO-038) ever supplies this;
+    # every other caller (ConsumeTicketCreatedService, the direct /workflows REST
+    # command) leaves it None, matching those workflow_type's own lack of a single
+    # directly-identified human owner.
+    requester_subject: str | None = None
+    # SPEC-ARO-041: the owning ticket's real optimistic-concurrency version at the
+    # moment this Workflow Instance is created — only StartConversationService
+    # (SPEC-ARO-038) ever supplies a non-zero value (from CreateTicketResponse.version,
+    # always 0 for a freshly created ticket); every other caller leaves the default.
+    ticket_version: int = 0
+    # SPEC-ARO-041: the owning ticket's real displayId — only StartConversationService
+    # supplies this.
+    ticket_display_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,3 +399,86 @@ class ConsumeTicketReopenedCommand:
             raise ValueError("schema_version must be at least 1")
         if not self.reason_code or not self.reason_code.strip():
             raise ValueError("reason_code must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class StartConversationCommand:
+    """SPEC-ARO-038 05-api-contracts "POST /api/v1/conversations": for real, create a
+    ticket in 02-ticket-workflow, then create a conversational_intake WorkflowInstance
+    bound to it — the entry point every conversation goes through.
+
+    requester_subject is the calling employee's identity (this service's own unverified
+    decode of the forwarded JWT's `sub` claim — see interfaces.conversation.security's
+    own docstring for why that's an honest, not a fabricated, trust boundary here),
+    recorded as this Workflow Instance's own requester_subject (SPEC-ARO-042).
+
+    forwarded_bearer_token is the employee's own raw bearer token, forwarded as-is to
+    02-ticket-workflow's real POST /api/v1/tickets so *that* service's own JWT
+    verification records the real employee as requester — see
+    TicketWorkflowClientPort's own docstring for why SPEC-ARO-043's service identity is
+    deliberately not used for this particular call.
+    """
+
+    requester_subject: str
+    forwarded_bearer_token: str
+    idempotency_key: IdempotencyKey
+
+    def __post_init__(self) -> None:
+        if not self.requester_subject or not self.requester_subject.strip():
+            raise ValueError("requester_subject must not be blank")
+        if not self.forwarded_bearer_token or not self.forwarded_bearer_token.strip():
+            raise ValueError("forwarded_bearer_token must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class SendMessageCommand:
+    """SPEC-ARO-039 05-api-contracts "POST /api/v1/conversations/{conversationId}/
+    messages". attachment_refs are consumed as-is (opaque, already-uploaded `ready`-state
+    references per the shared attachments capability's own contract, chartered but not
+    yet built) — this command does not validate them itself.
+    """
+
+    conversation_id: WorkflowInstanceId
+    requester_subject: str
+    text: str
+    attachment_refs: tuple[str, ...]
+    idempotency_key: IdempotencyKey
+
+    def __post_init__(self) -> None:
+        if not self.requester_subject or not self.requester_subject.strip():
+            raise ValueError("requester_subject must not be blank")
+        if not self.text or not self.text.strip():
+            raise ValueError("text must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmActionCommand:
+    """SPEC-ARO-040 05-api-contracts "POST /api/v1/conversations/{conversationId}/
+    actions/{actionId}/confirm". action_id is the AgentTaskId of the
+    `process_user_message` task that entered AWAITING_USER_CONFIRMATION (SPEC-ARO-039) —
+    no separate ProposedAction identity exists.
+    """
+
+    conversation_id: WorkflowInstanceId
+    action_id: AgentTaskId
+    requester_subject: str
+    idempotency_key: IdempotencyKey
+
+    def __post_init__(self) -> None:
+        if not self.requester_subject or not self.requester_subject.strip():
+            raise ValueError("requester_subject must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class DeclineActionCommand:
+    """SPEC-ARO-040 05-api-contracts "POST /api/v1/conversations/{conversationId}/
+    actions/{actionId}/decline"."""
+
+    conversation_id: WorkflowInstanceId
+    action_id: AgentTaskId
+    requester_subject: str
+    idempotency_key: IdempotencyKey
+
+    def __post_init__(self) -> None:
+        if not self.requester_subject or not self.requester_subject.strip():
+            raise ValueError("requester_subject must not be blank")

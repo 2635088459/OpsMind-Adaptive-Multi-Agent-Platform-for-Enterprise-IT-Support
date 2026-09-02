@@ -119,6 +119,8 @@ class StartWorkflowService:
             workflow_type=definition.workflow_type, definition_id=definition.id, definition_version=definition.version,
             state=event.to_state, workflow_version=event.workflow_version, pause_generation=0,
             current_checkpoint_id=checkpoint_id, completed_at=None, created_at=now, updated_at=now,
+            requester_subject=command.requester_subject, ticket_version=command.ticket_version,
+            ticket_display_id=command.ticket_display_id,
         )
         saved = self._workflow_instance_repository.save(record)
 

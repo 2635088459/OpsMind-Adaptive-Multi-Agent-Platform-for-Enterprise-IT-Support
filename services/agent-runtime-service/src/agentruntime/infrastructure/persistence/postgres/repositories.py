@@ -66,6 +66,7 @@ def _to_workflow_instance_record(row: WorkflowInstanceRow) -> WorkflowInstanceRe
         workflow_version=row.workflow_version, pause_generation=row.pause_generation,
         current_checkpoint_id=CheckpointId(row.current_checkpoint_id) if row.current_checkpoint_id else None,
         completed_at=row.completed_at, created_at=row.created_at, updated_at=row.updated_at,
+        requester_subject=row.requester_subject, ticket_version=row.ticket_version, ticket_display_id=row.ticket_display_id,
     )
 
 
@@ -110,6 +111,22 @@ class PostgresWorkflowInstanceRepository:
             rows = session.execute(stmt).scalars().all()
             return [_to_workflow_instance_record(row) for row in rows]
 
+    def find_most_recent_by_requester_and_workflow_type(
+        self, requester_subject: str, workflow_type: WorkflowType
+    ) -> WorkflowInstanceRecord | None:
+        with self._session_factory() as session:
+            stmt = (
+                select(WorkflowInstanceRow)
+                .where(
+                    WorkflowInstanceRow.requester_subject == requester_subject,
+                    WorkflowInstanceRow.workflow_type == str(workflow_type),
+                )
+                .order_by(WorkflowInstanceRow.created_at.desc())
+                .limit(1)
+            )
+            row = session.execute(stmt).scalars().first()
+            return _to_workflow_instance_record(row) if row else None
+
     def save(self, record: WorkflowInstanceRecord) -> WorkflowInstanceRecord:
         """09-concurrency-and-idempotency §"Concurrency Model": "guaranteed by database
         locks, optimistic versions, unique keys." The UPDATE path is a single atomic
@@ -133,6 +150,8 @@ class PostgresWorkflowInstanceRepository:
                             workflow_version=record.workflow_version, pause_generation=record.pause_generation,
                             current_checkpoint_id=record.current_checkpoint_id.value if record.current_checkpoint_id else None,
                             completed_at=record.completed_at, created_at=record.created_at, updated_at=record.updated_at,
+                            requester_subject=record.requester_subject, ticket_version=record.ticket_version,
+                            ticket_display_id=record.ticket_display_id,
                         )
                     )
                     session.commit()
@@ -147,7 +166,7 @@ class PostgresWorkflowInstanceRepository:
                         state=record.state.name, workflow_version=record.workflow_version,
                         pause_generation=record.pause_generation,
                         current_checkpoint_id=record.current_checkpoint_id.value if record.current_checkpoint_id else None,
-                        completed_at=record.completed_at, updated_at=record.updated_at,
+                        completed_at=record.completed_at, updated_at=record.updated_at, ticket_version=record.ticket_version,
                     )
                 )
                 if result.rowcount != 1:

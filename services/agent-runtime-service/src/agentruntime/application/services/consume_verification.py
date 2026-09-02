@@ -101,6 +101,8 @@ class ConsumeVerificationService:
             state=event.to_state, workflow_version=event.workflow_version, pause_generation=workflow.pause_generation,
             current_checkpoint_id=workflow.current_checkpoint_id, completed_at=workflow.completed_at,
             created_at=workflow.created_at, updated_at=now,
+            requester_subject=workflow.requester_subject, ticket_version=workflow.ticket_version,
+            ticket_display_id=workflow.ticket_display_id,
         ))
         self._settle_workflow_if_done(awake.id, awake.state)
 

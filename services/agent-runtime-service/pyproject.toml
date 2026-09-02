@@ -37,12 +37,16 @@ dependencies = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+    # SPEC-ARO-043 (phase-10 Conversational Intake): agent-runtime-service now makes
+    # real outbound calls to 02-ticket-workflow/06-policy-approval-governance, carrying
+    # a real Keycloak client_credentials JWT (see infrastructure.outbound_identity) —
+    # promoted from the dev-only test-client dependency it was before this phase.
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
     "import-linter>=2.1",
     "testcontainers[postgres,rabbitmq]>=4.9",
 ]

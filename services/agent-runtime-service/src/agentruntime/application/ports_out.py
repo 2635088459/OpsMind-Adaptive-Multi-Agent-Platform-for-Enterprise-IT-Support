@@ -12,14 +12,19 @@ from typing import Protocol
 from agentruntime.application.commands import WorkflowDefinitionInput
 from agentruntime.application.records import (
     AgentTaskRecord,
+    ApprovalRequestRef,
     AuditRecordEntry,
     CheckpointRecord,
     CommandIdempotencyRecord,
+    CreatedTicketRef,
+    KnowledgeSnippet,
     OutboxRecord,
     PoisonEventRecord,
+    ReasoningOutcome,
     TicketSnapshot,
     ToolDispatchAcknowledgement,
     ToolRequestRecord,
+    TriagedTicketRef,
     WorkflowInstanceRecord,
 )
 from agentruntime.domain.enums import CheckpointType
@@ -68,6 +73,21 @@ class WorkflowInstanceRepository(Protocol):
         扫描非终态 Workflow Instance" — the query the scanner is built around. Oldest
         updated_at first, so a batch run makes steady progress across repeated calls
         rather than repeatedly re-scanning the same head of the result set.
+        """
+        ...
+
+    def find_most_recent_by_requester_and_workflow_type(
+        self, requester_subject: str, workflow_type: WorkflowType
+    ) -> WorkflowInstanceRecord | None:
+        """SPEC-ARO-042 api-contract: "find the most recent active/escalated conversation
+        belonging to a given requester identity" — supports domain 09's UC-EP-06 (a
+        returning employee who does not already know their conversationId). "Active or
+        escalated" deliberately spans both a still-RUNNING conversation and one that
+        already reached its terminal state via SPEC-ARO-041's own escalation (which the
+        employee should still be able to resume into read-only, to see the resulting
+        ticket's status) — so this returns the single most recent instance by
+        created_at regardless of state, never filtered to non-terminal only. None if the
+        requester has started no conversation at all.
         """
         ...
 
@@ -326,3 +346,109 @@ class CommandIdempotencyRepository(Protocol):
     def find_by_key(self, idempotency_key: IdempotencyKey) -> CommandIdempotencyRecord | None: ...
 
     def save(self, record: CommandIdempotencyRecord) -> CommandIdempotencyRecord: ...
+
+
+class OutboundServiceTokenProviderPort(Protocol):
+    """SPEC-ARO-043 (phase-10 Conversational Intake): this service's only source of a
+    JWT for its own outbound calls to 02-ticket-workflow/06-policy-approval-governance
+    (SPEC-ARO-038/040/041). domain-rules: "no caller of the outbound client is allowed
+    to bypass it with its own ad-hoc token handling" — every outbound HTTP adapter
+    depends on this port, never on a Keycloak client library directly.
+    """
+
+    def get_token(self) -> str:
+        """Returns a currently-valid bearer token, acquiring or refreshing one as
+        needed. Raises OutboundAuthenticationException if a token cannot be obtained —
+        domain-rules: "fails closed ... never silently proceeds unauthenticated or with
+        a stale/expired token."
+        """
+        ...
+
+
+class TicketWorkflowClientPort(Protocol):
+    """SPEC-ARO-038: this service's only exit to 02-ticket-workflow's own real,
+    authentication-enforced HTTP endpoints — mirrors ToolGatewayPort's "one dedicated
+    port per external system" boundary role. Real HTTP wiring is
+    infrastructure.ticket_workflow_client's HttpTicketWorkflowClient.
+
+    create_ticket() deliberately does NOT authenticate via
+    OutboundServiceTokenProviderPort (SPEC-ARO-043) — reading ticket-workflow's own
+    real PublicTicketController confirmed it records `jwt.getSubject()` directly as the
+    ticket's requesterId, with no "on behalf of" mechanism. A service-identity token
+    minted for agent-runtime-service itself would therefore record the wrong
+    requester (this service, not the employee) — exactly the domain-rules violation
+    SPEC-ARO-038 itself warns against ("never a service-account identity standing in
+    for the employee"). The correct token is instead the employee's own bearer token,
+    already issued by 01-user-access-authentication's real OIDC login and forwarded
+    unmodified from the inbound POST /api/v1/conversations request — see
+    interfaces.conversation.security's own docstring. SPEC-ARO-043's service identity
+    remains the real mechanism for calls that are inherently service-to-service
+    (SPEC-ARO-041's triage-as-automation-agent call).
+    """
+
+    def create_ticket(self, forwarded_bearer_token: str, idempotency_key: str) -> CreatedTicketRef:
+        """Calls the real POST /api/v1/tickets, forwarding forwarded_bearer_token
+        as-is in the Authorization header. domain-rules: "the ticket created is always
+        real ... never fabricated or simulated locally." Raises
+        TicketCreationFailedException on any non-success response.
+        """
+        ...
+
+    def triage_ticket(
+        self, ticket_id: TicketId, current_version: int, category_id: str, support_queue_id: str, priority: str,
+        reason: str, idempotency_key: str,
+    ) -> TriagedTicketRef:
+        """SPEC-ARO-041: calls the real POST /{ticketId}/triage as this service's own
+        automated-agent identity (SPEC-ARO-043's service token — unlike create_ticket(),
+        this call is genuinely service-to-service, so the employee's own forwarded
+        token is never used here). category_id/support_queue_id are real UUIDs from
+        02-ticket-workflow's own reference-data catalog (confirmed by reading
+        TriageTicketRequest/TriageTicketApplicationService directly — no free-text
+        "category hint" is accepted); current_version is sent as the If-Match header.
+        Raises TicketTriageFailedException on any non-success response, including a
+        version conflict (the caller does not retry with a refreshed version itself —
+        see SendMessageService's own docstring for why).
+        """
+        ...
+
+
+class KnowledgeRetrievalPort(Protocol):
+    """SPEC-ARO-039: this service's only exit to 04-memory-knowledge's real
+    POST /internal/memory/v1/search. Unlike ToolGatewayPort/TicketWorkflowClientPort, a
+    retrieval failure is not fatal to the message turn it supports — domain-rules: "a
+    retrieval failure degrades to a plainer answer or an escalation, never a
+    hallucinated citation" — so implementations return an empty list on failure rather
+    than raising.
+    """
+
+    def search(self, query: str, workflow_instance_id: WorkflowInstanceId, requester_subject: str) -> list[KnowledgeSnippet]: ...
+
+
+class GovernanceApprovalClientPort(Protocol):
+    """SPEC-ARO-040: this service's only exit to 06-policy-approval-governance's real
+    POST /api/v1/approval-requests. Genuinely service-to-service (mirrors
+    TicketWorkflowClientPort.triage_ticket()'s own reasoning, not create_ticket()'s) —
+    authenticates via OutboundServiceTokenProviderPort (SPEC-ARO-043), acquired
+    internally by the real adapter, never passed in by the caller.
+    """
+
+    def request_approval(
+        self, agent_task_id: AgentTaskId, workflow_instance_id: WorkflowInstanceId, ticket_id: TicketId, risk_level: str,
+        reason: str,
+    ) -> ApprovalRequestRef:
+        """Raises GovernanceApprovalRequestFailedException on any non-success response."""
+        ...
+
+
+class ConversationReasoningPort(Protocol):
+    """SPEC-ARO-039: decides which of the 3 response shapes a message turn produces.
+    No real LLM/LangGraph integration exists anywhere in this codebase yet (confirmed
+    by grepping the whole service and the frozen technology-baseline's own "Agent
+    Orchestration: LangGraph ... Provisional" status) — the shipped adapter
+    (infrastructure.conversation_reasoning.StaticConversationReasoningAdapter) is a
+    deliberately simple, honestly-labeled placeholder for that future integration,
+    mirroring LoggingToolGatewayPort/NoOpTicketSnapshotPort/StaticCapabilityPolicyAdapter's
+    own "safe, real, swappable placeholder until the genuine adapter lands" precedent.
+    """
+
+    def decide(self, message_text: str, knowledge_snippets: list[KnowledgeSnippet]) -> ReasoningOutcome: ...

@@ -1,0 +1,90 @@
+SPEC-ARO-040:
+  domain: 03-agent-runtime-orchestration
+  name: Confirm/Decline With Bounded Wait
+  cn_name: 带限时等待的确认/拒绝
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Built last of the 7 phase-10 specs, closing domain 03's entire phase-10 addition.
+    Which branch a confirm takes is decided purely by the risk_level SPEC-ARO-039's own
+    reasoning already produced and stored in AgentTaskRecord.result_payload while
+    AWAITING_USER_CONFIRMATION (per that spec's own reuse of the field) — this spec
+    never re-derives or overrides that classification, per its own domain-rules.
+
+    Two new domain transitions, both guarded to only accept AWAITING_USER_CONFIRMATION
+    as their source state (deliberately narrower than complete()/fail()'s own
+    _require_active_claim(), per this spec's own domain-rules: "the same
+    _require_active_claim()-style guard already used for WAITING_TOOL applies here by
+    the same reasoning"): agent_task.dispatch_tool_from_confirmation() (LOW/MEDIUM risk
+    → WAITING_TOOL, reusing the existing tool_requests/checkpoint machinery
+    SPEC-ARO-019 already built) and agent_task.await_approval_from_confirmation()
+    (HIGH/CRITICAL risk → WAITING_EXTERNAL). A new agent_task.decline() produces
+    COMPLETED with a `{"kind": "declined"}` result_payload — a genuine no-op, verified
+    by the complete absence of any tool_requests/approval_requests row.
+
+    The single most significant real addition: workflow_instance.wait_for_approval(),
+    the first real entry path this domain has ever had into WAITING_FOR_APPROVAL.
+    WorkflowState's own docstring (written at the original SPEC-ARO-004 build) and
+    WorkflowWokenFromApprovalWait's own docstring (SPEC-ARO-021) had both said since
+    this domain's original 36-spec build that no spec ever wired one — this spec is
+    that missing writer, mirroring wait_for_tool()'s own shape exactly (RUNNING-only
+    guard, workflowVersion increment).
+
+    Grounded the HIGH/CRITICAL branch in 06-policy-approval-governance's real contract
+    by reading ApprovalController.java/RequestApprovalRequest.java directly, and by
+    mirroring evaluation-improvement-service's own proven sibling client
+    (HttpPolicyApprovalAdapter, SPEC-EI-026) for the requestKey/requestHash
+    idempotency-by-convergence pattern — a resubmitted request_approval() call for the
+    same actionId always carries the same key, letting 06's own idempotency handling
+    (not this client) converge it onto the same approval request. Unlike SPEC-EI-026's
+    own honest placeholder token (that domain has no real cross-service identity
+    mechanism issuing one anywhere yet), this client authenticates via SPEC-ARO-043's
+    real service identity, since agent-runtime-service actually has one.
+
+    The bounded wait itself is a real `time.sleep()` poll loop (timeout/interval both
+    configurable via new Settings fields, explicit conservative starting-point defaults
+    per this spec's own domain-rules: "determined during phase implementation via load
+    testing" — there is nothing real to load-test against in this environment yet, an
+    honest gap, not a fabricated figure). In this environment the wait will
+    realistically always exhaust to "still-processing": no real tool executor exists
+    anywhere in this platform (LoggingToolGatewayPort only logs a dispatch, it never
+    calls back) — proven correct in both directions by tests, one letting the wait
+    genuinely time out, one proving "done" really resolves via a background thread
+    completing the task mid-wait, exercising the same poll loop a real
+    tool.completed.v1 delivery (SPEC-ARO-020, unchanged by this spec) would satisfy.
+
+    domain-rules: "a repeat returns the current, real terminal state" — both confirm
+    and decline first check whether the action has already left
+    AWAITING_USER_CONFIRMATION (by an earlier call, possibly under a different
+    idempotency key) and render its real current outcome (still-processing/awaiting-
+    approval/done/declined) rather than attempting a fresh transition; verified with a
+    dedicated test confirming an already-declined action honestly returns "declined"
+    rather than erroring or silently proceeding.
+
+    One mid-task incident, self-caught and fully recovered within the same session: an
+    errant Write call clobbered commands.py entirely with a placeholder while adding
+    ConfirmActionCommand/DeclineActionCommand. Recovered by reconstructing the complete
+    file from the many prior reads/edits of it already accumulated this session, rather
+    than a git checkout (which would have discarded every uncommitted addition from the
+    whole session's build) — verified correct immediately by re-running the full suite,
+    which came back at exactly the expected test count with zero regressions.
+
+    Verified with a full application-service test suite (LOW-risk dispatch, done-via-
+    background-thread-completion, HIGH-risk real approval request, decline's zero side
+    effects, already-decided replay, idempotent repeat-confirm never double-dispatches,
+    wrong-employee denial), 2 new domain-level test files' worth of transitions
+    (dispatch_tool_from_confirmation/await_approval_from_confirmation/decline on
+    agent_task, wait_for_approval on workflow_instance), an infrastructure test for the
+    real governance-approval client against httpx.MockTransport, and full app-level
+    HTTP tests through the real FastAPI app for both confirm and decline, including the
+    real HIGH-risk approval-request round trip. 532 tests total by this spec's own
+    close (up from the pre-existing 392 before this phase began), import-linter (3/3
+    contracts kept), ruff (clean).
+  lld_mapping:
+    - 03-state-machine
+    - 08-transaction-and-outbox
+    - 10-failure-handling
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

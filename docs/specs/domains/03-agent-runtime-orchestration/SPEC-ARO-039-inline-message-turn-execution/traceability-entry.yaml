@@ -1,0 +1,64 @@
+SPEC-ARO-039:
+  domain: 03-agent-runtime-orchestration
+  name: Inline Message Turn Execution
+  cn_name: 内联消息轮次执行
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Implemented as a new SendMessageService: one ad hoc `process_user_message`
+    AgentTask is created, claimed (worker_id="conversation-inline-executor"), and
+    settled entirely within the same HTTP request, deliberately never registered with
+    CoordinateAgentTasksService — SPEC-ARO-037's own empty task_graph has nothing for
+    unlock_downstream_tasks()/determine_settlement() to unlock or settle for an ad hoc,
+    one-per-turn task. A new checkpoint type, PRE_KNOWLEDGE_RETRIEVAL, is written before
+    querying 04-memory-knowledge's real `POST /internal/memory/v1/search` (a new real
+    HTTP client, HttpKnowledgeRetrievalClient) — distinct from PRE_TOOL_CALL since
+    knowledge retrieval is not a ToolRequest under 02-business-invariants' own Tool
+    Gateway Boundary. That client degrades to an empty snippet list on any failure
+    (network error, non-200, malformed body) rather than raising, per domain-rules: "a
+    retrieval failure degrades to a plainer answer ... never a hallucinated citation."
+
+    The single largest real finding of this whole 7-spec build: no real LLM/LangGraph
+    integration exists anywhere in this codebase (grepped the entire service for
+    langgraph/langchain/anthropic/openai — none found; the frozen technology-baseline
+    itself lists "Agent Orchestration: LangGraph behind internal abstractions" as
+    "Provisional," not built). A new port, ConversationReasoningPort, decides the
+    text/proposed_action/escalation discriminator; the shipped adapter
+    (StaticConversationReasoningAdapter) is a deliberately simple, honestly-labeled
+    keyword-based placeholder — mirroring LoggingToolGatewayPort/NoOpTicketSnapshotPort/
+    StaticCapabilityPolicyAdapter's own established "real, working, swappable
+    placeholder until the genuine adapter lands" precedent in this exact codebase,
+    never fabricated as if it were real reasoning.
+
+    A deliberate, self-caught scope correction against this spec's own domain-rules
+    ("this spec introduces no new AgentTaskState value on its own [...] belongs to
+    SPEC-ARO-040"): a proposed_action outcome genuinely needs a durable state before a
+    future confirm/decline call can act on it, so AWAITING_USER_CONFIRMATION was added
+    during this spec's own pass rather than shipping a response shape with nothing real
+    behind it — the two specs' boundary had been drawn in an awkward place when
+    originally planned, only visible once actually building it. AgentTaskRecord.
+    result_payload is reused as the durable slot for the pending proposal's own summary/
+    risk_level while awaiting confirmation (not yet a "result" in the completed sense) —
+    the same "an existing JSON slot outlives a field the domain event itself doesn't
+    carry" pattern this project's own domain 05 (tool-integration-gateway) used
+    repeatedly across its 32 specs.
+
+    The escalation response shape (ticketId/displayId/reason/assignedTeam) is honest
+    end-to-end only because SPEC-ARO-041 was pulled forward into this same pass —
+    without it, displayId/assignedTeam would have had to be fabricated or omitted; see
+    that spec's own entry.
+
+    Verified with a full application-service test suite (text/proposed_action/
+    escalation outcomes, idempotent replay, unknown-conversation/wrong-employee
+    guards), a domain-level test for the new AWAITING_USER_CONFIRMATION transition, an
+    infrastructure test for the knowledge-retrieval client's graceful degradation on
+    all 3 failure modes, and full app-level HTTP tests through the real FastAPI app.
+  lld_mapping:
+    - 03-state-machine
+    - 04-use-cases
+    - 05-api-contracts
+    - 09-concurrency-and-idempotency
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

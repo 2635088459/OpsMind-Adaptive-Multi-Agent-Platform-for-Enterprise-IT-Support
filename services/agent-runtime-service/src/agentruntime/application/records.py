@@ -9,7 +9,13 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from agentruntime.domain.enums import AgentTaskState, CheckpointType, OutboxStatus, ToolRequestStatus, WorkflowState
+from agentruntime.domain.enums import (
+    AgentTaskState,
+    CheckpointType,
+    OutboxStatus,
+    ToolRequestStatus,
+    WorkflowState,
+)
 from agentruntime.domain.ids import (
     AgentTaskId,
     CausationId,
@@ -53,6 +59,32 @@ class WorkflowInstanceRecord:
     # (COMPLETED/FAILED/CANCELLED) — set once, by whichever of CompleteWorkflowService/
     # FailWorkflowService/CancelWorkflowService got there first.
     completed_at: datetime | None
+    # SPEC-ARO-042 (phase-10 Conversational Intake) api-contract: "if workflow_instances
+    # has no existing 'created-by subject' field to query against, one may need to be
+    # added" — confirmed against the real schema that it did not exist before this spec.
+    # Defaulted to None (unlike current_checkpoint_id/completed_at, deliberately required)
+    # because every pre-existing workflow_type this field is meaningless for (started from
+    # a consumed ticket.created event, never from a directly-identified human requester)
+    # should not have to pass an explicit null everywhere; only StartConversationService
+    # (SPEC-ARO-038) ever populates it.
+    requester_subject: str | None = None
+    # SPEC-ARO-041 (phase-10 Conversational Intake): the owning real ticket's own
+    # optimistic-concurrency version, as last observed by this service — seeded from
+    # CreateTicketResponse.version at conversation-creation time (always 0 for a
+    # freshly created ticket) and advanced by this service after any of its own
+    # ticket-mutating calls succeed (e.g. the real triage call). This service is the
+    # ticket's sole writer during its automated phase; a concurrent human triage via
+    # 10-support-console would make this value stale, surfacing honestly as a real 409
+    # from 02-ticket-workflow's own If-Match check rather than silently succeeding
+    # against a wrong version — a documented, narrow assumption, not a silently
+    # papered-over gap.
+    ticket_version: int = 0
+    # SPEC-ARO-041: the owning ticket's real displayId, captured once at
+    # conversation-creation time (SPEC-ARO-038) — the real triage response carries no
+    # displayId of its own (confirmed by reading TriageTicketResponse directly), so
+    # this is the one place an escalation response's own displayId field can honestly
+    # come from.
+    ticket_display_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +280,81 @@ class PoisonEventRecord:
     # SPEC-ARO-028's current_checkpoint_id/completed_at): every existing construction site
     # already means "not yet quarantined," which None correctly and safely expresses.
     quarantined_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CreatedTicketRef:
+    """SPEC-ARO-038: the real 02-ticket-workflow POST /api/v1/tickets response, reshaped
+    to the fields StartConversationService needs: ticket_id/ticket_cycle_id (==
+    resolutionCycleId) to bind a new WorkflowInstance, version (SPEC-ARO-041) to seed
+    WorkflowInstanceRecord.ticket_version — the starting point for this service's own
+    If-Match tracking on later ticket-mutating calls (the real triage call) — and
+    display_id (SPEC-ARO-041), since the real triage response carries no displayId of
+    its own for an escalation response to reuse later. Ticket-workflow's own
+    CreateTicketResponse also carries status, deliberately not surfaced here since
+    nothing in this service consumes it.
+    """
+
+    ticket_id: TicketId
+    ticket_cycle_id: TicketCycleId
+    version: int
+    display_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class TriagedTicketRef:
+    """SPEC-ARO-041: the real 02-ticket-workflow POST /{ticketId}/triage response,
+    reshaped to just what SendMessageService needs to keep its own tracked
+    ticket_version current. Real TriageTicketResponse carries no human-readable team
+    name and no displayId at all (confirmed by reading it directly) — an
+    escalation response's own displayId/assignedTeam are sourced elsewhere (the
+    already-real displayId stored at conversation creation; an operator-configured
+    team-name label for the single configured escalation queue), never fabricated
+    from this response.
+    """
+
+    version: int
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeSnippet:
+    """SPEC-ARO-039: one 04-memory-knowledge search result, reshaped to just what the
+    conversation-reasoning port needs — source_id/snippet/score mirror that service's
+    own SearchResultItemResponse minimal fields.
+    """
+
+    source_id: str
+    snippet: str
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalRequestRef:
+    """SPEC-ARO-040: the real 06-policy-approval-governance POST /api/v1/
+    approval-requests response, reshaped to just what SendMessageService's confirm
+    path needs — the real approvalRequestId, so the eventual approval.granted/
+    approval.rejected event (SPEC-ARO-021, unchanged by this spec) can be correlated
+    back to it later.
+    """
+
+    approval_request_id: str
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningOutcome:
+    """SPEC-ARO-039 api-contract: the discriminated union a ConversationReasoningPort
+    decides between — `kind` names exactly one of "text" / "proposed_action" /
+    "escalation", matching the 3 response shapes SendMessageService must render one of,
+    never a partial or ambiguous mix (domain-rules: "never silently defaults to plain
+    text when the agent actually intended a proposal or escalation").
+    """
+
+    kind: str
+    text: str | None = None
+    action_summary: str | None = None
+    action_risk_level: str | None = None
+    escalation_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

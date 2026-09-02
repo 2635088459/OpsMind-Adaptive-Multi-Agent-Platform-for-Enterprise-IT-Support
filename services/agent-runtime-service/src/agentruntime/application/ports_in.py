@@ -11,9 +11,11 @@ from agentruntime.application.commands import (
     ClaimReadyAgentTasksCommand,
     CompleteAgentTaskCommand,
     CompleteWorkflowCommand,
+    ConfirmActionCommand,
     ConsumeTicketCancelledCommand,
     ConsumeTicketCreatedCommand,
     ConsumeTicketReopenedCommand,
+    DeclineActionCommand,
     FailWorkflowCommand,
     ForceRecoverWorkflowCommand,
     PauseWorkflowCommand,
@@ -22,15 +24,21 @@ from agentruntime.application.commands import (
     ResumeWorkflowCommand,
     RetryAgentTaskCommand,
     RuntimeEventEnvelope,
+    SendMessageCommand,
+    StartConversationCommand,
     StartWorkflowCommand,
 )
 from agentruntime.application.records import AuditRecordEntry
 from agentruntime.application.views import (
+    ActionOutcomeView,
     AgentTaskView,
     CheckpointView,
+    ConversationDetailView,
+    ConversationView,
     DispatchReport,
     DispatchToolRequestsReport,
     LeaseRecoveryReport,
+    MessageTurnView,
     PoisonEventView,
     RecoveryReport,
     RecoveryScanReport,
@@ -233,3 +241,31 @@ class ToolDispatchPort(Protocol):
     """
 
     def dispatch_pending_requests(self, batch_size: int) -> DispatchToolRequestsReport: ...
+
+
+class ConversationCommandPort(Protocol):
+    """Input port for SPEC-ARO-038/039/040 (phase-10 Conversational Intake): "POST
+    /api/v1/conversations", "POST /api/v1/conversations/{conversationId}/messages",
+    and the confirm/decline actions endpoints. Implemented by ConversationCommandService,
+    which composes StartConversationService, SendMessageService, and
+    ActionConfirmationService.
+    """
+
+    def start_conversation(self, command: StartConversationCommand) -> ConversationView: ...
+
+    def send_message(self, command: SendMessageCommand) -> MessageTurnView: ...
+
+    def confirm_action(self, command: ConfirmActionCommand) -> ActionOutcomeView: ...
+
+    def decline_action(self, command: DeclineActionCommand) -> ActionOutcomeView: ...
+
+
+class ConversationQueryPort(Protocol):
+    """Input port for SPEC-ARO-042 (phase-10 Conversational Intake): "GET
+    /api/v1/conversations/{conversationId}" and the "most recent conversation" query.
+    Implemented directly by ConversationQueryService.
+    """
+
+    def find_conversation(self, conversation_id: WorkflowInstanceId, requester_subject: str) -> ConversationDetailView: ...
+
+    def find_most_recent_conversation(self, requester_subject: str) -> ConversationDetailView: ...

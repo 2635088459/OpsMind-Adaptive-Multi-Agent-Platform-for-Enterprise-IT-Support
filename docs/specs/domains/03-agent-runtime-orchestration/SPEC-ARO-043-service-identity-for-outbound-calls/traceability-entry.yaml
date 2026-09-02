@@ -1,0 +1,43 @@
+SPEC-ARO-043:
+  domain: 03-agent-runtime-orchestration
+  name: Service Identity for Outbound Calls
+  cn_name: 出站调用的服务身份
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    Built ahead of SPEC-ARO-038/040/041 as their shared prerequisite, per the spec's own
+    framing ("this is a prerequisite for those specs, not optional infrastructure").
+    Implemented as infrastructure/outbound_identity.py's
+    KeycloakOutboundServiceTokenProvider: a real client_credentials POST against
+    Settings.keycloak_token_url, an in-memory-only cached token refreshed a fixed 10s
+    margin before its reported expiry, never persisted anywhere. Settings.
+    keycloak_token_url defaults to "disabled" — the same safe-inert-default posture this
+    codebase's own event_publisher_adapter/agent_runtime_persistence settings already
+    established — so a caller in any environment without a real Keycloak configured gets
+    a clear OutboundAuthenticationException, never a silent unauthenticated call or a
+    stale/expired token slipping through.
+
+    One real architectural nuance this spec's own scope only partially anticipated,
+    discovered while building SPEC-ARO-038: 02-ticket-workflow's real
+    PublicTicketController records `jwt.getSubject()` directly as a new ticket's
+    requesterId, with no "on behalf of" mechanism — so this service's own service-
+    identity token must NOT be used for that particular call (it would incorrectly
+    record agent-runtime-service itself as the ticket's requester, the domain-rules
+    violation SPEC-ARO-038 itself warns against). This token is instead reserved for the
+    calls that genuinely are service-to-service: SPEC-ARO-041's real triage-as-
+    automation-agent call and SPEC-ARO-040's real governance approval-request call (06-
+    policy-approval-governance's own ApprovalController accepts any non-EMPLOYEE
+    actor_type) — both confirmed by reading those services' real controllers directly,
+    not assumed.
+
+    Verified with 7 dedicated tests against httpx.MockTransport (acquire-and-cache,
+    reuse-while-unexpired, refresh-after-expiry, and three distinct fail-closed paths:
+    no token URL configured, no client secret configured, a non-200 response, a
+    malformed response body) plus live exercise as a real dependency inside every
+    SPEC-ARO-040/041 test that reaches the triage/approval-request branches.
+  lld_mapping:
+    - 11-security
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

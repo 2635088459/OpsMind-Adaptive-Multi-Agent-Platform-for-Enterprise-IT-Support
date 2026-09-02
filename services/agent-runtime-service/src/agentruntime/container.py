@@ -22,6 +22,8 @@ from agentruntime.application.ports_in import (
     AgentTaskCommandPort,
     AgentTaskQueryPort,
     AuditRecordQueryPort,
+    ConversationCommandPort,
+    ConversationQueryPort,
     LeaseRecoveryPort,
     OutboxDispatchPort,
     PoisonEventCommandPort,
@@ -46,39 +48,88 @@ from agentruntime.application.ports_out import (
     ToolRequestRepository,
     WorkflowInstanceRepository,
 )
+from agentruntime.application.services.action_confirmation import (
+    ActionConfirmationService,
+)
 from agentruntime.application.services.agent_task_command import AgentTaskCommandService
 from agentruntime.application.services.agent_task_query import AgentTaskQueryService
 from agentruntime.application.services.audit import AuditRecorder
 from agentruntime.application.services.audit_query import AuditRecordQueryService
 from agentruntime.application.services.cancel_workflow import CancelWorkflowService
 from agentruntime.application.services.claim_agent_task import ClaimAgentTaskService
-from agentruntime.application.services.complete_agent_task import CompleteAgentTaskService
+from agentruntime.application.services.complete_agent_task import (
+    CompleteAgentTaskService,
+)
 from agentruntime.application.services.complete_workflow import CompleteWorkflowService
 from agentruntime.application.services.consume_approval import ConsumeApprovalService
-from agentruntime.application.services.consume_runtime_event import ConsumeRuntimeEventService
-from agentruntime.application.services.consume_ticket_created import ConsumeTicketCreatedService
-from agentruntime.application.services.consume_ticket_cycle_event import ConsumeTicketCycleEventService
-from agentruntime.application.services.consume_tool_result import ConsumeToolResultService
-from agentruntime.application.services.consume_verification import ConsumeVerificationService
-from agentruntime.application.services.coordinate_agent_tasks import CoordinateAgentTasksService
-from agentruntime.application.services.dispatch_outbox_events import DispatchOutboxEventsService
-from agentruntime.application.services.dispatch_tool_requests import DispatchToolRequestsService
+from agentruntime.application.services.consume_runtime_event import (
+    ConsumeRuntimeEventService,
+)
+from agentruntime.application.services.consume_ticket_created import (
+    ConsumeTicketCreatedService,
+)
+from agentruntime.application.services.consume_ticket_cycle_event import (
+    ConsumeTicketCycleEventService,
+)
+from agentruntime.application.services.consume_tool_result import (
+    ConsumeToolResultService,
+)
+from agentruntime.application.services.consume_verification import (
+    ConsumeVerificationService,
+)
+from agentruntime.application.services.conversation_command import (
+    ConversationCommandService,
+)
+from agentruntime.application.services.conversation_query import (
+    ConversationQueryService,
+)
+from agentruntime.application.services.coordinate_agent_tasks import (
+    CoordinateAgentTasksService,
+)
+from agentruntime.application.services.dispatch_outbox_events import (
+    DispatchOutboxEventsService,
+)
+from agentruntime.application.services.dispatch_tool_requests import (
+    DispatchToolRequestsService,
+)
 from agentruntime.application.services.fail_workflow import FailWorkflowService
 from agentruntime.application.services.pause_workflow import PauseWorkflowService
 from agentruntime.application.services.poison_event_query import PoisonEventQueryService
-from agentruntime.application.services.recover_expired_lease_tasks import RecoverExpiredLeaseTasksService
+from agentruntime.application.services.recover_expired_lease_tasks import (
+    RecoverExpiredLeaseTasksService,
+)
 from agentruntime.application.services.recover_workflow import RecoverWorkflowService
 from agentruntime.application.services.request_tool import RequestToolService
 from agentruntime.application.services.resume_workflow import ResumeWorkflowService
+from agentruntime.application.services.send_message import SendMessageService
+from agentruntime.application.services.start_conversation import (
+    StartConversationService,
+)
 from agentruntime.application.services.start_workflow import StartWorkflowService
 from agentruntime.application.services.workflow_command import WorkflowCommandService
-from agentruntime.application.services.workflow_lifecycle import WorkflowLifecycleService
+from agentruntime.application.services.workflow_lifecycle import (
+    WorkflowLifecycleService,
+)
 from agentruntime.application.services.workflow_query import WorkflowQueryService
 from agentruntime.application.telemetry import RuntimeTelemetry
 from agentruntime.infrastructure.capability_policy import StaticCapabilityPolicyAdapter
 from agentruntime.infrastructure.clock import SystemClockAdapter
+from agentruntime.infrastructure.conversation_reasoning import (
+    StaticConversationReasoningAdapter,
+)
 from agentruntime.infrastructure.event_publisher import LoggingEventPublisherAdapter
-from agentruntime.infrastructure.event_publisher_rabbitmq import RabbitMqEventPublisherAdapter
+from agentruntime.infrastructure.event_publisher_rabbitmq import (
+    RabbitMqEventPublisherAdapter,
+)
+from agentruntime.infrastructure.governance_approval_client import (
+    HttpGovernanceApprovalClient,
+)
+from agentruntime.infrastructure.knowledge_retrieval_client import (
+    HttpKnowledgeRetrievalClient,
+)
+from agentruntime.infrastructure.outbound_identity import (
+    KeycloakOutboundServiceTokenProvider,
+)
 from agentruntime.infrastructure.persistence.in_memory import (
     InMemoryAgentTaskRepository,
     InMemoryAuditRecordRepository,
@@ -101,10 +152,16 @@ from agentruntime.infrastructure.persistence.postgres.repositories import (
     PostgresToolRequestRepository,
     PostgresWorkflowInstanceRepository,
 )
-from agentruntime.infrastructure.persistence.postgres.session import build_engine, build_session_factory
+from agentruntime.infrastructure.persistence.postgres.session import (
+    build_engine,
+    build_session_factory,
+)
 from agentruntime.infrastructure.ticket_snapshot import NoOpTicketSnapshotPort
+from agentruntime.infrastructure.ticket_workflow_client import HttpTicketWorkflowClient
 from agentruntime.infrastructure.tool_gateway import LoggingToolGatewayPort
-from agentruntime.infrastructure.workflow_definition_catalog import StaticWorkflowDefinitionCatalogAdapter
+from agentruntime.infrastructure.workflow_definition_catalog import (
+    StaticWorkflowDefinitionCatalogAdapter,
+)
 from agentruntime.settings import Settings, get_settings
 
 
@@ -185,6 +242,22 @@ class Container:
 
         self.tool_gateway_port = LoggingToolGatewayPort(self.clock)
         self.ticket_snapshot_port = NoOpTicketSnapshotPort()
+        # SPEC-ARO-043 (phase-10 Conversational Intake): this service's own outbound
+        # service identity — used by outbound calls that are genuinely
+        # service-to-service (SPEC-ARO-041's future triage-as-automation-agent call),
+        # never by SPEC-ARO-038's create_ticket() (see TicketWorkflowClientPort's own
+        # docstring for why).
+        self.outbound_service_token_provider = KeycloakOutboundServiceTokenProvider(
+            settings.keycloak_token_url, settings.agent_runtime_service_client_id, settings.agent_runtime_service_client_secret,
+        )
+        self.ticket_workflow_client = HttpTicketWorkflowClient(
+            settings.ticket_workflow_base_url, token_provider=self.outbound_service_token_provider,
+        )
+        self.knowledge_retrieval_client = HttpKnowledgeRetrievalClient(settings.memory_knowledge_base_url)
+        self.conversation_reasoning_port = StaticConversationReasoningAdapter()
+        self.governance_approval_client = HttpGovernanceApprovalClient(
+            settings.policy_approval_governance_base_url, token_provider=self.outbound_service_token_provider,
+        )
         self.event_publisher_port = (
             RabbitMqEventPublisherAdapter(settings) if settings.event_publisher_adapter == "rabbitmq" else LoggingEventPublisherAdapter()
         )
@@ -276,6 +349,25 @@ class Container:
         self.consume_ticket_cycle_event_service = ConsumeTicketCycleEventService(
             self.processed_event_repository, self.workflow_instance_repository, self.clock, self.cancel_workflow_service,
         )
+        self.start_conversation_service = StartConversationService(
+            self.ticket_workflow_client, self.start_workflow_service, self.command_idempotency_repository, self.clock,
+        )
+        self.send_message_service = SendMessageService(
+            self.workflow_instance_repository, self.agent_task_repository, self.checkpoint_repository,
+            self.command_idempotency_repository, self.clock, self.knowledge_retrieval_client, self.conversation_reasoning_port,
+            self.ticket_workflow_client, self.complete_workflow_service,
+            settings.escalation_default_category_id, settings.escalation_default_support_queue_id,
+            settings.escalation_default_priority, settings.escalation_default_team_name,
+        )
+        self.action_confirmation_service = ActionConfirmationService(
+            self.workflow_instance_repository, self.agent_task_repository, self.checkpoint_repository,
+            self.tool_request_repository, self.command_idempotency_repository, self.clock, self.governance_approval_client,
+            settings.confirm_bounded_wait_timeout_seconds, settings.confirm_bounded_wait_poll_interval_seconds,
+        )
+        self.conversation_command_service = ConversationCommandService(
+            self.start_conversation_service, self.send_message_service, self.action_confirmation_service,
+        )
+        self.conversation_query_service = ConversationQueryService(self.workflow_instance_repository)
         self.workflow_query_service = WorkflowQueryService(self.workflow_instance_repository, self.checkpoint_repository)
         self.agent_task_query_service = AgentTaskQueryService(self.agent_task_repository)
         self.poison_event_query_service = PoisonEventQueryService(self.poison_event_repository, self.clock)
@@ -302,6 +394,8 @@ class Container:
         self.poison_event_query_port: PoisonEventQueryPort = self.poison_event_query_service
         self.poison_event_command_port: PoisonEventCommandPort = self.poison_event_query_service
         self.audit_record_query_port: AuditRecordQueryPort = self.audit_record_query_service
+        self.conversation_command_port: ConversationCommandPort = self.conversation_command_service
+        self.conversation_query_port: ConversationQueryPort = self.conversation_query_service
 
 
 @lru_cache(maxsize=1)
@@ -367,3 +461,11 @@ def get_poison_event_command_port() -> PoisonEventCommandPort:
 
 def get_audit_record_query_port() -> AuditRecordQueryPort:
     return get_container().audit_record_query_port
+
+
+def get_conversation_command_port() -> ConversationCommandPort:
+    return get_container().conversation_command_port
+
+
+def get_conversation_query_port() -> ConversationQueryPort:
+    return get_container().conversation_query_port

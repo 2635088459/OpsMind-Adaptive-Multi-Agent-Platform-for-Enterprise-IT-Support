@@ -20,12 +20,16 @@ from agentruntime.domain.events import (
     WorkflowPaused,
     WorkflowResumed,
     WorkflowStarted,
+    WorkflowWaitingForApproval,
     WorkflowWaitingForTool,
     WorkflowWokenFromApprovalWait,
     WorkflowWokenFromToolWait,
     WorkflowWokenFromVerificationWait,
 )
-from agentruntime.domain.exceptions import InvalidWorkflowStateException, InvalidWorkflowTransitionException
+from agentruntime.domain.exceptions import (
+    InvalidWorkflowStateException,
+    InvalidWorkflowTransitionException,
+)
 from agentruntime.domain.ids import (
     DefinitionVersion,
     IdempotencyKey,
@@ -152,6 +156,31 @@ def wait_for_tool(
         workflow_instance_id=workflow_instance_id,
         from_state=current_state,
         to_state=WorkflowState.WAITING_FOR_TOOL,
+        workflow_version=current_version + 1,
+        occurred_at=occurred_at,
+    )
+
+
+def wait_for_approval(
+    workflow_instance_id: WorkflowInstanceId,
+    current_state: WorkflowState,
+    current_version: int,
+    occurred_at: datetime,
+) -> WorkflowWaitingForApproval:
+    """SPEC-ARO-040 (phase-10 Conversational Intake): the confirm-with-a-high-risk-
+    proposed-action branch creates a real governance approval request and enters this
+    wait. No earlier spec built an entry path into WAITING_FOR_APPROVAL
+    (WorkflowWokenFromApprovalWait's own docstring: "no spec has built the entry path
+    into WAITING_FOR_APPROVAL yet") — this is that entry path's first real writer,
+    mirroring wait_for_tool()'s own reasoning exactly.
+    """
+    if current_state is not WorkflowState.RUNNING:
+        raise InvalidWorkflowTransitionException(current_state, WorkflowState.WAITING_FOR_APPROVAL)
+
+    return WorkflowWaitingForApproval(
+        workflow_instance_id=workflow_instance_id,
+        from_state=current_state,
+        to_state=WorkflowState.WAITING_FOR_APPROVAL,
         workflow_version=current_version + 1,
         occurred_at=occurred_at,
     )

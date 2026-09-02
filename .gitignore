@@ -22,10 +22,15 @@ target/
 # (repository-layout.md §5).
 infrastructure/observability/collector/overlays/local/.tls/
 
-# Node (future frontend apps)
+# Node (apps/employee-portal, apps/support-console, packages/*)
 node_modules/
 dist/
 build/
+.pnpm-store/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
 
 # Python (agent-runtime-service and other Python services)
 .venv/

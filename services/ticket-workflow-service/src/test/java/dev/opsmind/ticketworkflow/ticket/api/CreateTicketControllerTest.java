@@ -50,7 +50,7 @@ class CreateTicketControllerTest {
         UUID ticketId = UUID.randomUUID();
         Instant createdAt = Instant.parse("2026-07-23T16:30:00Z");
         when(createTicketUseCase.create(any())).thenReturn(new CreateTicketResult(
-            TicketId.of(ticketId), TicketDisplayId.of("INC-2048"), TicketStatus.NEW, createdAt, 0L, false
+            TicketId.of(ticketId), TicketDisplayId.of("INC-2048"), TicketStatus.NEW, createdAt, 0L, UUID.randomUUID(), false
         ));
 
         mockMvc.perform(post("/api/v1/tickets")
@@ -72,7 +72,7 @@ class CreateTicketControllerTest {
     void shouldAddIdempotencyReplayedHeaderOnlyWhenReplayed() throws Exception {
         UUID ticketId = UUID.randomUUID();
         when(createTicketUseCase.create(any())).thenReturn(new CreateTicketResult(
-            TicketId.of(ticketId), TicketDisplayId.of("INC-2049"), TicketStatus.NEW, Instant.now(), 0L, true
+            TicketId.of(ticketId), TicketDisplayId.of("INC-2049"), TicketStatus.NEW, Instant.now(), 0L, UUID.randomUUID(), true
         ));
 
         mockMvc.perform(post("/api/v1/tickets")

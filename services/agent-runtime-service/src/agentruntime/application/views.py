@@ -13,10 +13,28 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from agentruntime.application.records import AgentTaskRecord, CheckpointRecord, PoisonEventRecord, ToolRequestRecord, WorkflowInstanceRecord
+from agentruntime.application.records import (
+    AgentTaskRecord,
+    CheckpointRecord,
+    PoisonEventRecord,
+    ToolRequestRecord,
+    WorkflowInstanceRecord,
+)
 from agentruntime.application.redaction import redact_payload
-from agentruntime.domain.enums import AgentTaskState, CheckpointType, ToolRequestStatus, WorkflowState
-from agentruntime.domain.ids import AgentTaskId, CheckpointId, DefinitionVersion, LeaseToken, ToolRequestId, WorkflowInstanceId
+from agentruntime.domain.enums import (
+    AgentTaskState,
+    CheckpointType,
+    ToolRequestStatus,
+    WorkflowState,
+)
+from agentruntime.domain.ids import (
+    AgentTaskId,
+    CheckpointId,
+    DefinitionVersion,
+    LeaseToken,
+    ToolRequestId,
+    WorkflowInstanceId,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +46,7 @@ class WorkflowInstanceView:
     updated_at: datetime
 
     @staticmethod
-    def from_record(record: WorkflowInstanceRecord) -> "WorkflowInstanceView":
+    def from_record(record: WorkflowInstanceRecord) -> WorkflowInstanceView:
         return WorkflowInstanceView(record.id, record.state, record.workflow_version, record.pause_generation, record.updated_at)
 
     def to_dict(self) -> dict:
@@ -39,7 +57,7 @@ class WorkflowInstanceView:
         }
 
     @staticmethod
-    def from_dict(data: dict) -> "WorkflowInstanceView":
+    def from_dict(data: dict) -> WorkflowInstanceView:
         return WorkflowInstanceView(
             WorkflowInstanceId(uuid.UUID(data["workflowInstanceId"])), WorkflowState[data["state"]],
             data["workflowVersion"], data["pauseGeneration"], datetime.fromisoformat(data["updatedAt"]),
@@ -69,7 +87,7 @@ class AgentTaskView:
     workflow_version: int | None = None
 
     @staticmethod
-    def from_record(record: AgentTaskRecord, workflow_version: int | None = None) -> "AgentTaskView":
+    def from_record(record: AgentTaskRecord, workflow_version: int | None = None) -> AgentTaskView:
         return AgentTaskView(
             record.id, record.workflow_instance_id, record.task_key, record.state, record.task_version,
             record.lease_token, record.updated_at, record.agent_role, workflow_version,
@@ -84,13 +102,108 @@ class AgentTaskView:
         }
 
     @staticmethod
-    def from_dict(data: dict) -> "AgentTaskView":
+    def from_dict(data: dict) -> AgentTaskView:
         return AgentTaskView(
             AgentTaskId(uuid.UUID(data["agentTaskId"])), WorkflowInstanceId(uuid.UUID(data["workflowInstanceId"])),
             data["taskKey"], AgentTaskState[data["state"]], data["taskVersion"],
             LeaseToken(uuid.UUID(data["claimToken"])) if data["claimToken"] else None, datetime.fromisoformat(data["updatedAt"]),
             data.get("agentRole"), data.get("workflowVersion"),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationView:
+    """SPEC-ARO-038 05-api-contracts "POST /api/v1/conversations" response — reshapes
+    WorkflowInstanceView to just the two fields domain 09's own contract names
+    ({conversationId, startedAt}); conversationId is the same value as
+    workflow_instance_id (SPEC-ARO-037: "no parallel ID scheme"), never a distinct
+    identity.
+    """
+
+    conversation_id: WorkflowInstanceId
+    started_at: datetime
+
+    def to_dict(self) -> dict:
+        return {"conversationId": str(self.conversation_id), "startedAt": self.started_at.isoformat()}
+
+    @staticmethod
+    def from_dict(data: dict) -> ConversationView:
+        return ConversationView(WorkflowInstanceId(uuid.UUID(data["conversationId"])), datetime.fromisoformat(data["startedAt"]))
+
+
+@dataclass(frozen=True, slots=True)
+class MessageTurnView:
+    """SPEC-ARO-039 05-api-contracts "POST /api/v1/conversations/{conversationId}/
+    messages" response — a discriminated union, `kind` naming exactly one of "text" /
+    "proposedAction" / "escalation" (matching domain 09's own `05-api-contracts` §2.2
+    shape exactly), never a partial or ambiguous mix.
+    """
+
+    kind: str
+    text: str | None = None
+    action_id: str | None = None
+    action_summary: str | None = None
+    action_risk_level: str | None = None
+    ticket_id: str | None = None
+    display_id: str | None = None
+    reason: str | None = None
+    assigned_team: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "kind": self.kind, "text": self.text, "actionId": self.action_id, "actionSummary": self.action_summary,
+            "actionRiskLevel": self.action_risk_level, "ticketId": self.ticket_id, "displayId": self.display_id,
+            "reason": self.reason, "assignedTeam": self.assigned_team,
+        }
+
+    @staticmethod
+    def from_dict(data: dict) -> MessageTurnView:
+        return MessageTurnView(
+            kind=data["kind"], text=data.get("text"), action_id=data.get("actionId"), action_summary=data.get("actionSummary"),
+            action_risk_level=data.get("actionRiskLevel"), ticket_id=data.get("ticketId"), display_id=data.get("displayId"),
+            reason=data.get("reason"), assigned_team=data.get("assignedTeam"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ActionOutcomeView:
+    """SPEC-ARO-040 05-api-contracts: confirm's response is
+    `{outcome: "done" | "still-processing" | "awaiting-approval"}`; decline's is
+    `{outcome: "declined"}` — one shared shape, since both are a single discriminator
+    with no other fields (unlike MessageTurnView's richer per-kind payload).
+    """
+
+    outcome: str
+
+    def to_dict(self) -> dict:
+        return {"outcome": self.outcome}
+
+    @staticmethod
+    def from_dict(data: dict) -> ActionOutcomeView:
+        return ActionOutcomeView(data["outcome"])
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationDetailView:
+    """SPEC-ARO-042 05-api-contracts "GET /api/v1/conversations/{conversationId}" and
+    the "most recent conversation" query — a conversation-shaped read over
+    WorkflowInstanceRecord. Deliberately does not reconstruct a full message
+    transcript: an AgentTaskRecord carries no durable copy of its own input text
+    (SPEC-ARO-007's own deferred inputPayload), and a CheckpointRecord is not
+    correlated to a specific AgentTaskId — reconstructing "the user said X, the agent
+    replied Y" pairs precisely is a real, flagged gap, not silently assumed solved
+    here. Read-only; never round-tripped through CommandIdempotencyGuard (mirrors
+    CheckpointView's own reasoning).
+    """
+
+    conversation_id: WorkflowInstanceId
+    state: WorkflowState
+    started_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def from_record(record: WorkflowInstanceRecord) -> ConversationDetailView:
+        return ConversationDetailView(record.id, record.state, record.created_at, record.updated_at)
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +230,7 @@ class CheckpointView:
     cursor: str | None
 
     @staticmethod
-    def from_record(record: CheckpointRecord) -> "CheckpointView":
+    def from_record(record: CheckpointRecord) -> CheckpointView:
         return CheckpointView(
             record.id, record.workflow_instance_id, record.type, record.schema_version, redact_payload(record.payload),
             record.recorded_at, record.workflow_version, record.checksum, record.cursor,
@@ -141,7 +254,7 @@ class ToolRequestView:
     capability: str | None = None
 
     @staticmethod
-    def from_record(record: ToolRequestRecord) -> "ToolRequestView":
+    def from_record(record: ToolRequestRecord) -> ToolRequestView:
         return ToolRequestView(record.id, record.status, record.updated_at, record.capability)
 
     def to_dict(self) -> dict:
@@ -151,7 +264,7 @@ class ToolRequestView:
         }
 
     @staticmethod
-    def from_dict(data: dict) -> "ToolRequestView":
+    def from_dict(data: dict) -> ToolRequestView:
         return ToolRequestView(
             ToolRequestId(uuid.UUID(data["toolRequestId"])), ToolRequestStatus[data["status"]],
             datetime.fromisoformat(data["updatedAt"]), data.get("capability"),
@@ -250,7 +363,7 @@ class PoisonEventView:
     quarantined_at: datetime | None = None
 
     @staticmethod
-    def from_record(record: PoisonEventRecord) -> "PoisonEventView":
+    def from_record(record: PoisonEventRecord) -> PoisonEventView:
         return PoisonEventView(
             record.id, record.event_id, record.consumer_name, record.event_type, redact_payload(record.payload),
             record.error_message, record.occurred_at, record.recorded_at, record.quarantined_at,

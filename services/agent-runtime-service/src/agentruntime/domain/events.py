@@ -100,14 +100,22 @@ class WorkflowWokenFromToolWait(WorkflowDomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class WorkflowWaitingForApproval(WorkflowDomainEvent):
+    """SPEC-ARO-040 (phase-10 Conversational Intake): the first real entry path into
+    WAITING_FOR_APPROVAL — see WorkflowWokenFromApprovalWait's own docstring for why no
+    earlier spec built one. No extra fields beyond the base — the governance approval
+    request this wait is for is looked up by workflow_instance_id, not duplicated here.
+    """
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowWokenFromApprovalWait(WorkflowDomainEvent):
     """SPEC-ARO-021 04-use-cases UC-03 "消费 approval.granted", 03-state-machine §"外部事件
     唤醒": an approval.granted.v1 delivery with decision == "APPROVED" wakes
-    WAITING_FOR_APPROVAL back to RUNNING. There is no WorkflowWaitingForApproval
-    counterpart (unlike WorkflowWaitingForTool) — no spec has built the entry path into
-    WAITING_FOR_APPROVAL yet (AgentTaskState's own WAITING_EXTERNAL docstring: "once an
-    approval/verification/input wait exists"), so this event's own from_state is only
-    ever reachable in practice once that future entry mechanism lands.
+    WAITING_FOR_APPROVAL back to RUNNING — the counterpart to WorkflowWaitingForApproval
+    (SPEC-ARO-040, phase-10 Conversational Intake's confirm-with-a-high-risk-action
+    branch — the first real entry path into WAITING_FOR_APPROVAL, which did not exist
+    when this event was originally written).
     """
 
 
@@ -183,6 +191,28 @@ class AgentTaskWaitingForTool(AgentTaskDomainEvent):
     """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction" step 4: "Set
     task to WAITING_TOOL." No extra fields beyond the base — the triggering Tool Request
     is looked up by agent_task_id, not duplicated onto this event.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTaskAwaitingUserConfirmation(AgentTaskDomainEvent):
+    """SPEC-ARO-039/040 (phase-10 Conversational Intake): a `process_user_message` task
+    whose reasoning produced a "proposed_action" outcome enters AWAITING_USER_CONFIRMATION
+    instead of COMPLETED. No extra fields beyond the base — the proposed action's own
+    summary/risk_level are rendered directly in this message turn's response, not
+    duplicated onto this event; SPEC-ARO-040's confirm/decline endpoints look this task
+    up by its own agent_task_id (the response's own `actionId`), not by re-reading this
+    event.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTaskWaitingForApproval(AgentTaskDomainEvent):
+    """SPEC-ARO-040 (phase-10 Conversational Intake): confirming a high/critical-risk
+    proposed action enters WAITING_EXTERNAL while a real governance approval request
+    is pending — the first real writer of that state (see AgentTaskState.WAITING_EXTERNAL's
+    own docstring). No extra fields — the approval request itself is looked up by
+    agent_task_id, not duplicated onto this event.
     """
 
 

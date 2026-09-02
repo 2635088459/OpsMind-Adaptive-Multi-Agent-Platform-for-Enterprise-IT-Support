@@ -135,7 +135,7 @@
         "http://localhost:8087/login/oauth2/code/opsmind-stepup"
       ],
       "webOrigins": ["http://localhost:8087"],
-      "defaultClientScopes": ["profile", "email"]
+      "defaultClientScopes": ["profile", "email", "tickets:create"]
     },
     {
       "clientId": "integration-test-client",

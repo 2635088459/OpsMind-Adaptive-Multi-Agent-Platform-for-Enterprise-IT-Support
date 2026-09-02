@@ -1,0 +1,42 @@
+SPEC-ARO-037:
+  domain: 03-agent-runtime-orchestration
+  name: Conversational Intake Workflow Type
+  cn_name: 对话式接入 Workflow 类型
+  status: implemented
+  service: agent-runtime-service
+  implementation_notes: >
+    The spec's own persistence design assumed introducing the new workflow_type/
+    task_type values would require widening a CHECK constraint or enum-type migration.
+    Reading infrastructure/persistence/postgres/models.py directly before writing any
+    code showed neither workflow_instances.workflow_type nor agent_tasks.task_type
+    carries a database CHECK constraint at all — both are plain String columns — so
+    introducing "conversational_intake"/"process_user_message"/
+    "execute_confirmed_action" required zero migration, correcting the spec doc's own
+    assumption rather than confirming it.
+
+    Implemented as a small new module, application/services/conversational_intake.py:
+    the three string constants, plus conversational_intake_definition() returning a
+    WorkflowDefinitionInput with a deliberately empty task_graph. Unlike every other
+    workflow_type in this domain, a conversation has no fixed number of turns to plan a
+    graph over at start time — SPEC-ARO-039's inline executor instead creates one ad
+    hoc process_user_message AgentTask per incoming message (and SPEC-ARO-040 one
+    execute_confirmed_action-shaped transition per confirm), each with a fresh task_key
+    and no depends_on, entirely bypassing CoordinateAgentTasksService.
+    materialize_runnable_tasks()/unlock_downstream_tasks() — that mechanism is built
+    around a static graph resolved once at start, not an open-ended turn-by-turn one.
+    conversationId is exactly workflowInstanceId, reused as-is; no parallel identity was
+    introduced anywhere in the 7-spec build that followed.
+
+    Verified with the domain/application/interfaces test suite this phase's build grew
+    to (532 tests by the time SPEC-ARO-040 closed, up from the pre-existing 392), plus
+    import-linter (3/3 contracts kept) and ruff (clean) — conversational_intake_
+    definition() itself is exercised indirectly by every SPEC-ARO-038 test, since
+    StartConversationService calls it directly to build the WorkflowDefinitionInput for
+    every real conversation this phase's own test suite starts.
+  lld_mapping:
+    - 01-domain-model
+    - 03-state-machine
+  forbidden:
+    - agent_direct_tool_call
+    - runtime_direct_ticket_state_write
+    - cross_domain_distributed_transaction

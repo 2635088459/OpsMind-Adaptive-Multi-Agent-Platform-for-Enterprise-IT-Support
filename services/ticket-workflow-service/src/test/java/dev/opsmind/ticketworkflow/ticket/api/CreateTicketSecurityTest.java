@@ -69,7 +69,7 @@ class CreateTicketSecurityTest {
     @Test
     void shouldAllowAuthenticatedActorWithCreateScope() throws Exception {
         when(createTicketUseCase.create(any())).thenReturn(new CreateTicketResult(
-            TicketId.of(UUID.randomUUID()), TicketDisplayId.of("INC-3000"), TicketStatus.NEW, Instant.now(), 0L, false
+            TicketId.of(UUID.randomUUID()), TicketDisplayId.of("INC-3000"), TicketStatus.NEW, Instant.now(), 0L, UUID.randomUUID(), false
         ));
 
         mockMvc.perform(post("/api/v1/tickets")
