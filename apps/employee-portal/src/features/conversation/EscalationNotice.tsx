@@ -17,11 +17,18 @@ interface EscalationNoticeProps {
 export function EscalationNotice({ escalation }: EscalationNoticeProps) {
   return (
     <div className="rounded-[10px] bg-warm-soft p-3.5 text-sm font-medium text-warm-ink" data-testid="escalation-notice">
-      <p>This has been handed to a human support agent.</p>
+      <p>
+        This has been handed to a human support agent.
+        {escalation.displayId ? (
+          <>
+            {" "}Ticket <span className="font-mono font-semibold">{escalation.displayId}</span> was created.
+          </>
+        ) : null}
+      </p>
       {escalation.reason ? <p className="mt-1 font-normal">{escalation.reason}</p> : null}
       <p className="mt-2 font-normal">
         {escalation.assignedTeam ? `Routed to ${escalation.assignedTeam}. ` : ""}
-        You do not need to do anything else here — track progress on the ticket below.
+        You do not need to do anything else here — track progress on the ticket {escalation.displayId ? "below" : "shortly"}.
       </p>
     </div>
   );

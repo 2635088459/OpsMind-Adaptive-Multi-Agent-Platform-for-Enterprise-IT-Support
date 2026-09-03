@@ -32,6 +32,7 @@ export function useResumeConversation() {
   const lastKnownSubject = useAuthStore((state) => state.lastKnownSubject);
   const conversationId = useConversationStore((state) => state.conversationId);
   const setConversationId = useConversationStore((state) => state.setConversationId);
+  const setStartedAt = useConversationStore((state) => state.setStartedAt);
   const setDraftText = useConversationStore((state) => state.setDraftText);
   const seed = useTurnStore((state) => state.seed);
   const attempted = useRef(false);
@@ -45,6 +46,7 @@ export function useResumeConversation() {
       if (!detail) return;
 
       setConversationId(detail.conversationId);
+      setStartedAt(detail.startedAt);
       seed("IDLE");
 
       if (lastKnownSubject) {
@@ -52,5 +54,5 @@ export function useResumeConversation() {
         if (draft) setDraftText(draft);
       }
     })();
-  }, [status, conversationId, lastKnownSubject, setConversationId, setDraftText, seed]);
+  }, [status, conversationId, lastKnownSubject, setConversationId, setStartedAt, setDraftText, seed]);
 }

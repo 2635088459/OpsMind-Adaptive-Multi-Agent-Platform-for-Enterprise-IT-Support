@@ -22,6 +22,8 @@ export interface EscalationInfo {
 
 interface ConversationState {
   conversationId: string | null;
+  /** The real `startedAt` returned by POST /api/v1/conversations (or resumed via GET) — rendered as the thread's own timestamp, never fabricated. */
+  startedAt: string | null;
   transcript: TranscriptEntry[];
   pendingAction: PendingAction | null;
   escalation: EscalationInfo | null;
@@ -32,6 +34,7 @@ interface ConversationState {
   lastFailedText: string | null;
 
   setConversationId: (id: string) => void;
+  setStartedAt: (startedAt: string) => void;
   appendEmployeeMessage: (text: string) => void;
   applyAgentTurn: (turn: MessageTurn) => void;
   applyActionOutcome: (outcome: ActionOutcome) => void;
@@ -49,6 +52,7 @@ interface ConversationState {
  */
 export const useConversationStore = create<ConversationState>((set) => ({
   conversationId: null,
+  startedAt: null,
   transcript: [],
   pendingAction: null,
   escalation: null,
@@ -57,6 +61,7 @@ export const useConversationStore = create<ConversationState>((set) => ({
   lastFailedText: null,
 
   setConversationId: (id) => set({ conversationId: id }),
+  setStartedAt: (startedAt) => set({ startedAt }),
   setDraftText: (text) => set({ draftText: text }),
   setLastFailedText: (text) => set({ lastFailedText: text }),
 
@@ -80,5 +85,6 @@ export const useConversationStore = create<ConversationState>((set) => ({
 
   applyActionOutcome: (outcome) => set({ pendingAction: null, lastActionOutcome: outcome }),
 
-  reset: () => set({ conversationId: null, transcript: [], pendingAction: null, escalation: null, lastActionOutcome: null, draftText: "", lastFailedText: null }),
+  reset: () =>
+    set({ conversationId: null, startedAt: null, transcript: [], pendingAction: null, escalation: null, lastActionOutcome: null, draftText: "", lastFailedText: null }),
 }));

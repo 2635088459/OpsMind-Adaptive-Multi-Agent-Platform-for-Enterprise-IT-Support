@@ -74,6 +74,24 @@ export const useAuthStore = create<AuthState>((set, get) => {
     lastKnownSubject: null,
 
     checkSession: async () => {
+      // Real bug found live 2026-09-03: user-access-authentication-service's own
+      // OAuth2 login-failure redirect used to point at ITS OWN bare `/login?error`
+      // path (a pure JSON API with no such page — a real failed login crashed
+      // with a 500 instead of landing anywhere useful). Now redirected here
+      // instead (`?login_error=true`), so a real failure — most commonly Keycloak's
+      // own `authorization_request_not_found` on a stale/replayed callback —
+      // surfaces as an honest, retryable message rather than either a backend
+      // crash or a silent redirect to a blank login screen. The query param is
+      // stripped immediately so a later refresh of this same tab doesn't keep
+      // re-showing a failure that already happened.
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("login_error") === "true") {
+        url.searchParams.delete("login_error");
+        window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+        set({ status: "unauthenticated", accessToken: null, error: "Sign-in failed. Please try again." });
+        return;
+      }
+
       try {
         const token = await fetchBrowserSessionToken();
         if (token === null) {

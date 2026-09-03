@@ -133,7 +133,16 @@ app:
       # SPEC-SC-001: support-console's own dev-server port (5174), also already
       # present in cors.allowed-origins above.
       support-console-success-redirect-uri: ${IDENTITY_LOGIN_SUPPORT_CONSOLE_SUCCESS_REDIRECT_URI:http://localhost:5174/}
-      failure-redirect-uri: ${IDENTITY_LOGIN_FAILURE_REDIRECT_URI:/login?error}
+      # Real bug found live 2026-09-03, this app's first real *failed*
+      # browser login attempt (authorization_request_not_found — a stale/
+      # replayed callback): the un-overridden default here, `/login?error`,
+      # points at THIS backend's own bare path — a pure JSON API with no
+      # such page — so a real failure crashed with a 500
+      # NoResourceFoundException instead of landing anywhere useful. Mirrors
+      # success-redirect-uri's own reasoning: the real destination for any
+      # browser-facing redirect is the SPA's own dev server, never this
+      # service's own origin.
+      failure-redirect-uri: ${IDENTITY_LOGIN_FAILURE_REDIRECT_URI:http://localhost:5173/?login_error=true}
     oidc:
       # SPEC-UA-004: the fixed, per-issuer allow-list `jwtDecoder` (SecurityConfig)
       # builds the real decoder from — RS256 matches Keycloak's own realm default.

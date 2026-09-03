@@ -37,26 +37,14 @@
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-surface: #181e24;
-    --color-surface-muted: #11151a;
-    --color-ink: #e7ebef;
-    --color-ink-muted: #93a1af;
-    --color-faint: #647180;
-    --color-border: #2a333b;
-    --color-brand-50: #1b2b30;
-    --color-brand-100: #234049;
-    --color-brand-500: #4d97ad;
-    --color-brand-600: #6cb0c9;
-    --color-brand-700: #bfe0ec;
-    --color-warm: #e2916c;
-    --color-warm-ink: #f4c4a8;
-    --color-warm-soft: #33231b;
-    --color-ok: #6cbf8d;
-    --color-ok-soft: #1c2e24;
-  }
-}
+/*
+ * Deliberately no `@media (prefers-color-scheme: dark)` override — 2026-09-03
+ * user feedback was explicit: this app always renders the mockup's light
+ * teal/white palette above, regardless of the OS/browser's own dark-mode
+ * setting. (A dark variant existed here briefly; removed rather than left
+ * dead, since Tailwind's own `@theme` block above is the only place these
+ * tokens are defined now.)
+ */
 
 body {
   background-color: var(--color-surface-muted);

@@ -10,9 +10,13 @@ import { useConversationStore } from "@/features/conversation/conversationStore"
  */
 export function useCreateConversation() {
   const setConversationId = useConversationStore((state) => state.setConversationId);
+  const setStartedAt = useConversationStore((state) => state.setStartedAt);
 
   return useMutation({
     mutationFn: startConversation,
-    onSuccess: (conversation) => setConversationId(conversation.conversationId),
+    onSuccess: (conversation) => {
+      setConversationId(conversation.conversationId);
+      setStartedAt(conversation.startedAt);
+    },
   });
 }

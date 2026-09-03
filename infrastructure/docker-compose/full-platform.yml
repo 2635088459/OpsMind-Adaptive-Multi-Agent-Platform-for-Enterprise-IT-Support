@@ -131,6 +131,19 @@ services:
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/opsmind/protocol/openid-connect/token
       AGENT_RUNTIME_SERVICE_CLIENT_ID: integration-test-client
       AGENT_RUNTIME_SERVICE_CLIENT_SECRET: integration-test-secret
+      # Real bug found live 2026-09-03, this platform's first real end-to-end
+      # escalation: these all default to "" (settings.py's own comment: "no
+      # seed data ... exists anywhere in this platform"), so every escalation
+      # attempt failed closed with a real 502 ESCALATION_ROUTING_NOT_CONFIGURED.
+      # These 2 ids are real — a category/support-queue row already existed
+      # live in this local Postgres volume under exactly these ids (from
+      # some earlier, undocumented manual step, never captured by any
+      # migration); ticket-workflow-service's own new V045 migration now
+      # seeds them for real (idempotently) so a fresh environment has them too.
+      ESCALATION_DEFAULT_CATEGORY_ID: 11111111-1111-1111-1111-111111111111
+      ESCALATION_DEFAULT_SUPPORT_QUEUE_ID: 33333333-3333-3333-3333-333333333333
+      ESCALATION_DEFAULT_PRIORITY: MEDIUM
+      ESCALATION_DEFAULT_TEAM_NAME: Network Support
       # ConversationReasoningPort's real LLM adapters — "static" (safe default, no key
       # needed) keeps StaticConversationReasoningAdapter; "anthropic" (+ a real
       # ANTHROPIC_API_KEY) or "openai" (+ a real OPENAI_API_KEY) wire the matching real

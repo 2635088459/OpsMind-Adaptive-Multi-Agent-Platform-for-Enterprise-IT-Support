@@ -4,6 +4,32 @@ import { useTicketStatusStream } from "@/features/ticket/useTicketStatusStream";
 
 const MIN_REOPEN_REASON_LENGTH = 10;
 
+type StepState = "done" | "active" | "pending";
+
+const STEPS = ["Created", "Triaged", "In progress", "Resolved"] as const;
+
+/**
+ * A real, honest 4-bucket read of ticket-workflow-service's own much richer
+ * `TicketStatus` enum (NEW/TRIAGED/ASSIGNED/IN_PROGRESS/TRIAGING/
+ * INVESTIGATING/WAITING_FOR_USER/WAITING_FOR_APPROVAL/EXECUTING/VERIFYING/
+ * RESOLVED/CLOSED/ESCALATED/FAILED/CANCELLED — confirmed by reading that
+ * enum directly) — a coarse progress view, never a fabricated one: the exact
+ * real `status` string is always shown alongside this (see the status pill
+ * below), so nothing this bucketing simplifies away is ever hidden from the
+ * employee.
+ */
+function stepStates(status: string): StepState[] {
+  const pastTriage = status !== "NEW";
+  const resolved = status === "RESOLVED" || status === "CLOSED";
+  const closed = status === "CLOSED";
+  return [
+    "done", // a ticket that can be fetched here always exists
+    pastTriage || resolved ? "done" : "active",
+    resolved ? "done" : pastTriage ? "active" : "pending",
+    closed ? "done" : status === "RESOLVED" ? "active" : "pending",
+  ];
+}
+
 /**
  * SPEC-EP-013/016/017 together: the view-only status panel plus, once the
  * real backend reports `RESOLVED`, the "did this fix it?" affordance. View-
@@ -12,8 +38,14 @@ const MIN_REOPEN_REASON_LENGTH = 10;
  * backend value from the last successful fetch, never a client guess, and
  * a mutation's own optimistic UI never runs ahead of the real invalidated
  * refetch (useTicket.ts's own comment).
+ *
+ * `assignedTeam` (optional) comes from the conversation's own real
+ * escalation response, not this endpoint — ticket-workflow-service's
+ * `EmployeeTicketDetailResponse` deliberately never discloses internal
+ * assignment to the employee (see TicketDetail's own type comment), so this
+ * is the only real source for that label.
  */
-export function TicketStatusPanel({ ticketId }: { ticketId: string }) {
+export function TicketStatusPanel({ ticketId, assignedTeam }: { ticketId: string; assignedTeam?: string | null }) {
   const { data: ticket, isLoading, isError, refetch } = useTicket(ticketId);
   const confirmResolution = useConfirmResolution(ticketId);
   const reopenTicket = useReopenTicket(ticketId);
@@ -41,12 +73,25 @@ export function TicketStatusPanel({ ticketId }: { ticketId: string }) {
     );
   }
 
+  const steps = stepStates(ticket.status);
+
   return (
     <div className="sticky top-5 rounded-2xl border border-border bg-surface p-5 text-sm" data-testid="ticket-status-panel">
       <p className="font-mono text-[10.5px] font-semibold tracking-wide text-faint uppercase">Ticket progress</p>
       <p className="mt-2 font-mono text-lg font-semibold text-ink">{ticket.displayId}</p>
+      <p className="mt-0.5 text-ink-muted">{ticket.title}</p>
 
-      <div className="mt-4 flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+      <div className="mt-3 flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+        <span className="text-faint">Category</span>
+        <span className="font-semibold text-ink">{ticket.applicationCode}</span>
+      </div>
+      {assignedTeam ? (
+        <div className="flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+          <span className="text-faint">Assigned team</span>
+          <span className="font-semibold text-ink">{assignedTeam}</span>
+        </div>
+      ) : null}
+      <div className="flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
         <span className="text-faint">Status</span>
         <span className="rounded font-mono text-[10.5px] font-semibold tracking-wide text-ink uppercase" data-testid="ticket-status-value">
           {ticket.status}
@@ -58,9 +103,40 @@ export function TicketStatusPanel({ ticketId }: { ticketId: string }) {
           {ticket.priority}
         </span>
       </div>
+      {ticket.sla.resolutionDueAt ? (
+        <div className="flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+          <span className="text-faint">Resolution due</span>
+          <span className="rounded bg-warm-soft px-2 py-0.5 font-mono text-[10.5px] font-semibold text-warm-ink">
+            {new Date(ticket.sla.resolutionDueAt).toLocaleString()}
+          </span>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
         <span className="text-faint">Last updated</span>
         <span className="font-semibold text-ink">{new Date(ticket.updatedAt).toLocaleString()}</span>
+      </div>
+
+      <div className="mt-4 pt-1">
+        {STEPS.map((label, index) => {
+          const state = steps[index];
+          return (
+            <div key={label} className="relative flex gap-3 pb-5 last:pb-0">
+              {index < STEPS.length - 1 ? <span className="absolute top-[22px] bottom-0 left-[10px] w-[1.5px] bg-border" aria-hidden="true" /> : null}
+              <span
+                className={
+                  state === "done"
+                    ? "z-10 flex size-[21px] shrink-0 items-center justify-center rounded-full bg-ok-soft text-[11px] font-bold text-ok"
+                    : state === "active"
+                      ? "z-10 flex size-[21px] shrink-0 items-center justify-center rounded-full bg-brand-600 text-[11px] font-bold text-white"
+                      : "z-10 flex size-[21px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-border bg-surface-muted text-[11px] font-bold text-faint"
+                }
+              >
+                {state === "done" ? "✓" : index + 1}
+              </span>
+              <span className={state === "active" ? "text-[0.85rem] font-semibold text-brand-700" : "text-[0.85rem] font-semibold text-ink"}>{label}</span>
+            </div>
+          );
+        })}
       </div>
 
       {streamStatus === "reconnecting" ? (

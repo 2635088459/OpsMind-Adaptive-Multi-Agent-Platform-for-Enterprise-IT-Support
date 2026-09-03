@@ -24,6 +24,7 @@ import { useAuthStore } from "@/store/authStore";
 export function ConversationView() {
   useResumeConversation();
   const conversationId = useConversationStore((state) => state.conversationId);
+  const startedAt = useConversationStore((state) => state.startedAt);
   const transcript = useConversationStore((state) => state.transcript);
   const pendingAction = useConversationStore((state) => state.pendingAction);
   const escalation = useConversationStore((state) => state.escalation);
@@ -61,6 +62,12 @@ export function ConversationView() {
           <div className="flex items-center gap-2.5 border-b border-border px-5 py-4">
             <span className="inline-block size-2 rounded-full bg-ok shadow-[0_0_0_3px_var(--color-ok-soft)]" />
             <h1 className="text-[0.95rem] font-semibold text-ink">OpsMind Support</h1>
+            {startedAt ? (
+              <span className="ml-auto font-mono text-xs text-faint">
+                {new Date(startedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
+                {new Date(startedAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            ) : null}
           </div>
 
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-6">
@@ -87,6 +94,17 @@ export function ConversationView() {
               </div>
             ))}
 
+            {turnState === "SENDING" || turnState === "AWAITING_AGENT" ? (
+              <div className="flex max-w-[84%] items-center gap-1.5 self-start text-xs text-faint" data-testid="agent-thinking-indicator">
+                <span>Thinking</span>
+                <span className="inline-flex gap-[3px]">
+                  <span className="size-[5px] animate-[thinking-pulse_1.2s_ease-in-out_infinite] rounded-full bg-faint" />
+                  <span className="size-[5px] animate-[thinking-pulse_1.2s_ease-in-out_infinite] rounded-full bg-faint [animation-delay:150ms]" />
+                  <span className="size-[5px] animate-[thinking-pulse_1.2s_ease-in-out_infinite] rounded-full bg-faint [animation-delay:300ms]" />
+                </span>
+              </div>
+            ) : null}
+
             {turnState === "AWAITING_CONFIRMATION" && pendingAction ? (
               <ProposedActionCard
                 action={pendingAction}
@@ -94,6 +112,17 @@ export function ConversationView() {
                 onDecline={(actionId) => declineAction.mutate(actionId)}
                 disabled={confirmAction.isPending || declineAction.isPending}
               />
+            ) : null}
+
+            {turnState === "ACTION_EXECUTING" ? (
+              <div className="flex max-w-[84%] items-center gap-1.5 self-start text-xs text-faint" data-testid="agent-thinking-indicator">
+                <span>Working on it</span>
+                <span className="inline-flex gap-[3px]">
+                  <span className="size-[5px] animate-[thinking-pulse_1.2s_ease-in-out_infinite] rounded-full bg-faint" />
+                  <span className="size-[5px] animate-[thinking-pulse_1.2s_ease-in-out_infinite] rounded-full bg-faint [animation-delay:150ms]" />
+                  <span className="size-[5px] animate-[thinking-pulse_1.2s_ease-in-out_infinite] rounded-full bg-faint [animation-delay:300ms]" />
+                </span>
+              </div>
             ) : null}
 
             {turnState === "ESCALATED" && escalation ? <EscalationNotice escalation={escalation} /> : null}
@@ -108,7 +137,7 @@ export function ConversationView() {
           ) : null}
         </div>
 
-        {turnState === "ESCALATED" && escalation ? <TicketStatusPanel ticketId={escalation.ticketId} /> : null}
+        {turnState === "ESCALATED" && escalation ? <TicketStatusPanel ticketId={escalation.ticketId} assignedTeam={escalation.assignedTeam} /> : null}
       </div>
     </div>
   );
