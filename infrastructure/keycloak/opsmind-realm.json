@@ -413,7 +413,8 @@
       "defaultClientScopes": [
         "basic",
         "profile",
-        "email"
+        "email",
+        "tickets:create"
       ]
     }
   ],

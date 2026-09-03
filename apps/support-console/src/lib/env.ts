@@ -8,8 +8,8 @@
 /** user-access-authentication-service — SecurityConfig#browserLoginFilterChain, BrowserSessionTokenController. */
 export const BFF_BASE_URL: string = import.meta.env.VITE_BFF_BASE_URL ?? "http://localhost:8087";
 
-/** ticket-workflow-service — ticket/api/support (SupportTicketQueryController, TriageTicketController, TicketAssignmentController, TransitionTicketStatusController, ResolveTicketController). */
-export const TICKET_WORKFLOW_BASE_URL: string = import.meta.env.VITE_TICKET_WORKFLOW_BASE_URL ?? "http://localhost:8080";
+/** ticket-workflow-service — ticket/api/support (SupportTicketQueryController, TriageTicketController, TicketAssignmentController, TransitionTicketStatusController, ResolveTicketController). Host port moved off :8080 to :18080 (2026-09-02) — see full-platform.yml's own ticket-workflow-service port comment for why (freed :8080 for a real browser's Keycloak login). */
+export const TICKET_WORKFLOW_BASE_URL: string = import.meta.env.VITE_TICKET_WORKFLOW_BASE_URL ?? "http://localhost:18080";
 
 /** policy-approval-governance-service — GovernanceAuditController, ApprovalController. */
 export const POLICY_APPROVAL_GOVERNANCE_BASE_URL: string = import.meta.env.VITE_POLICY_APPROVAL_GOVERNANCE_BASE_URL ?? "http://localhost:8086";

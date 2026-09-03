@@ -229,7 +229,7 @@ def _build_conversation_reasoning_port(settings: Settings) -> ConversationReason
 
             from agentruntime.infrastructure.conversation_reasoning import AnthropicConversationReasoningAdapter
 
-            client = anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else anthropic.Anthropic()
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=settings.conversation_reasoning_timeout_seconds) if settings.anthropic_api_key else anthropic.Anthropic(timeout=settings.conversation_reasoning_timeout_seconds)
             return AnthropicConversationReasoningAdapter(client, settings.conversation_reasoning_anthropic_model)
         except Exception:
             logger.warning(
@@ -244,7 +244,7 @@ def _build_conversation_reasoning_port(settings: Settings) -> ConversationReason
 
             from agentruntime.infrastructure.conversation_reasoning import OpenAIConversationReasoningAdapter
 
-            client = openai.OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else openai.OpenAI()
+            client = openai.OpenAI(api_key=settings.openai_api_key, timeout=settings.conversation_reasoning_timeout_seconds) if settings.openai_api_key else openai.OpenAI(timeout=settings.conversation_reasoning_timeout_seconds)
             return OpenAIConversationReasoningAdapter(client, settings.conversation_reasoning_openai_model)
         except Exception:
             logger.warning(

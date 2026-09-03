@@ -32,7 +32,7 @@ describe("TicketStatusPanel", () => {
     renderWithProviders(<TicketStatusPanel ticketId="ticket-1" />);
 
     expect(await screen.findByTestId("ticket-status-value")).toHaveTextContent("IN_PROGRESS");
-    expect(screen.getByText(/priority: high/i)).toBeInTheDocument();
+    expect(screen.getByTestId("ticket-priority-value")).toHaveTextContent("HIGH");
   });
 
   it("shows a retry affordance on a real fetch failure, never a stale/fabricated status", async () => {

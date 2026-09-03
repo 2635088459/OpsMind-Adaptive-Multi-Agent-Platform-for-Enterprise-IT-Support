@@ -1,33 +1,75 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/*
+ * Design tokens ported for real from the "Employee Portal" design mockup
+ * (published as an Artifact, 2026-09-01) — that mockup was a static visual
+ * preview only, never wired to the real app; this is the real port (2026-09-02).
+ * Same token names/values throughout, just expressed as Tailwind v4 @theme
+ * custom properties so every component keeps using plain utility classes
+ * (bg-brand-600, text-warm-ink, font-mono, ...) instead of raw hex/CSS vars.
+ */
 @theme {
-  --color-brand-50: #eef4ff;
-  --color-brand-100: #d9e6ff;
-  --color-brand-500: #3d63dd;
-  --color-brand-600: #2f4fc0;
-  --color-brand-700: #253d99;
+  --color-brand-50: #e2eef1;
+  --color-brand-100: #c7dee3;
+  --color-brand-500: #3a8299;
+  --color-brand-600: #2d6f86;
+  --color-brand-700: #1d4a5a;
   --color-surface: #ffffff;
-  --color-surface-muted: #f4f6fb;
-  --color-ink: #131a2b;
-  --color-ink-muted: #57607a;
-  --color-border: #e2e6f0;
+  --color-surface-muted: #eef1f5;
+  --color-ink: #1a2233;
+  --color-ink-muted: #5c6b7a;
+  --color-faint: #8996a3;
+  --color-border: #dde3ea;
   --color-danger: #c2372c;
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Escalation/notice accent — deliberately distinct from --color-danger:
+     an escalation is informational ("handed to a human"), never an error state. */
+  --color-warm: #c96a3f;
+  --color-warm-ink: #8a4224;
+  --color-warm-soft: #fbe8de;
+
+  /* Success/online accent (the "agent is connected" status dot, resolved-step markers). */
+  --color-ok: #3a8558;
+  --color-ok-soft: #e3f0e7;
+
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
   @theme {
-    --color-surface: #10131c;
-    --color-surface-muted: #171b28;
-    --color-ink: #eef0f6;
-    --color-ink-muted: #99a1bd;
-    --color-border: #262c3e;
+    --color-surface: #181e24;
+    --color-surface-muted: #11151a;
+    --color-ink: #e7ebef;
+    --color-ink-muted: #93a1af;
+    --color-faint: #647180;
+    --color-border: #2a333b;
+    --color-brand-50: #1b2b30;
+    --color-brand-100: #234049;
+    --color-brand-500: #4d97ad;
+    --color-brand-600: #6cb0c9;
+    --color-brand-700: #bfe0ec;
+    --color-warm: #e2916c;
+    --color-warm-ink: #f4c4a8;
+    --color-warm-soft: #33231b;
+    --color-ok: #6cbf8d;
+    --color-ok-soft: #1c2e24;
   }
 }
 
 body {
   background-color: var(--color-surface-muted);
   color: var(--color-ink);
+}
+
+@keyframes thinking-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
 }

@@ -16,17 +16,19 @@ interface ProposedActionCardProps {
  */
 export function ProposedActionCard({ action, onConfirm, onDecline, disabled }: ProposedActionCardProps) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-5 shadow-sm" data-testid="proposed-action-card">
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">Proposed action · {action.riskLevel} risk</p>
-      <p className="mt-2 whitespace-pre-wrap break-words text-sm text-ink" data-testid="proposed-action-summary">
+    <div className="rounded-[10px] border border-border bg-surface p-3.5" data-testid="proposed-action-card">
+      <p className="font-mono text-[10.5px] font-semibold tracking-wide text-faint uppercase">
+        Proposed action · {action.riskLevel} risk
+      </p>
+      <p className="mt-2 text-sm text-ink whitespace-pre-wrap break-words" data-testid="proposed-action-summary">
         {action.summary}
       </p>
-      <div className="mt-4 flex gap-3">
+      <div className="mt-3 flex gap-2">
         <button
           type="button"
           disabled={disabled}
           onClick={() => onConfirm(action.actionId)}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Confirm
         </button>
@@ -34,7 +36,7 @@ export function ProposedActionCard({ action, onConfirm, onDecline, disabled }: P
           type="button"
           disabled={disabled}
           onClick={() => onDecline(action.actionId)}
-          className="rounded-md border border-border bg-transparent px-4 py-2 text-sm font-medium text-ink hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
+          className="rounded-lg border border-border bg-transparent px-3.5 py-1.5 text-sm font-semibold text-ink-muted hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-60"
         >
           Not now
         </button>

@@ -98,7 +98,7 @@ export function MessageComposer() {
       ) : null}
       <AttachmentPicker />
       <form
-        className="flex items-end gap-3"
+        className="flex items-center gap-2.5"
         onSubmit={(event) => {
           event.preventDefault();
           submitNewMessage();
@@ -109,15 +109,16 @@ export function MessageComposer() {
           onChange={(event) => setText(event.target.value)}
           disabled={!canCompose}
           placeholder="Describe your issue…"
-          rows={2}
-          className="flex-1 resize-none rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted disabled:opacity-60"
+          rows={1}
+          className="flex-1 resize-none rounded-xl border border-border bg-surface-muted px-3.5 py-2.5 text-sm text-ink placeholder:text-faint disabled:opacity-60"
         />
         <button
           type="submit"
           disabled={!canCompose || text.trim().length === 0 || !attachmentsReady}
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label="Send"
+          className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] bg-brand-600 text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Send
+          <span aria-hidden="true">↑</span>
         </button>
       </form>
     </div>

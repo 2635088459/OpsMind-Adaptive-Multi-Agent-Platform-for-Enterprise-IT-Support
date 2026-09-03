@@ -18,10 +18,10 @@ const COPY: Record<ActionOutcome, { title: string; tone: "success" | "info" | "m
 export function ActionExecutionStatus({ outcome }: { outcome: ActionOutcome }) {
   const copy = COPY[outcome];
   const toneClass =
-    copy.tone === "success" ? "border-brand-100 bg-brand-50" : copy.tone === "info" ? "border-border bg-surface-muted" : "border-border bg-surface";
+    copy.tone === "success" ? "bg-ok-soft text-ok" : copy.tone === "info" ? "border border-border bg-surface-muted text-ink" : "border border-border bg-surface text-ink-muted";
 
   return (
-    <div className={`rounded-xl border p-4 text-sm text-ink ${toneClass}`} data-testid="action-execution-status" data-outcome={outcome}>
+    <div className={`rounded-[10px] p-3.5 text-sm font-medium ${toneClass}`} data-testid="action-execution-status" data-outcome={outcome}>
       {copy.title}
     </div>
   );

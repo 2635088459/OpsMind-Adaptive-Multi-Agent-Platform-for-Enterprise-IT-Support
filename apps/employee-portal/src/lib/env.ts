@@ -11,8 +11,8 @@ export const BFF_BASE_URL: string = import.meta.env.VITE_BFF_BASE_URL ?? "http:/
 /** agent-runtime-service — interfaces/conversation/router.py (SPEC-ARO-038~042). */
 export const AGENT_RUNTIME_BASE_URL: string = import.meta.env.VITE_AGENT_RUNTIME_BASE_URL ?? "http://localhost:8000";
 
-/** ticket-workflow-service — ticket/api/publicapi (PublicTicketQueryController, ConfirmResolutionController, RequesterReopenTicketController). */
-export const TICKET_WORKFLOW_BASE_URL: string = import.meta.env.VITE_TICKET_WORKFLOW_BASE_URL ?? "http://localhost:8080";
+/** ticket-workflow-service — ticket/api/publicapi (PublicTicketQueryController, ConfirmResolutionController, RequesterReopenTicketController). Host port moved off :8080 to :18080 (2026-09-02) — see full-platform.yml's own ticket-workflow-service port comment for why (freed :8080 for a real browser's Keycloak login). */
+export const TICKET_WORKFLOW_BASE_URL: string = import.meta.env.VITE_TICKET_WORKFLOW_BASE_URL ?? "http://localhost:18080";
 
 /** attachment-service — SPEC-EP-010/011's own shared attachments capability, now real (AttachmentController, port 8090). */
 export const ATTACHMENTS_BASE_URL: string = import.meta.env.VITE_ATTACHMENTS_BASE_URL ?? "http://localhost:8090";

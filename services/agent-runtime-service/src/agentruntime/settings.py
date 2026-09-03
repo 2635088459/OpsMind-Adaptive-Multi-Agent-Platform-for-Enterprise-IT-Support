@@ -156,6 +156,15 @@ class Settings(BaseSettings):
     conversation_reasoning_anthropic_model: str = "claude-sonnet-5"
     openai_api_key: str | None = None
     conversation_reasoning_openai_model: str = "gpt-5-mini"
+    # A real gap found live 2026-09-02: neither SDK client was ever given an explicit
+    # timeout, so a construction-time try/except around a *hung* (not merely failed)
+    # call never fires — the container's own "degrade to the static placeholder on any
+    # failure" posture only helps once the call actually raises. Mirrors
+    # HttpTicketWorkflowClient/HttpAttachmentClient's own httpx.Client(timeout=10.0)
+    # convention; picked longer than that since a real vision call is slower than a
+    # plain-text one (observed ~8s for a small image) but still bounded well under what
+    # an employee would tolerate waiting on a chat reply.
+    conversation_reasoning_timeout_seconds: float = 30.0
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

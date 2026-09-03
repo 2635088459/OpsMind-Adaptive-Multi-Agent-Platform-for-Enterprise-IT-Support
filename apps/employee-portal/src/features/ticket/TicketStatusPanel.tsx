@@ -23,7 +23,7 @@ export function TicketStatusPanel({ ticketId }: { ticketId: string }) {
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-border bg-surface p-4" data-testid="ticket-status-skeleton">
+      <div className="rounded-2xl border border-border bg-surface p-5" data-testid="ticket-status-skeleton">
         <div className="h-4 w-1/3 animate-pulse rounded bg-surface-muted" />
         <div className="mt-2 h-4 w-1/2 animate-pulse rounded bg-surface-muted" />
       </div>
@@ -32,7 +32,7 @@ export function TicketStatusPanel({ ticketId }: { ticketId: string }) {
 
   if (isError || !ticket) {
     return (
-      <div className="rounded-xl border border-danger/30 bg-danger/5 p-4 text-sm text-ink" data-testid="ticket-status-error">
+      <div className="rounded-2xl border border-danger/30 bg-danger/5 p-5 text-sm text-ink" data-testid="ticket-status-error">
         <p>Could not load the ticket status.</p>
         <button type="button" onClick={() => refetch()} className="mt-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-muted">
           Retry
@@ -42,23 +42,34 @@ export function TicketStatusPanel({ ticketId }: { ticketId: string }) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 text-sm" data-testid="ticket-status-panel">
-      <div className="flex items-center justify-between">
-        <span className="font-medium text-ink">{ticket.displayId}</span>
-        <span className="rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-ink-muted" data-testid="ticket-status-value">
+    <div className="sticky top-5 rounded-2xl border border-border bg-surface p-5 text-sm" data-testid="ticket-status-panel">
+      <p className="font-mono text-[10.5px] font-semibold tracking-wide text-faint uppercase">Ticket progress</p>
+      <p className="mt-2 font-mono text-lg font-semibold text-ink">{ticket.displayId}</p>
+
+      <div className="mt-4 flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+        <span className="text-faint">Status</span>
+        <span className="rounded font-mono text-[10.5px] font-semibold tracking-wide text-ink uppercase" data-testid="ticket-status-value">
           {ticket.status}
         </span>
       </div>
-      <p className="mt-1 text-ink-muted">Priority: {ticket.priority}</p>
-      <p className="mt-1 text-ink-muted">Last updated: {new Date(ticket.updatedAt).toLocaleString()}</p>
+      <div className="flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+        <span className="text-faint">Priority</span>
+        <span className="rounded bg-warm-soft px-2 py-0.5 font-mono text-[10.5px] font-semibold text-warm-ink" data-testid="ticket-priority-value">
+          {ticket.priority}
+        </span>
+      </div>
+      <div className="flex items-center justify-between border-t border-border py-2 text-[0.8rem]">
+        <span className="text-faint">Last updated</span>
+        <span className="font-semibold text-ink">{new Date(ticket.updatedAt).toLocaleString()}</span>
+      </div>
 
       {streamStatus === "reconnecting" ? (
-        <p className="mt-1 text-xs text-ink-muted" data-testid="stream-reconnecting">
+        <p className="mt-2 text-xs text-ink-muted" data-testid="stream-reconnecting">
           Reconnecting live updates…
         </p>
       ) : null}
       {streamStatus === "failed" ? (
-        <p className="mt-1 text-xs text-danger" data-testid="stream-failed">
+        <p className="mt-2 text-xs text-danger" data-testid="stream-failed">
           Unable to get live updates. Refresh to check for the latest status.
         </p>
       ) : null}

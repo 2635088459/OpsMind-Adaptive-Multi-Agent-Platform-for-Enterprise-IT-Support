@@ -57,6 +57,25 @@ services:
       - ../keycloak/opsmind-realm.json:/opt/keycloak/data/import/opsmind-realm.json:ro
     ports:
       - "8081:8080"
+      # Real bug found live 2026-09-02, first real browser login attempt:
+      # KC_HOSTNAME above is pinned to the literal "keycloak:8080" string on
+      # purpose (every other service's own KEYCLOAK_ISSUER_URI must match it
+      # exactly to validate a token's real iss claim — see this file's own
+      # comment on KC_HOSTNAME for the full history). That means Keycloak's
+      # OWN rendered pages (its hosted login form, the discovery document's
+      # authorization_endpoint) always embed "keycloak:8080" too, regardless
+      # of which URL the caller actually used to reach it — but the real
+      # browser driving a login runs on the HOST machine, which cannot
+      # resolve the Docker-internal hostname "keycloak" at all no matter what
+      # port. This second mapping, PLUS a one-time `/etc/hosts` entry the
+      # user adds themselves (`127.0.0.1 keycloak` — never edited by this
+      # session), lets the real browser reach this exact same container on
+      # the exact same port number Keycloak already claims for itself, with
+      # zero change to KC_HOSTNAME/iss and zero impact on every other
+      # service's own already-working container-to-container calls (those
+      # still resolve "keycloak" via Docker's own internal DNS, entirely
+      # unaffected by a host-machine-only hosts-file entry).
+      - "8080:8080"
     healthcheck:
       # Real bug found live: Keycloak 25's health endpoints live on the
       # separate management interface (port 9000, confirmed via this
@@ -287,7 +306,17 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
     ports:
-      - "8080:8080"
+      # Moved off host port 8080 (2026-09-02): a real browser login needs
+      # "keycloak" to resolve on the host machine (via a /etc/hosts alias to
+      # 127.0.0.1) AND land on Keycloak's own real container port 8080 — see
+      # the keycloak service's own port mapping below for the full
+      # explanation. This service's own container-internal port is
+      # unchanged (still 8080; every other container still reaches it via
+      # http://ticket-workflow-service:8080 exactly as before) — only the
+      # host-facing mapping moved, so anything the BROWSER itself calls
+      # directly (employee-portal's/support-console's own
+      # TICKET_WORKFLOW_BASE_URL) needs to point at :18080 now.
+      - "18080:8080"
     depends_on:
       postgres:
         condition: service_healthy

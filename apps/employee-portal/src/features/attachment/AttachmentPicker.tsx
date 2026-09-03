@@ -32,20 +32,27 @@ export function AttachmentPicker() {
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-ink hover:bg-surface-muted"
+        aria-label="Attach a photo or file"
+        className="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-border bg-surface text-ink-muted hover:bg-surface-muted"
       >
-        Attach file
+        <span aria-hidden="true">＋</span>
       </button>
 
       {attachments.length > 0 ? (
-        <ul className="mt-2 flex flex-col gap-1">
+        <ul className="mt-2 flex flex-col gap-1.5">
           {attachments.map((attachment) => (
-            <li key={attachment.id} className="flex items-center gap-2 text-sm text-ink-muted" data-testid="staged-attachment" data-status={attachment.status}>
+            <li
+              key={attachment.id}
+              className="inline-flex w-fit items-center gap-2 rounded-lg border border-border bg-surface py-1.5 pr-2.5 pl-1.5 text-xs text-ink-muted"
+              data-testid="staged-attachment"
+              data-status={attachment.status}
+            >
+              <span className="size-[22px] shrink-0 rounded-[5px] bg-gradient-to-br from-border to-faint" aria-hidden="true" />
               <span>{attachment.fileName}</span>
-              <span className={attachment.status === "failed" ? "text-danger" : ""}>
+              <span className={attachment.status === "failed" ? "text-danger" : "text-faint"}>
                 {attachment.status === "failed" ? attachment.errorMessage : STATUS_LABEL[attachment.status]}
               </span>
-              <button type="button" onClick={() => remove(attachment.id)} className="text-xs text-ink-muted underline">
+              <button type="button" onClick={() => remove(attachment.id)} className="text-ink-muted underline">
                 Remove
               </button>
             </li>

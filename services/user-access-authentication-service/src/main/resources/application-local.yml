@@ -88,6 +88,26 @@ spring:
         provider:
           opsmind:
             issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
+            # A real dead end tried and reverted, 2026-09-02: overriding just
+            # authorization-uri to a browser-reachable localhost address (so the
+            # browser's OWN top-level redirect resolves) breaks Keycloak's own login
+            # flow a step later — Keycloak's session/KC_RESTART cookie is scoped to
+            # whatever literal hostname string served the login page, but its
+            # hosted login FORM's own action always embeds "keycloak:8080" (from
+            # KC_HOSTNAME, unconditionally, regardless of which hostname the browser
+            # actually used to reach it — see this file's own history for why that's
+            # pinned). "localhost:8081" and "keycloak:8080" are different origins as
+            # far as cookies are concerned even though both resolve to the same
+            # machine, so the follow-up POST arrives with no session cookie at all
+            # ("Cookie not found"). The real fix instead lives entirely in
+            # infrastructure, not here: full-platform.yml's own keycloak service now
+            # publishes an ADDITIONAL host port 8080 (alongside 8081), and the
+            # platform's own local-dev instructions have the developer add a real
+            # `/etc/hosts` entry (`127.0.0.1 keycloak`) — once "keycloak:8080" is
+            # reachable from the host machine's own browser too, no Spring-side
+            # override is needed at all: this file's plain issuer-uri-driven
+            # discovery already produces the correct, single, consistent hostname
+            # end-to-end.
 
 app:
   identity:
