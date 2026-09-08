@@ -12,6 +12,13 @@
 #                  -f infrastructure/docker-compose/full-platform.yml \
 #                  up -d --build
 #
+# 2026-09-08: the two frontends (employee-portal :5173, support-console :5174)
+# are now in this same compose — one `up -d` boots the whole platform, UI
+# included. They are static nginx images; the browser calls the backends
+# through the host port mappings, so no VITE_* build args and no dev server.
+# Stop any local `pnpm dev` on 5173/5174 first (port clash). Both frontend
+# E2E suites (apps/*/e2e) pass against these containers.
+#
 # domain 08 (observability-platform) has no service of its own (infra-config
 # only, per its own README) and is deliberately not included here — its own
 # infrastructure/docker-compose/observability-stack.yml is a separate stack.
@@ -432,3 +439,56 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+
+  # --- Frontends (2026-09-08) -----------------------------------------------
+  # Static React/Vite SPAs served by nginx. The BROWSER (not the container)
+  # makes every backend call, so the apps are built with their own
+  # `src/lib/env.ts` defaults (http://localhost:8087 / :18080 / :8000 / ...)
+  # and reach the backends through the host port mappings above — no VITE_*
+  # build args needed, identical to `pnpm dev`.
+  #
+  # Host ports are pinned to 5173 / 5174 on purpose: every backend's
+  # CORS_ALLOWED_ORIGINS, this realm's redirect URIs, and
+  # user-access-authentication-service's login.success-redirect-uri are all
+  # already configured for exactly those two origins. Stop any local
+  # `pnpm dev` on 5173/5174 before bringing these up (a port clash otherwise).
+  employee-portal:
+    build:
+      context: ../../
+      dockerfile: apps/employee-portal/Dockerfile
+    container_name: opsmind-employee-portal
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      - user-access-authentication-service
+      - ticket-workflow-service
+      - agent-runtime-service
+      - attachment-service
+
+  support-console:
+    build:
+      context: ../../
+      dockerfile: apps/support-console/Dockerfile
+    container_name: opsmind-support-console
+    restart: unless-stopped
+    ports:
+      - "5174:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/healthz | grep -q ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      - user-access-authentication-service
+      - ticket-workflow-service
+      - policy-approval-governance-service
+      - tool-integration-gateway
+      - evaluation-improvement-service

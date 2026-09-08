@@ -32,9 +32,18 @@ interface ConversationState {
   draftText: string;
   /** SPEC-EP-018 (BI-EP-006): the text that just failed to send — preserved so the composer never silently empties on a real backend outage. */
   lastFailedText: string | null;
+  /**
+   * SPEC-EP-015: the real backend `WorkflowState` name of a *resumed*
+   * conversation when it was not `RUNNING` (e.g. `COMPLETED` after an
+   * escalation, `WAITING_FOR_APPROVAL`) — `null` for a fresh conversation or
+   * a resumed still-running one. ConversationView shows an honest banner
+   * from it instead of silently pretending the conversation is live.
+   */
+  resumedState: string | null;
 
   setConversationId: (id: string) => void;
   setStartedAt: (startedAt: string) => void;
+  setResumedState: (state: string | null) => void;
   appendEmployeeMessage: (text: string) => void;
   applyAgentTurn: (turn: MessageTurn) => void;
   applyActionOutcome: (outcome: ActionOutcome) => void;
@@ -59,9 +68,11 @@ export const useConversationStore = create<ConversationState>((set) => ({
   lastActionOutcome: null,
   draftText: "",
   lastFailedText: null,
+  resumedState: null,
 
   setConversationId: (id) => set({ conversationId: id }),
   setStartedAt: (startedAt) => set({ startedAt }),
+  setResumedState: (resumedState) => set({ resumedState }),
   setDraftText: (text) => set({ draftText: text }),
   setLastFailedText: (text) => set({ lastFailedText: text }),
 
@@ -86,5 +97,5 @@ export const useConversationStore = create<ConversationState>((set) => ({
   applyActionOutcome: (outcome) => set({ pendingAction: null, lastActionOutcome: outcome }),
 
   reset: () =>
-    set({ conversationId: null, startedAt: null, transcript: [], pendingAction: null, escalation: null, lastActionOutcome: null, draftText: "", lastFailedText: null }),
+    set({ conversationId: null, startedAt: null, transcript: [], pendingAction: null, escalation: null, lastActionOutcome: null, draftText: "", lastFailedText: null, resumedState: null }),
 }));

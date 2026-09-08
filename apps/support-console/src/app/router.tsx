@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router";
 import { AppLayout } from "@/app/AppLayout";
 import { QueuePage } from "@/pages/QueuePage";
 import { TicketDetailPage } from "@/pages/TicketDetailPage";
+import { ObservabilityPage } from "@/pages/ObservabilityPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { KnowledgeAdmin } from "@/features/admin/knowledge/KnowledgeAdmin";
 import { ConnectorsAdmin } from "@/features/admin/connectors/ConnectorsAdmin";
@@ -19,6 +20,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <QueuePage /> },
       { path: "tickets/:ticketId", element: <TicketDetailPage /> },
+      { path: "observability", element: <ObservabilityPage /> },
       {
         path: "admin",
         element: <AdminPage />,

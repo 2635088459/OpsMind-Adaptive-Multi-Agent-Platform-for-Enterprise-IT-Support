@@ -1,0 +1,463 @@
+# Traceability matrix — domain 10-support-console
+#
+# Schema per the domain's own roadmap §18 (00-implementation-roadmap_EN.md),
+# same shape as domain 09's matrix:
+#   SPEC-xxx:
+#     phase: Phase-0N
+#     design:   { use_cases: [...], api: [...], invariants: [...] }
+#     implementation: { components: [...] }   # real files under apps/support-console/src/
+#     tests: [...]
+#
+# Verified 2026-09-08 (frontend integration verification). `status` suffixes:
+#   - implemented+backend-verified: contract exercised live against the real
+#     running backend on 2026-09-08.
+#   - implemented+source-verified: request/response shapes checked field-for-field
+#     against the real backend DTO source, but the live path could not be fully
+#     exercised (missing seed data - see notes).
+#   - implemented+backend-pending / +session-auth: needs a running rebuild or a
+#     browser session cookie to exercise live.
+# All 20 specs' own headers already read `Status: Implemented`.
+#
+# App test suite at verification time: 92 tests / 25 files, all green
+# (apps/support-console, `npx vitest run`).
+#
+# Not in this matrix (no SPEC-SC-0xx of their own): the three admin surfaces
+# apps/support-console/src/features/admin/{knowledge,connectors,policy}/ — built
+# alongside the spec'd features but never chartered as Feature Specs in the
+# 20-spec roadmap. connectors/api.ts had its base path corrected on 2026-09-08
+# (missing /internal/tool-gateway/v1 prefix); policy/api.ts targets
+# PolicyQueryController (GET /api/v1/policies), real in source since commit
+# 17ccb66 and now in the running image after the 2026-09-08 rebuild.
+#
+# 2026-09-08 (round 5): ApprovalCard / TraceWaterfall / EvaluationComparisonTable
+# were built + unit-tested but no route rendered them. Now wired:
+#   - ApprovalCard  -> features/approval/TicketApprovals.tsx, mounted on the
+#     ticket detail page; the approvalRequestId comes from this ticket's real
+#     GovernanceAuditRecordResponse.approvalRequestId (SPEC-PG-030), newly
+#     surfaced through AiLogEntry + useAiLog.approvalRequestIds.
+#   - TraceWaterfall + EvaluationComparisonTable -> pages/ObservabilityPage.tsx
+#     at route /observability (top-nav link), each behind a paste-an-id form +
+#     an "open in Tempo / LangSmith" link-out (UC-SC-05 / UC-SC-06).
+
+SPEC-SC-001:
+  phase: Phase-01
+  status: implemented+backend-verified
+  design:
+    use_cases: []
+    api: ["GET {BFF}/oauth2/authorization/support-console", "GET {BFF}/api/v1/session/browser-token"]
+    invariants: ["BI-SC (session presence)"]
+    references: ["01-domain-model §UserSession", "05-api-contracts §1", "domain 01 OIDC contract"]
+  implementation:
+    components: [pages/LoginPage.tsx, lib/authClient.ts, store/authStore.ts, app/AppLayout.tsx, app/router.tsx]
+  tests:
+    - app/AppLayout.test.tsx
+  notes: >-
+    Distinct `support-console` Keycloak client (standardFlow, redirect
+    http://localhost:8087/login/oauth2/code/support-console). Same real
+    Authorization-Code+PKCE mechanism proven live for domain 01.
+
+SPEC-SC-002:
+  phase: Phase-01
+  status: implemented
+  design:
+    use_cases: []
+    api: ["session token claim shape (domain 01)"]
+    invariants: ["console never fakes an authorization boundary the backend doesn't enforce"]
+    references: ["01-domain-model §UserSession", "11-security-and-authorization §1-2"]
+  implementation:
+    components: [features/auth/roles.ts, features/auth/AdminOnly.tsx, app/AppLayout.tsx]
+  tests:
+    - features/auth/AdminOnly.test.tsx
+  notes: >-
+    UI-gating convenience only. The realm's `roles` mapper exposes
+    realm_access.roles (support_agent/support_admin). The known
+    policy-approval-governance ApprovalController "no fine-grained authz"
+    gap is deliberately NOT papered over with fake client enforcement
+    (see SPEC-SC-019).
+
+SPEC-SC-003:
+  phase: Phase-02
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-01]
+    api: ["GET /api/v1/support/tickets (SupportTicketQueryController)"]
+    invariants: ["BI-SC (queue reflects real backend state)"]
+    references: ["01-domain-model §TicketQueueRow", "04-use-cases UC-SC-01", "05-api-contracts §1"]
+  implementation:
+    components: [features/queue/QueueTable.tsx, features/queue/useQueue.ts, features/queue/api.ts, features/queue/types.ts, pages/QueuePage.tsx]
+  tests:
+    - features/queue/QueueTable.test.tsx
+    - features/queue/api.test.ts
+  notes: >-
+    Live 2026-09-08: GET /api/v1/support/tickets -> 200; QueueRow +
+    QueueResponse.page shapes match queue/types.ts field-for-field. Required
+    a `support_queues` JWT claim (list of ApplicationCode) that the
+    support-console Keycloak client did NOT emit - only actor_type +
+    support_teams. Added a `support-queues-all-application-codes`
+    hardcoded-claim mapper (JSON array [HOUSING_PORTAL,EMAIL,VPN,OTHER]) to
+    the realm JSON + the running KC; without it the queue returned 0 items
+    and every support ticket read 404'd.
+
+SPEC-SC-004:
+  phase: Phase-02
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-01]
+    api: ["GET /api/v1/support/tickets (same response, sla + priority fields)"]
+    invariants: [BI-SC-002]
+    references: ["01-domain-model §TicketQueueRow", "domain 02 severity/SLA field defs"]
+  implementation:
+    components: [features/queue/slaDisplay.ts, features/queue/QueueTable.tsx]
+  tests:
+    - features/queue/slaDisplay.test.ts
+  notes: >-
+    SLA countdown computed from the real `sla.responseDueAt`/`resolutionDueAt`
+    /`urgencyRank` fields present in the live queue-row payload. Semantic
+    severity color kept separate from the brand accent.
+
+SPEC-SC-005:
+  phase: Phase-02
+  status: implemented
+  design:
+    use_cases: [UC-SC-01]
+    api: ["GET /api/v1/support/tickets (same endpoint, polled)"]
+    invariants: ["BI-SC (freshness)"]
+    references: ["01-domain-model §TicketQueueRow", "TanStack Query refetchInterval"]
+  implementation:
+    components: [features/queue/useQueue.ts]
+  tests:
+    - features/queue/QueueTable.test.tsx
+    - features/queue/api.test.ts
+  notes: "refetchInterval + pause-when-tab-hidden on SPEC-SC-003's query."
+
+SPEC-SC-006:
+  phase: Phase-03
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-02]
+    api:
+      - "GET /api/v1/tickets/{id}/timeline (02-ticket-workflow)"
+      - "GET /api/v1/governance-audit-records?ticketId= (06-policy-approval-governance)"
+      - "GET /internal/tool-gateway/v1/tool-requests/{id} (05-tool-integration-gateway)"
+    invariants: [BI-SC-003]
+    references: ["01-domain-model §AiLogEntry", "04-use-cases UC-SC-02", "05-api-contracts §3 (client-side aggregation, no BFF)"]
+  implementation:
+    components: [features/ailog/useAiLog.ts, features/ailog/api.ts, features/ailog/AiLogPanel.tsx, features/ailog/types.ts]
+  tests:
+    - features/ailog/api.test.ts
+    - features/ailog/AiLogPanel.test.tsx
+  notes: >-
+    Live 2026-09-08: timeline -> 200 (SupportTimelineItemWire fields SC reads
+    - itemId/occurredAt/summary - present); governance-audit-records -> 200
+    [] (shape matches); tool-requests GET -> 200/404 no-auth as designed.
+    3 concurrent real cross-domain fetches merged client-side via
+    Promise.allSettled (no new BFF, per the LLD).
+
+SPEC-SC-007:
+  phase: Phase-03
+  status: implemented
+  design:
+    use_cases: [UC-SC-02]
+    api: ["same 3 endpoints as SPEC-SC-006 (failure branch)"]
+    invariants: [BI-SC-003]
+    references: ["10-error-handling-and-reconciliation §1", "SPEC-SC-006"]
+  implementation:
+    components: [features/ailog/useAiLog.ts, features/ailog/AiLogPanel.tsx]
+  tests:
+    - features/ailog/AiLogPanel.test.tsx
+  notes: "Per-source error state from Promise.allSettled; partial result always labeled partial."
+
+SPEC-SC-008:
+  phase: Phase-04
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-03]
+    api: ["GET /api/v1/approval-requests/{id} (SPEC-PG-010)"]
+    invariants: ["BI-SC (fidelity)", BI-SC-005]
+    references: ["01-domain-model §ApprovalCard", "04-use-cases UC-SC-03", "domain 06 ApprovalRequest/ApprovalDecision"]
+  implementation:
+    components: [features/approval/TicketApprovals.tsx, features/approval/ApprovalCard.tsx, features/approval/useApproval.ts, features/approval/api.ts, features/approval/types.ts, features/ailog/useAiLog.ts, features/ailog/api.ts, features/ailog/types.ts, pages/TicketDetailPage.tsx]
+  tests:
+    - features/approval/TicketApprovals.test.tsx
+    - features/approval/ApprovalCard.test.tsx
+    - features/approval/api.test.ts
+    - e2e/ticket-approval.spec.ts
+  notes: >-
+    ROUND 5 (2026-09-08): now WIRED — `TicketApprovals` on the ticket detail
+    page renders an `ApprovalCard` per distinct
+    `GovernanceAuditRecordResponse.approvalRequestId` (SPEC-PG-030) for the
+    ticket. Live-verified against ticket 01a05e8e-... (a real governance-audit
+    record links approval 2d839a99-...): browser E2E confirmed
+    GET /governance-audit-records -> 200 then GET /approval-requests/{id} ->
+    200, card renders with the live status. Earlier: a standalone
+    POST /api/v1/approval-requests + GET round-trip also confirmed the
+    response shape (14 always-present fields match approval/types.ts; the 5
+    nullable link fields are omitted by Jackson when null - SC's cast reads
+    them as undefined, fine).
+
+SPEC-SC-009:
+  phase: Phase-04
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-03]
+    api: ["POST /api/v1/approval-requests/{id}:grant (SPEC-PG-011)", "POST /api/v1/approval-requests/{id}:deny (SPEC-PG-011)"]
+    invariants: [BI-SC-005]
+    references: ["04-use-cases UC-SC-03", "SPEC-PG-011 (commandIdempotencyKey 3-way replay check)"]
+  implementation:
+    components: [features/approval/api.ts, features/approval/ApprovalCard.tsx, features/approval/useApproval.ts, features/approval/TicketApprovals.tsx, pages/TicketDetailPage.tsx]
+  tests:
+    - features/approval/api.test.ts
+    - features/approval/ApprovalCard.test.tsx
+    - features/approval/ApprovalCard.concurrentDecision.test.tsx
+    - e2e/ticket-approval.spec.ts
+  notes: >-
+    ROUND 5 (2026-09-08): grant/deny controls now reachable — the ApprovalCard
+    is mounted on the ticket detail page (see SPEC-SC-008). The E2E confirms
+    the card renders for a real approval-linked ticket; a still-REQUESTED one
+    shows the grant/deny controls.
+    DecideApprovalRequest {sourceRequestId, requestHash, reason, conditions,
+    commandIdempotencyKey, sessionId?, deviceId?, stepUpVerified} verified
+    field-for-field against the real Java record. REAL BUG found + fixed live
+    2026-09-08: decideApproval did NOT send the `X-Correlation-Id` header,
+    which every governance command endpoint requires
+    (GovernanceRequestContext#correlationId -> 400 VALIDATION_ERROR without
+    it) - so every grant/deny would have failed against the real backend.
+    Added it (matching this app's own admin/policy/api.ts, which already
+    sent it). After the fix, grant reaches the domain-layer authz check
+    (403 APPROVAL_NOT_AUTHORIZED for a non-approver service account -
+    expected). Relies on the backend's real 3-way idempotency check.
+
+SPEC-SC-010:
+  phase: Phase-05
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-04]
+    api: ["POST /api/v1/tickets/{id}/triage (TriageTicketController)"]
+    invariants: ["BI-SC (fidelity)"]
+    references: ["04-use-cases UC-SC-04", "domain 02 triage endpoint (also SPEC-ARO-041's path)"]
+  implementation:
+    components: [features/triage/TriageForm.tsx, features/triage/useTriageTicket.ts, features/triage/api.ts, features/triage/types.ts]
+  tests:
+    - features/triage/TriageForm.test.tsx
+  notes: >-
+    Live 2026-09-08: POST .../triage -> 200 status TRIAGED. TriageInput
+    {categoryId, subcategoryId?, priority, supportQueueId, reason} and
+    TriageTicketResponse match the real @NotNull/@NotBlank/@Size-annotated
+    Java records. SC sends bare (unquoted) If-Match: <version>, accepted live.
+
+SPEC-SC-011:
+  phase: Phase-05
+  status: implemented+source-verified
+  design:
+    use_cases: [UC-SC-05]
+    api: ["POST /api/v1/tickets/{id}/assign (TicketAssignmentController)", "POST .../reassign", "POST .../unassign"]
+    invariants: [BI-SC-005]
+    references: ["04-use-cases UC-SC-05", "domain 02 assignment endpoint", "domain 01 user directory"]
+  implementation:
+    components: [features/assignment/AssignmentForm.tsx, features/assignment/useAssignTicket.ts, features/assignment/api.ts, features/assignment/types.ts]
+  tests:
+    - features/assignment/AssignmentForm.test.tsx
+  notes: >-
+    AssignInput {assigneeId, reason} / UnassignInput {reason} /
+    TicketAssignmentResponse match the real Java records. Live 2026-09-08 the
+    assign call reached its domain check and returned ASSIGNEE_NOT_FOUND -
+    resolveEligibleAssignee needs a ticket.support_agents row + a
+    ticket.support_queue_memberships row that no migration seeded. Closed by
+    a new V046__seed_support_agents_and_memberships.sql (support.agent /
+    support.admin as agents in the default Network Support queue).
+
+SPEC-SC-012:
+  phase: Phase-05
+  status: implemented+source-verified
+  design:
+    use_cases: [UC-SC-06]
+    api: ["POST /api/v1/tickets/{id}/status-transitions (TransitionTicketStatusController)", "POST /api/v1/tickets/{id}/resolution (ResolveTicketController)"]
+    invariants: [BI-SC-005]
+    references: ["04-use-cases UC-SC-06", "domain 02 ticket state machine"]
+  implementation:
+    components: [features/statusTransition/StatusTransitionControl.tsx, features/statusTransition/useStatusTransition.ts, features/statusTransition/api.ts, features/statusTransition/types.ts]
+  tests:
+    - features/statusTransition/StatusTransitionControl.test.tsx
+  notes: >-
+    TransitionInput {targetStatus, reason, approvalReference?} and
+    ResolveInput {resolutionCode, resolutionSummary} match the real
+    @NotNull/@NotBlank/@Size Java records; SC's TransitionTarget type
+    correctly narrows to IN_PROGRESS|WAITING_FOR_APPROVAL (the only two the
+    generic endpoint accepts) and routes RESOLVED through the separate
+    /resolution endpoint. Live chain blocked by the same missing seed data
+    as SPEC-SC-011.
+
+SPEC-SC-013:
+  phase: Phase-05
+  status: implemented
+  design:
+    use_cases: [UC-SC-04, UC-SC-05, UC-SC-06]
+    api: ["409/version-conflict response shape of SPEC-SC-010/011/012's endpoints"]
+    invariants: [BI-SC-005]
+    references: ["01-domain-model §BI-SC-005", "10-error-handling-and-reconciliation §2"]
+  implementation:
+    components: [features/ticketOps/versionConflict.ts, features/ticketOps/useVersionedMutation.ts, features/ticketOps/VersionConflictBanner.tsx]
+  tests:
+    - features/ticketOps/versionConflict.test.ts
+  notes: "Shared conflict-handling utility for the 3 mutations: on 409, drop the local optimistic state, re-fetch, show the diff before retry."
+
+SPEC-SC-014:
+  phase: Phase-06
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-07]
+    api: ["GET {BFF}/api/v1/observability/traces/{traceId} (user-access-authentication-service TraceWaterfallController)"]
+    invariants: ["waterfall renders real span data, never a placeholder"]
+    references: ["01-domain-model §TraceWaterfall", "04-use-cases UC-SC-07", "Agent Observability mockup (OTel section)", "SPEC-OP-030/031 (Tempo has no auth of its own)"]
+  implementation:
+    components:
+      - pages/ObservabilityPage.tsx
+      - features/trace/TraceWaterfall.tsx
+      - features/trace/useTraceWaterfall.ts
+      - features/trace/api.ts
+      - features/trace/waterfallLayout.ts
+      - features/trace/types.ts
+      - app/router.tsx
+      - app/AppLayout.tsx
+      - "services/user-access-authentication-service .../api/browser/TraceWaterfallController.java"
+      - "services/user-access-authentication-service .../application/observability/TraceWaterfallService.java"
+      - "services/user-access-authentication-service .../infrastructure/observability/TempoQueryClient.java"
+      - "services/user-access-authentication-service .../application/dto/TraceWaterfallView.java"
+  tests:
+    - features/trace/TraceWaterfall.test.tsx
+    - features/trace/api.test.ts
+    - features/trace/waterfallLayout.test.ts
+    - pages/ObservabilityPage.test.tsx
+    - e2e/observability.spec.ts
+    - "user-access-authentication-service: TraceWaterfallControllerTest, TraceWaterfallServiceTest, TempoQueryClientTest"
+  notes: >-
+    A new authenticated BFF proxy was built (confirmed with the user first)
+    rather than pointing a browser at unauthenticated Tempo. ROUND 5
+    (2026-09-08): now WIRED — the Observability page (route /observability,
+    top-nav link) hosts a paste-a-traceId form + "Open in Tempo" link-out
+    (UC-SC-05's own framing: the in-viewport waterfall is a preview, real
+    troubleshooting links out). Browser E2E confirmed the REAL authenticated
+    round trip: with the session cookie, GET {BFF}/api/v1/observability/traces/{id}
+    -> 200/404 (a bogus id -> "trace no longer available"), never 401. SC's
+    api.ts correctly uses credentials:"include" (not authedFetch).
+
+SPEC-SC-015:
+  phase: Phase-06
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-SC-07]
+    api: ["GET /evaluation/runs/{id}", "GET /evaluation/runs/{id}/scores", "GET /evaluation/runs/{id}/regression-report"]
+    invariants: ["table reflects real scoring data, no fabricated numbers"]
+    references: ["01-domain-model §EvaluationComparisonTable", "04-use-cases UC-SC-07", "Agent Observability mockup (LangSmith section)", "domain 07 run/scoring model"]
+  implementation:
+    components: [pages/ObservabilityPage.tsx, features/evaluation/EvaluationComparisonTable.tsx, features/evaluation/useEvaluationComparison.ts, features/evaluation/api.ts, features/evaluation/comparisonTable.ts, features/evaluation/types.ts, app/router.tsx, app/AppLayout.tsx]
+  tests:
+    - features/evaluation/EvaluationComparisonTable.test.tsx
+    - features/evaluation/api.test.ts
+    - features/evaluation/comparisonTable.test.ts
+    - pages/ObservabilityPage.test.tsx
+    - e2e/observability.spec.ts
+  notes: >-
+    ROUND 5 (2026-09-08): WIRED into the Observability page (paste-a-runId
+    form + "View in LangSmith" link-out, UC-SC-06). ROUND 6: seeded a real
+    demo comparison via
+    evaluation-improvement-service/migrations/…e1c7a9d4b206_seed_demo_evaluation_run.py
+    — a published dataset + 3 test cases + baseline run agent-v1.0.0 +
+    candidate run agent-v1.1.0 (id 20000000-0000-0000-0000-000000000002) + 9
+    scores each across CLASSIFICATION_ACCURACY / TOOL_SELECTION /
+    RESOLUTION_SUCCESS + a regression report, with a deliberate TOOL_SELECTION
+    regression (0.92 -> 0.83). Browser E2E now renders the real table:
+    "agent-v1.1.0 vs. baseline agent-v1.0.0" with the 3 metric rows and the
+    regression highlighted. Migration gotchas: `op.execute` parses `:0` in
+    `"delta":0.05` as a bind param (switched to `bind.exec_driver_sql`);
+    `metric_diffs_json` entries are deserialized as `MetricDiff(**entry)` so
+    a non-matching shape 500s the regression-report read (seeded as `[]`).
+    Wire shape is genuinely snake_case (run_id, baseline_run_id, ...), no
+    alias_generator - preserved as-is in evaluation/types.ts.
+
+SPEC-SC-016:
+  phase: Phase-07
+  status: implemented
+  design:
+    use_cases: [UC-SC-04]
+    api: ["POST /api/v1/tickets/{id}/triage (raced with SPEC-ARO-041)"]
+    invariants: [BI-SC-005]
+    references: ["10-error-handling-and-reconciliation §2", "SPEC-SC-010", "SPEC-SC-013", "SPEC-ARO-041"]
+  implementation:
+    components: [features/triage/TriageForm.tsx, features/ticketOps/useVersionedMutation.ts]
+  tests:
+    - features/triage/TriageForm.agentRace.test.tsx
+  notes: "Human-vs-agent triage race (the agent can re-triage via SPEC-ARO-041), distinct from SPEC-SC-013's generic human-vs-human case."
+
+SPEC-SC-017:
+  phase: Phase-07
+  status: implemented+source-verified
+  design:
+    use_cases: [UC-SC-03]
+    api: ["POST /api/v1/approval-requests/{id}:grant / :deny (SPEC-PG-011 3-way check)"]
+    invariants: [BI-SC-005]
+    references: ["SPEC-PG-011", "SPEC-SC-009"]
+  implementation:
+    components: [features/approval/ApprovalCard.tsx, features/approval/api.ts, features/approval/useApproval.ts]
+  tests:
+    - features/approval/ApprovalCard.concurrentDecision.test.tsx
+  notes: >-
+    Verifies the frontend handles both real outcomes of ApprovalService#decide's
+    strict AND check (commandIdempotencyKey + outcome + decidedBy):
+    exact-3-way-match idempotent replay vs. any-mismatch-is-a-conflict.
+
+SPEC-SC-018:
+  phase: Phase-08
+  status: implemented+backend-verified
+  design:
+    use_cases: []
+    api: ["all SPEC-SC-001..017 call sites"]
+    invariants: ["no call carries a scope broader than its own spec declares"]
+    references: ["11-security-and-authorization (all)", "each prior spec §14", "SPEC-SC-006 §14"]
+  implementation:
+    components: [lib/httpClient.ts, lib/authClient.ts, features/queue/api.ts, features/ailog/api.ts, features/approval/api.ts, features/triage/api.ts, features/assignment/api.ts, features/statusTransition/api.ts, features/trace/api.ts, features/evaluation/api.ts]
+  tests:
+    - features/queue/api.test.ts
+    - features/ailog/api.test.ts
+    - features/approval/api.test.ts
+  notes: >-
+    The 2026-09-08 pass is a live instance of this audit: it confirmed the
+    support-console token needs `tickets:read:queue`, `governance:audit:read`,
+    `tickets:timeline:internal` (all present) and found `support_queues`
+    missing entirely (added). connectors/api.ts base-path bug also found here.
+
+SPEC-SC-019:
+  phase: Phase-08
+  status: implemented
+  design:
+    use_cases: [UC-SC-02]
+    api: ["403 response shape of SPEC-SC-006's 3 endpoints"]
+    invariants: ["a permission gap must never look like a data gap or an outage (extends BI-SC-003)"]
+    references: ["11-security-and-authorization §3", "SPEC-SC-006", "SPEC-SC-007"]
+  implementation:
+    components: [features/ailog/useAiLog.ts, features/ailog/AiLogPanel.tsx]
+  tests:
+    - features/ailog/AiLogPanel.test.tsx
+  notes: >-
+    Distinguishes a 403 on one aggregation source from an outage - distinct
+    "access restricted" copy, no retry button. Explicitly refuses to fake an
+    authorization boundary the policy-approval-governance backend does not
+    itself enforce.
+
+SPEC-SC-020:
+  phase: Phase-08
+  status: implemented+backend-verified
+  design:
+    use_cases: []
+    api: ["every fetch/EventSource call site across SPEC-SC-001..019"]
+    invariants: ["no network call in this app is untraceable"]
+    references: ["12-observability-and-audit (all)", "each prior spec §15", "SPEC-SC-014"]
+  implementation:
+    components: [lib/trace.ts, lib/httpClient.ts, features/ailog/useAiLog.ts]
+  tests:
+    - features/ailog/api.test.ts
+    - features/queue/api.test.ts
+  notes: >-
+    SPEC-SC-006's 3 concurrent calls share one parent span. traceparent
+    presence confirmed on the 2026-09-08 live requests. Alongside SPEC-EP-023
+    this closes the entire 43-spec frontend Feature Spec roadmap.

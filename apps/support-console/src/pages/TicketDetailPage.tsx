@@ -4,6 +4,7 @@ import { TriageForm } from "@/features/triage/TriageForm";
 import { AssignmentForm } from "@/features/assignment/AssignmentForm";
 import { StatusTransitionControl } from "@/features/statusTransition/StatusTransitionControl";
 import { AiLogPanel } from "@/features/ailog/AiLogPanel";
+import { TicketApprovals } from "@/features/approval/TicketApprovals";
 
 /**
  * A real route for one ticket, backed by `GET /api/v1/tickets/{id}` — which
@@ -71,6 +72,12 @@ export function TicketDetailPage() {
               <h2 className="text-sm font-semibold text-ink">AI activity</h2>
               <div className="mt-3">
                 <AiLogPanel ticketId={ticket.ticketId} toolRequestId={null} />
+              </div>
+            </section>
+            <section className="rounded-xl border border-border bg-surface p-4 lg:col-span-2">
+              <h2 className="text-sm font-semibold text-ink">Approval</h2>
+              <div className="mt-3">
+                <TicketApprovals ticketId={ticket.ticketId} />
               </div>
             </section>
           </div>

@@ -11,7 +11,14 @@ export type TurnState =
   | "AWAITING_CONFIRMATION"
   | "ACTION_EXECUTING"
   | "ESCALATED"
-  | "AGENT_UNAVAILABLE";
+  | "AGENT_UNAVAILABLE"
+  // SPEC-EP-015: a conversation resumed from a real TERMINAL backend
+  // WorkflowState (COMPLETED / FAILED / CANCELLED — an escalation completes
+  // the workflow instance, per SPEC-ARO-041). Like `ESCALATED` it has no
+  // message-sending edge — the composer must NOT be re-enabled for a
+  // conversation the backend will only ever answer with a 409. Its one edge
+  // is the explicit "start a new conversation" affordance.
+  | "RESUMED_CLOSED";
 
 export type TurnEvent =
   | "sendMessage"
@@ -23,7 +30,8 @@ export type TurnEvent =
   | "declineClicked"
   | "actionOutcomeReceived"
   | "agentUnavailable"
-  | "retry";
+  | "retry"
+  | "startNewConversation";
 
 export class IllegalTurnTransitionError extends Error {
   constructor(state: TurnState, event: TurnEvent) {
@@ -63,6 +71,10 @@ const TRANSITIONS: Record<TurnState, Partial<Record<TurnEvent, TurnState>>> = {
   ACTION_EXECUTING: { actionOutcomeReceived: "IDLE" },
   ESCALATED: {},
   AGENT_UNAVAILABLE: { retry: "SENDING" },
+  // SPEC-EP-015: the only way out is the employee explicitly starting fresh
+  // (the ConversationView banner's own button), which also `reset()`s the
+  // conversation store so the next message opens a brand-new conversation.
+  RESUMED_CLOSED: { startNewConversation: "IDLE" },
 };
 
 export function transition(state: TurnState, event: TurnEvent): TurnState {

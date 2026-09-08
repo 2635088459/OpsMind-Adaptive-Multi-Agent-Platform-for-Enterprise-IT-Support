@@ -22,3 +22,14 @@ export const EVALUATION_IMPROVEMENT_BASE_URL: string = import.meta.env.VITE_EVAL
 
 /** memory-knowledge-service — the admin knowledge-document ingest surface (`/internal/memory/v1/admin/...`). CORS for this browser origin was opened alongside the admin UI. */
 export const MEMORY_KNOWLEDGE_BASE_URL: string = import.meta.env.VITE_MEMORY_KNOWLEDGE_BASE_URL ?? "http://localhost:8010";
+
+/**
+ * Grafana host for the trace deep-link (`05-api-contracts` §"Trace deep link":
+ * `https://{grafana-host}/explore?...traceID={traceId}`). Per UC-SC-05 the
+ * console renders only a preview waterfall in-viewport; real troubleshooting
+ * always links out to Tempo's own UI here.
+ */
+export const GRAFANA_BASE_URL: string = import.meta.env.VITE_GRAFANA_BASE_URL ?? "http://localhost:3000";
+
+/** LangSmith host for the "view the full experiment" link-out (UC-SC-06). This console never calls LangSmith itself — it only builds an outbound URL. */
+export const LANGSMITH_BASE_URL: string = import.meta.env.VITE_LANGSMITH_BASE_URL ?? "https://smith.langchain.com";

@@ -9,6 +9,7 @@ const ALL_STATES: TurnState[] = [
   "ACTION_EXECUTING",
   "ESCALATED",
   "AGENT_UNAVAILABLE",
+  "RESUMED_CLOSED",
 ];
 const ALL_EVENTS: TurnEvent[] = [
   "sendMessage",
@@ -21,6 +22,7 @@ const ALL_EVENTS: TurnEvent[] = [
   "actionOutcomeReceived",
   "agentUnavailable",
   "retry",
+  "startNewConversation",
 ];
 
 describe("turn state machine — every legal edge in 03-state-machine §3.1", () => {
@@ -35,6 +37,7 @@ describe("turn state machine — every legal edge in 03-state-machine §3.1", ()
     ["AWAITING_CONFIRMATION", "declineClicked", "IDLE"],
     ["ACTION_EXECUTING", "actionOutcomeReceived", "IDLE"],
     ["AGENT_UNAVAILABLE", "retry", "SENDING"],
+    ["RESUMED_CLOSED", "startNewConversation", "IDLE"],
   ] satisfies Array<[TurnState, TurnEvent, TurnState]>)("%s + %s -> %s", (from, event, to) => {
     expect(transition(from, event)).toBe(to);
   });
@@ -51,6 +54,7 @@ describe("turn state machine — every legal edge in 03-state-machine §3.1", ()
       "AWAITING_CONFIRMATION:declineClicked",
       "ACTION_EXECUTING:actionOutcomeReceived",
       "AGENT_UNAVAILABLE:retry",
+      "RESUMED_CLOSED:startNewConversation",
     ]);
 
     let illegalPairsChecked = 0;
@@ -75,5 +79,13 @@ describe("turn state machine — every legal edge in 03-state-machine §3.1", ()
     for (const event of ALL_EVENTS) {
       expect(() => transition("ESCALATED", event)).toThrow(IllegalTurnTransitionError);
     }
+  });
+
+  it("SPEC-EP-015: RESUMED_CLOSED only leaves via an explicit startNewConversation — never a message send", () => {
+    for (const event of ALL_EVENTS) {
+      if (event === "startNewConversation") continue;
+      expect(() => transition("RESUMED_CLOSED", event)).toThrow(IllegalTurnTransitionError);
+    }
+    expect(transition("RESUMED_CLOSED", "startNewConversation")).toBe("IDLE");
   });
 });

@@ -4,6 +4,13 @@ export interface AiLogEntry {
   source: "timeline" | "governance-audit" | "tool-request";
   occurredAt: string;
   summary: string;
+  /**
+   * SPEC-SC-008 (UC-SC-02 §3 "if a pending approval request exists, the
+   * approval card is shown alongside" the log): the real
+   * `GovernanceAuditRecordResponse.approvalRequestId` (SPEC-PG-030), nullable
+   * — only governance-audit entries for approval-linked actions carry one.
+   */
+  approvalRequestId?: string | null;
 }
 
 export type SourceName = "timeline" | "governanceAudit" | "toolRequest";

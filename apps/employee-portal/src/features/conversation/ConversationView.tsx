@@ -30,9 +30,17 @@ export function ConversationView() {
   const pendingAction = useConversationStore((state) => state.pendingAction);
   const escalation = useConversationStore((state) => state.escalation);
   const lastActionOutcome = useConversationStore((state) => state.lastActionOutcome);
+  const resumedState = useConversationStore((state) => state.resumedState);
+  const reset = useConversationStore((state) => state.reset);
   const turnState = useTurnStore((state) => state.state);
+  const dispatch = useTurnStore((state) => state.dispatch);
   const subject = useAuthStore((state) => state.lastKnownSubject);
   const showNewTicket = usePortalViewStore((state) => state.showNewTicket);
+
+  function startNewConversation() {
+    reset();
+    dispatch("startNewConversation");
+  }
 
   const confirmAction = useConfirmAction(conversationId ?? "");
   const declineAction = useDeclineAction(conversationId ?? "");
@@ -95,6 +103,8 @@ export function ConversationView() {
                   {entry.author === "employee" ? initials : "OM"}
                 </div>
                 <div
+                  data-testid="message-bubble"
+                  data-author={entry.author}
                   className={
                     entry.author === "employee"
                       ? "rounded-tl-2xl rounded-tr-sm rounded-b-2xl bg-brand-600 px-4 py-3 text-sm text-white"
@@ -139,10 +149,33 @@ export function ConversationView() {
 
             {turnState === "ESCALATED" && escalation ? <EscalationNotice escalation={escalation} /> : null}
 
+            {/* SPEC-EP-015: a resumed conversation the backend will not accept
+                a new message on — terminal (COMPLETED / FAILED / CANCELLED,
+                incl. an escalation) or paused (the WAITING_FOR_x / PAUSED
+                family, which wake on an external event, not a chat message).
+                Never re-enable the composer for it (a send 409s); offer a
+                clean fresh start. */}
+            {turnState === "RESUMED_CLOSED" ? (
+              <div className="rounded-xl border border-border bg-surface-muted p-4 text-sm text-ink" data-testid="resumed-closed-notice">
+                <p>
+                  Your last conversation isn&apos;t active right now
+                  {resumedState ? <> (status: <span className="font-mono text-xs">{resumedState}</span>)</> : null}. Start a new one to describe a fresh issue.
+                </p>
+                <button
+                  type="button"
+                  onClick={startNewConversation}
+                  data-testid="start-new-conversation"
+                  className="mt-3 rounded-lg bg-brand-600 px-3.5 py-1.5 text-sm font-semibold text-white hover:bg-brand-700"
+                >
+                  Start a new conversation
+                </button>
+              </div>
+            ) : null}
+
             {turnState === "IDLE" && lastActionOutcome ? <ActionExecutionStatus outcome={lastActionOutcome} /> : null}
           </div>
 
-          {turnState !== "ESCALATED" ? (
+          {turnState !== "ESCALATED" && turnState !== "RESUMED_CLOSED" ? (
             <div className="border-t border-border px-4 py-3.5">
               <MessageComposer />
             </div>

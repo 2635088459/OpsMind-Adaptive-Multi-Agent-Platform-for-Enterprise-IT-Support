@@ -1,7 +1,12 @@
 import { authedFetch } from "@/lib/httpClient";
 import { TOOL_INTEGRATION_GATEWAY_BASE_URL } from "@/lib/env";
 
-const BASE = `${TOOL_INTEGRATION_GATEWAY_BASE_URL}/connectors`;
+// Real path found live 2026-09-08 (frontend integration verification): the
+// tool-integration-gateway mounts its connector admin routes under
+// `/internal/tool-gateway/v1` (connector_admin_routes.py `APIRouter(prefix=...)`),
+// same prefix as the tool-request GET this app already calls in ailog/api.ts —
+// a bare `/connectors` 404s.
+const BASE = `${TOOL_INTEGRATION_GATEWAY_BASE_URL}/internal/tool-gateway/v1/connectors`;
 
 export interface Connector {
   connectorId: string;

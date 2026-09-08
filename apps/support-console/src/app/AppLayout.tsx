@@ -49,6 +49,9 @@ export function AppLayout() {
               <NavLink to="/" end className={linkClass}>
                 Queue
               </NavLink>
+              <NavLink to="/observability" className={linkClass}>
+                Observability
+              </NavLink>
               {isSupportAdmin(roles) ? (
                 <NavLink to="/admin" className={linkClass}>
                   Admin

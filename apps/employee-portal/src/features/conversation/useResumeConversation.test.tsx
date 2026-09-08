@@ -30,6 +30,21 @@ describe("useResumeConversation", () => {
     expect(useTurnStore.getState().state).toBe("IDLE");
   });
 
+  it.each(["COMPLETED", "FAILED", "CANCELLED", "WAITING_FOR_TOOL", "WAITING_FOR_APPROVAL", "PAUSED"])(
+    "SPEC-EP-015: a resumed non-RUNNING conversation (%s) seeds RESUMED_CLOSED, not IDLE, and records the state",
+    async (state) => {
+      server.use(http.get(MOST_RECENT, () => HttpResponse.json({
+        conversation_id: "conv-x", state, started_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:10:00Z",
+      })));
+
+      renderHook(() => useResumeConversation());
+
+      await waitFor(() => expect(useConversationStore.getState().conversationId).toBe("conv-x"));
+      expect(useTurnStore.getState().state).toBe("RESUMED_CLOSED");
+      expect(useConversationStore.getState().resumedState).toBe(state);
+    },
+  );
+
   it("does nothing when there is genuinely no prior conversation (real 404)", async () => {
     server.use(http.get(MOST_RECENT, () => HttpResponse.json(
       { error: { code: "CONVERSATION_NOT_FOUND", message: "not found" } }, { status: 404 },

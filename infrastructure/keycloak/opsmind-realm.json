@@ -110,6 +110,24 @@
       }
     },
     {
+      "name": "ticket:resolution-confirm",
+      "protocol": "openid-connect",
+      "description": "Real gap found live 2026-09-08 (frontend integration verification): ConfirmResolutionApplicationService requires this scope (SPEC-EP-016 confirm-resolution / SPEC-TW-026) but it never existed in this realm, so the employee portal's confirm path 403'd end-to-end.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "ticket:reopen-request",
+      "protocol": "openid-connect",
+      "description": "Real gap found live 2026-09-08 (frontend integration verification): RequesterReopenTicketApplicationService requires this scope (SPEC-EP-017 reopen / SPEC-TW-028) but it never existed in this realm, so the employee portal's reopen path 403'd end-to-end.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
       "name": "ticket:triage",
       "protocol": "openid-connect",
       "attributes": {
@@ -328,7 +346,9 @@
         "profile",
         "email",
         "tickets:create",
-        "tickets:read:self"
+        "tickets:read:self",
+        "ticket:resolution-confirm",
+        "ticket:reopen-request"
       ]
     },
     {
@@ -448,6 +468,20 @@
             "id.token.claim": "false",
             "userinfo.token.claim": "false"
           }
+        },
+        {
+          "name": "support-queues-all-application-codes",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "support_queues",
+            "claim.value": "[\"HOUSING_PORTAL\",\"EMAIL\",\"VPN\",\"OTHER\"]",
+            "jsonType.label": "JSON",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
         }
       ]
     },
@@ -465,7 +499,9 @@
         "profile",
         "email",
         "tickets:create",
-        "tickets:read:self"
+        "tickets:read:self",
+        "ticket:resolution-confirm",
+        "ticket:reopen-request"
       ]
     }
   ],

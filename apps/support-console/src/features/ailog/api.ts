@@ -28,13 +28,21 @@ interface GovernanceAuditRecordWire {
   action: string;
   recordedAt: string;
   reason: string | null;
+  /** SPEC-PG-030: nullable — only set on approval-linked actions. */
+  approvalRequestId: string | null;
 }
 
 /** SPEC-SC-006: real, already-implemented `GET /api/v1/governance-audit-records?ticketId=...` (GovernanceAuditController, domain 06). See {@link fetchTimelineEntries} for the `traceparent` override's own reasoning. */
 export async function fetchGovernanceAuditEntries(ticketId: string, traceparent?: string): Promise<AiLogEntry[]> {
   const response = await authedFetch(`${POLICY_APPROVAL_GOVERNANCE_BASE_URL}/api/v1/governance-audit-records?ticketId=${encodeURIComponent(ticketId)}`, { method: "GET", headers: traceparent ? { traceparent } : undefined });
   const records = (await response.json()) as GovernanceAuditRecordWire[];
-  return records.map((r) => ({ id: r.auditRecordId, source: "governance-audit", occurredAt: r.recordedAt, summary: r.reason ?? r.action }));
+  return records.map((r) => ({
+    id: r.auditRecordId,
+    source: "governance-audit",
+    occurredAt: r.recordedAt,
+    summary: r.reason ?? r.action,
+    approvalRequestId: r.approvalRequestId ?? null,
+  }));
 }
 
 interface ToolRequestWire {

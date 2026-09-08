@@ -110,4 +110,25 @@ describe("ConversationView — full turn flows", () => {
     expect(await screen.findByTestId("ticket-status-panel")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/describe your issue/i)).not.toBeInTheDocument();
   });
+
+  it("SPEC-EP-015: a resumed CLOSED conversation shows the closed notice, hides the composer, and 'start new' resets to IDLE", async () => {
+    // `reset()` clears conversationId, which re-arms useResumeConversation's
+    // own mount effect — give it a clean 404 so it no-ops rather than hitting
+    // the network.
+    server.use(http.get(`${BASE}/most-recent`, () => HttpResponse.json({ error: { code: "CONVERSATION_NOT_FOUND", message: "x" } }, { status: 404 })));
+    useTurnStore.setState({ state: "RESUMED_CLOSED" });
+    useConversationStore.setState({ resumedState: "COMPLETED" });
+    const user = userEvent.setup();
+    renderWithProviders(<ConversationView />);
+
+    expect(screen.getByTestId("resumed-closed-notice")).toHaveTextContent("COMPLETED");
+    expect(screen.queryByPlaceholderText(/describe your issue/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("start-new-conversation"));
+
+    expect(useTurnStore.getState().state).toBe("IDLE");
+    expect(useConversationStore.getState().conversationId).toBeNull();
+    expect(useConversationStore.getState().resumedState).toBeNull();
+    expect(screen.getByPlaceholderText(/describe your issue/i)).toBeInTheDocument();
+  });
 });

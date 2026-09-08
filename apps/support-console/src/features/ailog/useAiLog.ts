@@ -55,6 +55,20 @@ export function useAiLog(ticketId: string, toolRequestId: string | null) {
     return all.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
   }, [timelineQuery.data, governanceQuery.data, toolRequestQuery.data]);
 
+  /**
+   * SPEC-SC-008 (UC-SC-02 §3): distinct approval-request ids referenced by
+   * this ticket's governance-audit entries, newest first — the ticket detail
+   * page renders an `ApprovalCard` per id. Empty when no approval was ever
+   * requested for this ticket (the common case).
+   */
+  const approvalRequestIds = useMemo<string[]>(() => {
+    const ids = (governanceQuery.data ?? [])
+      .filter((e) => typeof e.approvalRequestId === "string" && e.approvalRequestId.length > 0)
+      .sort((a, b) => new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime())
+      .map((e) => e.approvalRequestId as string);
+    return [...new Set(ids)];
+  }, [governanceQuery.data]);
+
   const sourceStatus: Record<SourceName, AiLogSourceQuery> = {
     timeline: {
       status: timelineQuery.isError ? classifyError(timelineQuery.error) : { kind: "ok" },
@@ -70,5 +84,5 @@ export function useAiLog(ticketId: string, toolRequestId: string | null) {
     },
   };
 
-  return { isLoading, entries, sourceStatus };
+  return { isLoading, entries, approvalRequestIds, sourceStatus };
 }

@@ -5,7 +5,7 @@ import { useAuthStore } from "@/store/authStore";
 import { TOOL_INTEGRATION_GATEWAY_BASE_URL } from "@/lib/env";
 import { listConnectors, registerConnector, updateConnectorStatus } from "@/features/admin/connectors/api";
 
-const BASE = `${TOOL_INTEGRATION_GATEWAY_BASE_URL}/connectors`;
+const BASE = `${TOOL_INTEGRATION_GATEWAY_BASE_URL}/internal/tool-gateway/v1/connectors`;
 
 const ROW = {
   connector_id: "c-1", name: "keycloak-identity-unlock", version: "1.0.0", capabilities: ["identity.user.unlock"],

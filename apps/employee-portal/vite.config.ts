@@ -25,6 +25,9 @@ export default defineConfig({
     strictPort: true,
   },
   test: {
+    // Unit/component tests only. The Playwright E2E specs under e2e/ import
+    // @playwright/test and must never be collected by Vitest's default glob.
+    include: ["src/**/*.test.{ts,tsx}"],
     environment: "jsdom",
     globals: false,
     setupFiles: ["./src/test/setup.ts"],

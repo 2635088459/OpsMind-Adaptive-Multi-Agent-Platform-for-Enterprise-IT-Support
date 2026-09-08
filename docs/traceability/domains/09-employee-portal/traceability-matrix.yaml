@@ -1,0 +1,419 @@
+# Traceability matrix — domain 09-employee-portal
+#
+# Schema per the domain's own roadmap §18 (00-implementation-roadmap_EN.md):
+#   SPEC-xxx:
+#     phase: Phase-0N
+#     design:   { use_cases: [...], api: [...], invariants: [...] }
+#     implementation: { components: [...] }   # real files under apps/employee-portal/src/
+#     tests: [...]                            # real *.test.ts(x) files
+#
+# Verified 2026-09-08 (frontend integration verification). `status` per spec:
+#   - implemented+backend-verified: contract exercised live against the real
+#     running backend during the 2026-09-08 pass.
+#   - implemented+msw: code + tests complete; backend contract still MSW-mocked
+#     because the real endpoint does not exist yet (each such spec names the gap).
+# All 23 specs' own headers already read `Status: Implemented`; the suffix here
+# records how far the *integration* verification could go, not code completeness.
+#
+# App test suite at verification time: 112 tests / 23 files, all green
+# (apps/employee-portal, `npx vitest run`).
+
+SPEC-EP-001:
+  phase: Phase-01
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-01]
+    api: ["GET {BFF}/oauth2/authorization/opsmind", "GET {BFF}/api/v1/session/browser-token"]
+    invariants: []
+    references: ["01-domain-model §UserSession", "03-state-machine §3.3", "11-security-and-authorization §1"]
+  implementation:
+    components: [app/AuthGate.tsx, pages/LoginPage.tsx, lib/authClient.ts, store/authStore.ts, app/router.tsx]
+  tests:
+    - lib/authClient.test.ts
+    - app/AuthGate.test.tsx
+    - store/authStore.test.ts
+  notes: >-
+    Real Authorization-Code + PKCE browser login via user-access-authentication-service's
+    BFF was proven live in the 2026-09-01 platform integration; the browser-token
+    relay shape {accessToken, expiresInSeconds} matches authClient.ts.
+
+SPEC-EP-002:
+  phase: Phase-01
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-01]
+    api: ["GET {BFF}/api/v1/session/browser-token"]
+    invariants: []
+    references: ["03-state-machine §3.3 (AUTHENTICATED <-> TOKEN_REFRESHING <-> SESSION_EXPIRED)"]
+  implementation:
+    components: [store/authStore.ts, app/AuthGate.tsx, lib/authClient.ts]
+  tests:
+    - store/authStore.test.ts
+    - app/AuthGate.sessionExpiry.test.tsx
+
+SPEC-EP-003:
+  phase: Phase-01
+  status: implemented+msw
+  design:
+    use_cases: [UC-EP-01]
+    api: []
+    invariants: [BI-EP-006]
+    references: ["02-business-invariants BI-EP-006", "07-data-model §2.2 draft:{conversationId}", "10-error-handling-and-reconciliation §2.5"]
+  implementation:
+    components: [features/session/draftPreservation.ts, store/authStore.ts]
+  tests:
+    - features/session/draftPreservation.test.ts
+  notes: >-
+    Pure client-side (localStorage, subject-prefixed keys). No backend contract.
+
+SPEC-EP-004:
+  phase: Phase-02
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-01]
+    api: ["POST /api/v1/conversations (SPEC-ARO-038)"]
+    invariants: [BI-EP-001]
+    references: ["01-domain-model §Conversation", "05-api-contracts §2.1"]
+  implementation:
+    components: [features/conversation/useCreateConversation.ts, features/conversation/api.ts, features/conversation/conversationStore.ts, pages/HomePage.tsx]
+  tests:
+    - features/conversation/api.test.ts
+  notes: >-
+    SPEC-ARO-038 is now real. Live 2026-09-08: POST /api/v1/conversations ->
+    {conversation_id, started_at}, matches api.ts startConversation exactly.
+
+SPEC-EP-005:
+  phase: Phase-02
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-02]
+    api: ["POST /api/v1/conversations/{id}/messages (SPEC-ARO-039)"]
+    invariants: [BI-EP-002]
+    references: ["01-domain-model §Message", "05-api-contracts §2.2", "03-state-machine §3.1"]
+  implementation:
+    components: [features/conversation/MessageComposer.tsx, features/conversation/useSendMessage.ts, features/conversation/ConversationView.tsx, features/conversation/api.ts, features/conversation/types.ts]
+  tests:
+    - features/conversation/api.test.ts
+    - features/conversation/ConversationView.test.tsx
+    - features/conversation/MessageComposer.resilience.test.tsx
+  notes: >-
+    Live 2026-09-08 (agent-runtime in static reasoning mode): all 3 response
+    shapes verified against the real endpoint - text, proposedAction
+    {action_id, summary, risk_level, requires_confirmation}, escalation
+    {ticket_id, display_id, reason, assigned_team}. camelCase `type` value with
+    snake_case sibling fields is intentional and handled by toMessageTurn.
+
+SPEC-EP-006:
+  phase: Phase-02
+  status: implemented
+  design:
+    use_cases: [UC-EP-02]
+    api: []
+    invariants: [BI-EP-003]
+    references: ["03-state-machine §3.1", "13-package-and-class-design §4"]
+  implementation:
+    components: [features/conversation/turnState.ts, features/conversation/turnStore.ts]
+  tests:
+    - features/conversation/turnState.test.ts
+    - features/conversation/turnStore.test.ts
+  notes: >-
+    Pure client-side state module. Structurally enforces BI-EP-003 (no path
+    from AWAITING_CONFIRMATION to a side-effecting state without an explicit
+    confirm event).
+
+SPEC-EP-007:
+  phase: Phase-03
+  status: implemented
+  design:
+    use_cases: [UC-EP-03]
+    api: []
+    invariants: [BI-EP-007]
+    references: ["01-domain-model §ProposedAction", "02-business-invariants BI-EP-007", "13-package-and-class-design §5"]
+  implementation:
+    components: [features/conversation/ProposedActionCard.tsx]
+  tests:
+    - features/conversation/ProposedActionCard.test.tsx
+
+SPEC-EP-008:
+  phase: Phase-03
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-03]
+    api: ["POST /api/v1/conversations/{id}/actions/{id}/confirm (SPEC-ARO-040)"]
+    invariants: [BI-EP-003, BI-EP-005]
+    references: ["04-use-cases UC-EP-03", "05-api-contracts §2.3", "SPEC-ARO-040"]
+  implementation:
+    components: [features/conversation/useConfirmAction.ts, features/conversation/ActionExecutionStatus.tsx, features/conversation/api.ts]
+  tests:
+    - features/conversation/ActionExecutionStatus.test.tsx
+    - features/conversation/api.test.ts
+  notes: >-
+    Live 2026-09-08: confirm (LOW risk) -> 200 {"outcome":"still-processing"}
+    (bounded wait times out, no real tool executor - expected, BI-EP-005 holds).
+
+SPEC-EP-009:
+  phase: Phase-03
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-03]
+    api: ["POST /api/v1/conversations/{id}/actions/{id}/decline (SPEC-ARO-040)"]
+    invariants: [BI-EP-003]
+    references: ["04-use-cases UC-EP-03 (alternate flow)", "05-api-contracts §2.3"]
+  implementation:
+    components: [features/conversation/useDeclineAction.ts, features/conversation/ProposedActionCard.tsx, features/conversation/api.ts]
+  tests:
+    - features/conversation/ProposedActionCard.test.tsx
+    - features/conversation/api.test.ts
+  notes: "Live 2026-09-08: decline -> 200 {\"outcome\":\"declined\"}."
+
+SPEC-EP-010:
+  phase: Phase-04
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-02]
+    api: ["POST /api/v1/attachments (attachment-service)"]
+    invariants: [BI-EP-002]
+    references: ["01-domain-model §Attachment", "03-state-machine §3.2", "05-api-contracts §3"]
+  implementation:
+    components: [features/attachment/AttachmentPicker.tsx, features/attachment/useUploadAttachment.ts, features/attachment/attachmentStore.ts, features/attachment/api.ts]
+  tests:
+    - features/attachment/useUploadAttachment.test.ts
+  notes: >-
+    The shared attachments capability is real (services/attachment-service,
+    port 8090). Live 2026-09-08: POST /api/v1/attachments -> 201 {"ref": "..."},
+    matches uploadAttachment exactly.
+
+SPEC-EP-011:
+  phase: Phase-04
+  status: implemented
+  design:
+    use_cases: [UC-EP-02]
+    api: []
+    invariants: [BI-EP-002]
+    references: ["03-state-machine §3.2", "01-domain-model §Attachment (MIME/size allow-list)"]
+  implementation:
+    components: [features/attachment/validation.ts]
+  tests:
+    - features/attachment/validation.test.ts
+  notes: "Client-visible file metadata only; allow-list values are config, not an API call."
+
+SPEC-EP-012:
+  phase: Phase-05
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-04]
+    api: ["conversation message stream escalation entry (SPEC-ARO-039/041)"]
+    invariants: [BI-EP-004, BI-EP-005]
+    references: ["01-domain-model §EscalationNotice", "04-use-cases UC-EP-04", "05-api-contracts §4"]
+  implementation:
+    components: [features/conversation/EscalationNotice.tsx, features/conversation/ConversationView.tsx]
+  tests:
+    - features/conversation/EscalationNotice.test.tsx
+  notes: >-
+    Live 2026-09-08: an escalation-worthy message returns a real
+    {type:"escalation", ticket_id, display_id, reason, assigned_team} with a
+    real ticket created in ticket-workflow (SPEC-ARO-041 triage path).
+
+SPEC-EP-013:
+  phase: Phase-05
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-05]
+    api: ["GET /api/v1/tickets/{id} (02-ticket-workflow, real)"]
+    invariants: [BI-EP-004]
+    references: ["01-domain-model §TicketStatusView", "04-use-cases UC-EP-05", "05-api-contracts §5"]
+  implementation:
+    components: [features/ticket/TicketStatusPanel.tsx, features/ticket/useTicket.ts, features/ticket/api.ts, features/ticket/types.ts]
+  tests:
+    - features/ticket/TicketStatusPanel.test.tsx
+    - features/ticket/api.test.ts
+  notes: >-
+    Live 2026-09-08: GET /api/v1/tickets/{id} -> 200, TicketDetail matches
+    field-for-field. Required Keycloak scope `tickets:read:self` was MISSING
+    from the running realm (only in opsmind-realm.json) - added to the running
+    KC + confirmed 200. Without it the employee token 403'd.
+
+SPEC-EP-014:
+  phase: Phase-05
+  status: implemented+backend-pending
+  design:
+    use_cases: [UC-EP-05]
+    api: ["GET /api/v1/tickets/{id}/events (SSE)"]
+    invariants: [BI-EP-004]
+    references: ["01-domain-model §TicketStatusView", "05-api-contracts §5", "technology-baseline §4 (SSE)"]
+  implementation:
+    components: [features/ticket/useTicketStatusStream.ts]
+  tests:
+    - features/ticket/useTicketStatusStream.test.tsx
+  notes: >-
+    2026-09-08: GET /api/v1/tickets/{id}/events 404s on the RUNNING container,
+    but ticket-workflow-service source DOES have TicketEventStreamController
+    (+ TicketEventBroadcaster, ?token= query-param auth filter chain) as of
+    commit 17ccb66 (2026-09-07). The running image predates it; a rebuild
+    closes this gap. Hook still uses a mock EventSource in tests.
+
+SPEC-EP-015:
+  phase: Phase-05
+  status: implemented+backend-verified
+  design:
+    use_cases: [UC-EP-06]
+    api: ["GET /api/v1/conversations/{id} (SPEC-ARO-042)", "GET /api/v1/conversations/most-recent (SPEC-ARO-042)"]
+    invariants: [BI-EP-004, BI-EP-006]
+    references: ["01-domain-model §Conversation", "04-use-cases UC-EP-06", "05-api-contracts §2.4", "SPEC-ARO-042"]
+  implementation:
+    components: [features/conversation/useResumeConversation.ts, features/conversation/api.ts, features/conversation/turnState.ts, features/conversation/turnStore.ts, features/conversation/conversationStore.ts, features/conversation/ConversationView.tsx]
+  tests:
+    - features/conversation/useResumeConversation.test.tsx
+    - features/conversation/turnState.test.ts
+    - features/conversation/ConversationView.test.tsx
+    - e2e/escalation.spec.ts
+  notes: >-
+    Live 2026-09-08: both endpoints -> 200 {conversation_id, state, started_at,
+    updated_at}, matches api.ts findConversation / findMostRecentConversation
+    (404 -> null path also present). ROUND 6: fixed the resume-a-non-RUNNING-
+    conversation gap the E2E surfaced — `useResumeConversation` used to always
+    `seed("IDLE")`, re-enabling the composer for a terminal (COMPLETED/FAILED/
+    CANCELLED, incl. escalation) OR paused (WAITING_FOR_x/PAUSED) most-recent
+    conversation; the next send then 409'd and SPEC-EP-018 rendered it as a
+    misleading "agent temporarily unavailable". Now any non-RUNNING resumed
+    state seeds a new terminal turn state `RESUMED_CLOSED` (composer hidden +
+    an honest "conversation isn't active — start a new one" banner whose
+    button `reset()`s + returns to IDLE). `escalation.spec.ts` is no longer
+    `test.fixme` — it dismisses the banner and passes end to end.
+
+SPEC-EP-016:
+  phase: Phase-06
+  status: implemented+backend-verified
+  design:
+    use_cases: ["UC-EP-05 (resolution-feedback extension)"]
+    api: ["POST /api/v1/tickets/{id}/resolution-confirmation (02-ticket-workflow / SPEC-TW-026)"]
+    invariants: [BI-EP-004]
+    references: ["01-domain-model §TicketStatusView", "ticket-workflow resolution-confirmation contract"]
+  implementation:
+    components: [features/ticket/TicketStatusPanel.tsx, features/ticket/api.ts]
+  tests:
+    - features/ticket/TicketStatusPanel.test.tsx
+  notes: >-
+    Live 2026-09-08: the required scope `ticket:resolution-confirm` existed
+    NOWHERE (not in opsmind-realm.json, not in the running KC, not on any
+    client) - confirm 403'd end-to-end. Added the client-scope + granted it to
+    user-access-authentication-service + employee-test-client, in both the
+    realm JSON and the running KC. After the fix the call passes auth and
+    correctly returns 409 INVALID_STATUS_TRANSITION for a non-RESOLVED ticket.
+
+SPEC-EP-017:
+  phase: Phase-06
+  status: implemented+backend-verified
+  design:
+    use_cases: ["UC-EP-05 (reopen continuation of SPEC-EP-016)"]
+    api: ["POST /api/v1/tickets/{id}/reopen-request (02-ticket-workflow / SPEC-TW-028)"]
+    invariants: [BI-EP-004]
+    references: ["01-domain-model §TicketStatusView", "ticket-workflow reopen contract"]
+  implementation:
+    components: [features/ticket/TicketStatusPanel.tsx, features/ticket/api.ts]
+  tests:
+    - features/ticket/TicketStatusPanel.test.tsx
+  notes: >-
+    Same as SPEC-EP-016: required scope `ticket:reopen-request` existed
+    nowhere; added it (realm JSON + running KC + 2 clients). After the fix the
+    call passes auth and returns 409 INVALID_TICKET_STATE for a NEW ticket.
+
+SPEC-EP-018:
+  phase: Phase-07
+  status: implemented+backend-verified
+  design:
+    use_cases: []
+    api: ["POST /api/v1/tickets (02-ticket-workflow, real fallback path)"]
+    invariants: [BI-EP-006]
+    references: ["10-error-handling-and-reconciliation §2.1", "03-state-machine §3.1 (error edges)"]
+  implementation:
+    components: [features/conversation/useSendMessage.ts, features/conversation/MessageComposer.tsx, features/ticket/NewTicketForm.tsx, features/ticket/useCreateTicket.ts, features/ticket/api.ts]
+  tests:
+    - features/conversation/MessageComposer.resilience.test.tsx
+    - features/ticket/NewTicketForm.test.tsx
+  notes: >-
+    Live 2026-09-08: POST /api/v1/tickets -> 201 {ticketId, displayId, status,
+    createdAt, version, resolutionCycleId}, matches CreateTicketResult.
+
+SPEC-EP-019:
+  phase: Phase-07
+  status: implemented
+  design:
+    use_cases: []
+    api: []
+    invariants: []
+    references: ["10-error-handling-and-reconciliation §2.3"]
+  implementation:
+    components: [features/session/useOnlineStatus.ts]
+  tests:
+    - features/session/useOnlineStatus.test.ts
+  notes: "Purely client-side (navigator.onLine + heartbeat)."
+
+SPEC-EP-020:
+  phase: Phase-07
+  status: implemented+backend-pending
+  design:
+    use_cases: [UC-EP-05]
+    api: ["GET /api/v1/tickets/{id}/events (SSE)", "GET /api/v1/tickets/{id} (re-fetch on reconnect)"]
+    invariants: [BI-EP-004]
+    references: ["10-error-handling-and-reconciliation §2.4", "SPEC-EP-014"]
+  implementation:
+    components: [features/ticket/useTicketStatusStream.ts]
+  tests:
+    - features/ticket/useTicketStatusStream.test.tsx
+  notes: "Backoff + full-state re-fetch on reconnect. Same SSE-endpoint dependency as SPEC-EP-014."
+
+SPEC-EP-021:
+  phase: Phase-08
+  status: implemented+backend-verified
+  design:
+    use_cases: []
+    api: ["all SPEC-EP-001..020 call sites"]
+    invariants: []
+    references: ["11-security-and-authorization (all)", "each prior spec §14"]
+  implementation:
+    components: [lib/httpClient.ts, lib/authClient.ts, features/conversation/api.ts, features/ticket/api.ts, features/attachment/api.ts]
+  tests:
+    - features/conversation/api.test.ts
+    - features/ticket/api.test.ts
+    - features/attachment/api.test.ts
+    - lib/authClient.test.ts
+  notes: >-
+    The 2026-09-08 integration pass IS a live instance of this audit: it found
+    3 real missing Keycloak scopes (tickets:read:self, ticket:resolution-confirm,
+    ticket:reopen-request) that this app's calls legitimately need and the
+    running realm did not grant. All now added.
+
+SPEC-EP-022:
+  phase: Phase-08
+  status: implemented
+  design:
+    use_cases: []
+    api: []
+    invariants: [BI-EP-004]
+    references: ["11-security-and-authorization §4 (content-rendering security)"]
+  implementation:
+    components: [features/conversation/ConversationView.tsx, features/conversation/ProposedActionCard.tsx, features/conversation/EscalationNotice.tsx, features/attachment/AttachmentPicker.tsx]
+  tests:
+    - features/conversation/xssAudit.test.tsx
+  notes: "Adversarial-fixture rendering across every LLM-authored / user-uploaded content surface; no script execution, no unescaped HTML."
+
+SPEC-EP-023:
+  phase: Phase-08
+  status: implemented+backend-verified
+  design:
+    use_cases: []
+    api: ["every fetch/EventSource call site across SPEC-EP-001..022"]
+    invariants: []
+    references: ["12-observability-and-audit (all)", "each prior spec §15"]
+  implementation:
+    components: [lib/trace.ts, lib/httpClient.ts, lib/authClient.ts]
+  tests:
+    - features/conversation/api.test.ts
+    - features/ticket/api.test.ts
+    - lib/authClient.test.ts
+  notes: >-
+    authClient.ts's browser-token call was the one site not going through
+    authedFetch (runs before any token exists) and originally had no
+    traceparent - fixed during this spec's own audit. Every call site now
+    emits traceparent, confirmed in the 2026-09-08 live requests.

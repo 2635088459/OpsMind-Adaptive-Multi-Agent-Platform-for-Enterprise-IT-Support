@@ -23,14 +23,20 @@ describe("ailog api — SPEC-SC-006 real contracts", () => {
     expect(entries).toEqual([{ id: "item-1", source: "timeline", occurredAt: "2026-01-01T00:00:00Z", summary: "Escalated to network-support-team" }]);
   });
 
-  it("fetchGovernanceAuditEntries maps the real GovernanceAuditRecordResponse shape", async () => {
+  it("fetchGovernanceAuditEntries maps the real GovernanceAuditRecordResponse shape, incl. approvalRequestId", async () => {
     server.use(http.get(`${POLICY_APPROVAL_GOVERNANCE_BASE_URL}/api/v1/governance-audit-records`, ({ request }) => {
       expect(new URL(request.url).searchParams.get("ticketId")).toBe("ticket-1");
-      return HttpResponse.json([{ auditRecordId: "audit-1", action: "REQUESTED", actorId: "agent-1", recordedAt: "2026-01-01T00:05:00Z", reason: "high-risk action requires approval" }]);
+      return HttpResponse.json([
+        { auditRecordId: "audit-1", action: "REQUESTED", actorId: "agent-1", recordedAt: "2026-01-01T00:05:00Z", reason: "high-risk action requires approval", approvalRequestId: "appr-9", policyDecisionId: null, ticketId: "ticket-1" },
+        { auditRecordId: "audit-2", action: "POLICY_EVALUATED", actorId: "agent-1", recordedAt: "2026-01-01T00:04:00Z", reason: null, approvalRequestId: null, policyDecisionId: "pd-1", ticketId: "ticket-1" },
+      ]);
     }));
 
     const entries = await fetchGovernanceAuditEntries("ticket-1");
 
-    expect(entries).toEqual([{ id: "audit-1", source: "governance-audit", occurredAt: "2026-01-01T00:05:00Z", summary: "high-risk action requires approval" }]);
+    expect(entries).toEqual([
+      { id: "audit-1", source: "governance-audit", occurredAt: "2026-01-01T00:05:00Z", summary: "high-risk action requires approval", approvalRequestId: "appr-9" },
+      { id: "audit-2", source: "governance-audit", occurredAt: "2026-01-01T00:04:00Z", summary: "POLICY_EVALUATED", approvalRequestId: null },
+    ]);
   });
 });
