@@ -175,6 +175,68 @@ def test_search_expands_the_graph_from_a_memory_seed_and_attaches_paths() -> Non
     assert item.graph_paths[0].explanation.endswith("via DERIVED_FROM")
 
 
+def test_graph_expansion_relates_two_published_memories_through_a_shared_service_entity() -> None:
+    """End to end: PublishMemoryService links each version node to the SERVICE entity
+    its content names, so a search that matches one memory expands through the shared
+    `memory:service:vpn` node to the other memory's version node — the traversable
+    structure SearchMemoryService's MEMORY-seeded graph expansion needs.
+    """
+    from memoryknowledge.application.commands import PublishMemoryCommand
+    from memoryknowledge.application.services.publish_memory import PublishMemoryService
+    from memoryknowledge.domain.ids import IdempotencyKey, MemoryCandidateId
+    from memoryknowledge.domain.memory_candidate import MemoryCandidate
+    from memoryknowledge.infrastructure.embedding.embedding_provider import DeterministicHashEmbeddingProvider
+    from memoryknowledge.infrastructure.graph.entity_extractor import MarkerBasedEntityExtractorAdapter
+    from memoryknowledge.infrastructure.persistence.in_memory import (
+        InMemoryAuditRecordRepository,
+        InMemoryCommandIdempotencyRepository,
+        InMemoryEmbeddingRepository,
+        InMemoryMemoryCandidateRepository,
+        InMemoryOutboxRepository,
+    )
+
+    memory_repository = InMemoryMemoryRepository()
+    graph_node_repository = InMemoryGraphNodeRepository()
+    graph_edge_repository = InMemoryGraphEdgeRepository()
+    authorization_port = StaticAuthorizationPolicyAdapter()
+    candidate_repository = InMemoryMemoryCandidateRepository()
+
+    publish_service = PublishMemoryService(
+        candidate_repository, memory_repository, graph_node_repository, graph_edge_repository,
+        DeterministicHashEmbeddingProvider(), InMemoryEmbeddingRepository(), RegexRedactionPolicyAdapter(),
+        InMemoryCommandIdempotencyRepository(), InMemoryOutboxRepository(), InMemoryAuditRecordRepository(),
+        authorization_port, SystemClockAdapter(), MemoryTelemetry(), MarkerBasedEntityExtractorAdapter(),
+    )
+
+    def _publish(summary: str, content: str, key: str) -> None:
+        candidate = MemoryCandidate.extract(
+            MemoryCandidateId.new_id(), MemoryType.EPISODIC, (SourceRef("ticket", key),), content, f"hash-{key}", _now(),
+        ).redact(content, RedactionReport()).validate(confidence_score=0.8, source_refs_trusted=True)
+        candidate_repository.save(candidate, expected_status=None)
+        publish_service.publish(PublishMemoryCommand(
+            candidate_id=candidate.candidate_id, usefulness_score=0.7, published_by="admin-1",
+            idempotency_key=IdempotencyKey(f"pub-{key}"), content=content, summary=summary, source_trust_score=0.9,
+        ))
+
+    _publish("vpn login fails after mfa reset", "reconnect the client. SERVICE: vpn", "m1")
+    _publish("vpn drops on unstable wifi", "switch to wired. SERVICE: vpn", "m2")
+
+    expand_service = ExpandKnowledgeGraphService(graph_node_repository, graph_edge_repository, authorization_port, MemoryTelemetry())
+    service = SearchMemoryService(
+        memory_repository, InMemoryKnowledgeDocumentRepository(), graph_node_repository, InMemoryRetrievalLogRepository(),
+        authorization_port, RegexRedactionPolicyAdapter(), SimpleGraphRerankerAdapter(), expand_service, SystemClockAdapter(), MemoryTelemetry(),
+    )
+
+    result = service.search(SearchMemoryCommand(
+        query="vpn login fails", requester_type="agent", requester_id="knowledge-agent-1",
+        access_scope=AccessScope(tenant="acme", role="agent", classification="INTERNAL"), correlation_id=CorrelationId.new_id(),
+    ))
+
+    assert not result.graph_degraded
+    all_paths = [path for item in result.results for path in item.graph_paths]
+    assert any("via MENTIONS" in path.explanation for path in all_paths)
+
+
 def test_search_degrades_gracefully_when_repository_fails_instead_of_fabricating_evidence() -> None:
     class BrokenMemoryRepository(InMemoryMemoryRepository):
         def find_active_versions_by_type(self, memory_type_names, limit):

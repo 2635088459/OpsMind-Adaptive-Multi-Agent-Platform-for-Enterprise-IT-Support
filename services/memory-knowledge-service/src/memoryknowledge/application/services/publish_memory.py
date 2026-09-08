@@ -28,6 +28,7 @@ from memoryknowledge.application.ports_out import (
     CommandIdempotencyRepository,
     EmbeddingProvider,
     EmbeddingRepository,
+    EntityExtractorPort,
     GraphEdgeRepository,
     GraphNodeRepository,
     MemoryCandidateRepository,
@@ -59,6 +60,7 @@ class PublishMemoryService:
         redaction_policy_port: RedactionPolicyPort, command_idempotency_repository: CommandIdempotencyRepository,
         outbox_repository: OutboxRepository, audit_record_repository: AuditRecordRepository,
         authorization_port: AuthorizationPort, clock: ClockPort, telemetry: MemoryTelemetry,
+        entity_extractor_port: EntityExtractorPort,
     ) -> None:
         self._memory_candidate_repository = memory_candidate_repository
         self._memory_repository = memory_repository
@@ -71,6 +73,7 @@ class PublishMemoryService:
         self._authorization_port = authorization_port
         self._clock = clock
         self._telemetry = telemetry
+        self._entity_extractor_port = entity_extractor_port
         self._idempotency_guard = CommandIdempotencyGuard(command_idempotency_repository, clock)
         self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
@@ -264,17 +267,30 @@ class PublishMemoryService:
         node_count += 1
         self._telemetry.record_graph_node_created(GraphNodeType.MEMORY_VERSION.name)
 
+        # UC-05 step 6 "upsert graph nodes / edges，并为新版本建立 ... 关系": the version
+        # node is linked to the SERVICE/APPLICATION/SYMPTOM/... entity nodes its
+        # redacted content names, via the same explicit-marker EntityExtractorPort
+        # document ingestion uses (SPEC-MK-007/008/009) — the same honest placeholder
+        # posture, not a fabricated NLP extraction. This is what gives
+        # SearchMemoryService's graph-expansion path (11-package-and-class-design:
+        # seeded only from MEMORY results) something VISIBLE to traverse: two memories
+        # that name the same service now sit two hops apart through the shared entity
+        # node, so the graph reranker can actually relate them. A memory whose content
+        # carries no markers extracts nothing and this is a no-op, exactly as before.
+        entity_nodes, entity_edges = self._link_version_to_entities(version_node, version, now)
+        node_count += entity_nodes
+        edge_count = entity_edges
+
         if previous_active is None:
-            return node_count, 0
+            return node_count, edge_count
         previous_node = self._graph_node_repository.find_by_stable_key(
             f"memory_version:{previous_active.memory_version_id}", GraphNodeType.MEMORY_VERSION,
         )
         if previous_node is None:
-            return node_count, 0
+            return node_count, edge_count
 
         # 03-state-machine §"Graph Index 状态": "MemoryVersion superseded 时，相关
         # SUPERSEDES 边新增，旧 version 节点默认 HIDDEN."
-        edge_count = 0
         edge_source_hash = hashlib.sha256(f"{version_node.node_id}|{previous_node.node_id}|SUPERSEDES".encode()).hexdigest()
         if self._graph_edge_repository.find_by_natural_key(
             version_node.node_id, previous_node.node_id, GraphEdgeType.SUPERSEDES.name, edge_source_hash,
@@ -287,6 +303,50 @@ class PublishMemoryService:
             edge_count += 1
             self._telemetry.record_graph_edge_created(GraphEdgeType.SUPERSEDES.name)
         self._graph_node_repository.save(previous_node.hide())
+        return node_count, edge_count
+
+    def _link_version_to_entities(
+        self, version_node: GraphNode, version: MemoryVersion, now: datetime,
+    ) -> tuple[int, int]:
+        """Extract SERVICE/APPLICATION/SYMPTOM/... markers from the version's own
+        redacted content and upsert a MENTIONS edge from its MEMORY_VERSION node to
+        each entity node. Entity stable keys are namespaced ``memory:<type>:<name>``
+        (parallel to ingestion's ``<source_system>:<type>:<name>``): distinct
+        published memories that name the same entity share one node, which is exactly
+        the join SearchMemoryService's graph expansion walks. Returns (entity nodes
+        created, MENTIONS edges created).
+        """
+
+        entities, _relations = self._entity_extractor_port.extract(version.content, version.source_refs)
+        node_count = 0
+        edge_count = 0
+        for entity in entities:
+            stable_key = f"memory:{entity.node_type.name.lower()}:{entity.normalized_name}"
+            existing = self._graph_node_repository.find_by_stable_key(stable_key, entity.node_type)
+            if existing is None:
+                entity_node = GraphNode.create(
+                    GraphNodeId.new_id(), entity.node_type, stable_key, entity.display_name,
+                    "INTERNAL", entity.source_refs or version.source_refs, now,
+                )
+                self._graph_node_repository.save(entity_node)
+                entity_node_id = entity_node.node_id
+                node_count += 1
+                self._telemetry.record_graph_node_created(entity.node_type.name)
+            else:
+                entity_node_id = existing.node_id
+
+            edge_source_hash = hashlib.sha256(
+                f"{version_node.node_id}|{entity_node_id}|MENTIONS".encode()
+            ).hexdigest()
+            if self._graph_edge_repository.find_by_natural_key(
+                version_node.node_id, entity_node_id, GraphEdgeType.MENTIONS.name, edge_source_hash,
+            ) is None:
+                self._graph_edge_repository.save(GraphEdge.create(
+                    GraphEdgeId.new_id(), GraphEdgeType.MENTIONS, version_node.node_id, entity_node_id,
+                    0.5, version.source_refs, edge_source_hash, now,
+                ))
+                edge_count += 1
+                self._telemetry.record_graph_edge_created(GraphEdgeType.MENTIONS.name)
         return node_count, edge_count
 
 

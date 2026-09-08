@@ -274,6 +274,7 @@ class Container:
             self.memory_candidate_repository, self.memory_repository, self.graph_node_repository, self.graph_edge_repository,
             self.embedding_provider, self.embedding_repository, self.redaction_policy_port, self.command_idempotency_repository,
             self.outbox_repository, self.audit_record_repository, self.authorization_port, self.clock, self.telemetry,
+            self.entity_extractor_port,
         )
         self.execute_retention_service = ExecuteRetentionService(
             self.memory_repository, self.graph_node_repository, self.graph_edge_repository, self.authorization_port,

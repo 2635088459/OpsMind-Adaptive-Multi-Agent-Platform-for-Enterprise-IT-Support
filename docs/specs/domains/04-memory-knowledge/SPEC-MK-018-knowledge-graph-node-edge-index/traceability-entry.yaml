@@ -28,12 +28,28 @@ SPEC-MK-018:
     (SPEC-MK-015's own new memory_id path), it also writes a `SUPERSEDES` edge from the
     new version's node to the old one's and hides the old version's node — exactly
     matching 03-state-machine's own "MemoryVersion superseded 时，相关 SUPERSEDES 边新增，
-    旧 version 节点默认 HIDDEN." No LLD section specifies an entity/relation-extraction
-    algorithm for Memory content the way documents have one (EntityExtractorPort) — this
-    stays a structural node/edge upsert, not a fabricated extraction; DERIVED_FROM/
-    SUPPORTED_BY/RESOLVED_BY edges to ticket/evidence entities (UC-05 step 6's fuller
-    description) stay unbuilt for the same honest reason — no TICKET/SYMPTOM/etc. graph
-    nodes exist anywhere yet for a Memory to link to.
+    旧 version 节点默认 HIDDEN."
+
+    Follow-up (post-integration, 2026-09-08): the earlier "no entity extraction for
+    Memory content" stance left SearchMemoryService's graph-expansion path — which UC-02
+    seeds *only* from MEMORY results — with nothing VISIBLE to traverse: a MEMORY_VERSION
+    node's only edge (SUPERSEDES) always points at a HIDDEN node, and ExpandKnowledgeGraphService
+    skips non-VISIBLE nodes, so every memory-seeded expansion returned zero paths in
+    practice (agent-runtime-service had `include_graph_paths=false` hard-coded, masking
+    it). PublishMemoryService now runs the *same* explicit-marker EntityExtractorPort
+    document ingestion uses (SPEC-MK-007/008/009) over the version's own redacted
+    content and upserts a `MENTIONS` edge from the MEMORY_VERSION node to each
+    `memory:<type>:<name>` entity node (SERVICE/APPLICATION/SYMPTOM/...). Distinct
+    memories that name the same entity share one node, so two related memories now sit
+    two hops apart through it and the graph reranker can relate them. Same honest
+    placeholder posture as ingestion — an explicit `<TYPE>: <name>` marker syntax, not a
+    fabricated NLP extraction; a memory whose content carries no markers extracts
+    nothing and the upsert is exactly the prior MEMORY + MEMORY_VERSION pair.
+    agent-runtime-service's knowledge_retrieval_client now sends
+    `include_graph_paths=true` so this actually reaches a conversation turn's ranking.
+    DERIVED_FROM/SUPPORTED_BY/RESOLVED_BY edges to ticket/evidence entities (UC-05 step
+    6's fuller description) still stay unbuilt — no TICKET graph nodes exist for a
+    Memory to link to yet.
 
     Also found and closed: 06-event-contracts `knowledge.graph.updated.v1` ("图 nodes /
     edges 被 ingestion 或 memory publish 更新后发布") explicitly names memory publish as a
@@ -53,6 +69,6 @@ SPEC-MK-018:
     - graph_traversal_bypasses_acl
     - cross_domain_distributed_transaction
   test_evidence:
-    unit: "services/memory-knowledge-service/tests (126, includes 3 new: publish creates memory and version graph nodes plus publishes knowledge.graph.updated.v1, supersede writes a SUPERSEDES edge and hides the old version's node)"
-    integration: "services/memory-knowledge-service/tests/integration (23, includes 1 new: publish creates real graph_nodes rows against a real migrated Postgres schema)"
-    result: "149 passed, 3 import-linter contracts kept, 0 pyflakes warnings"
+    unit: "services/memory-knowledge-service/tests (253 unit, includes: publish creates memory and version graph nodes plus publishes knowledge.graph.updated.v1; supersede writes a SUPERSEDES edge and hides the old version's node; and 4 new for the follow-up: publish links the version node to the SERVICE/APPLICATION entity nodes its content names, two memories naming the same service share one entity node, publish without markers creates no MENTIONS edges, and end-to-end graph expansion relates two published memories through a shared service entity)"
+    integration: "services/memory-knowledge-service/tests/integration (publish creates real graph_nodes rows against a real migrated Postgres schema)"
+    result: "253 unit passed, 3 import-linter contracts kept, ruff F/E9 clean; agent-runtime-service 574 unit passed after flipping include_graph_paths"

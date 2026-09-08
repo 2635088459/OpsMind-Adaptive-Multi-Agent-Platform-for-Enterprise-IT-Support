@@ -57,10 +57,25 @@ jobs:
       - name: Platform status
         run: docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
 
-      - name: Seed the RAG knowledge base
-        run: scripts/seed-knowledge-base.sh
+      - name: Seed demo data
+        # Each script is idempotent and talks to the stack over its mapped host
+        # port. seed-governance-policies / seed-demo-tickets also briefly toggle
+        # directAccessGrantsEnabled on a Keycloak client (via `docker exec
+        # opsmind-keycloak kcadm.sh`) and restore it on exit.
+        run: |
+          scripts/seed-knowledge-base.sh
+          scripts/seed-memories.sh
+          scripts/seed-tool-connectors.sh
+          scripts/seed-governance-policies.sh
+          scripts/seed-demo-tickets.sh | tee /tmp/tickets-seed.log
+          # hand the approval-linked demo ticket id to the support-console e2e
+          grep -oE 'SEED_TICKET_WITH_APPROVAL=[0-9a-f-]+' /tmp/tickets-seed.log | tail -1 >> "$GITHUB_ENV" || true
         env:
           MK_BASE_URL: http://localhost:8010
+          TG_BASE_URL: http://localhost:8020
+          PG_BASE_URL: http://localhost:8086
+          TW_BASE_URL: http://localhost:18080
+          KC_URL: http://localhost:8081
 
       - uses: pnpm/action-setup@v4
         with:
@@ -85,6 +100,10 @@ jobs:
       - name: support-console e2e
         if: always()
         run: pnpm --filter support-console test:e2e
+        env:
+          # set by the seed step; points the ticket-approval / @sc-014 specs at
+          # the demo ticket that has a real linked approval request
+          E2E_TICKET_WITH_APPROVAL: ${{ env.SEED_TICKET_WITH_APPROVAL }}
 
       - name: Dump platform logs on failure
         if: failure()

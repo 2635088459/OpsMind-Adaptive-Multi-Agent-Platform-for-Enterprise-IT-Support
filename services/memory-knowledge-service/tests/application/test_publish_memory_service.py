@@ -21,6 +21,7 @@ from memoryknowledge.domain.values import RedactionReport, SourceRef
 from memoryknowledge.infrastructure.authorization import StaticAuthorizationPolicyAdapter
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.embedding.embedding_provider import DeterministicHashEmbeddingProvider
+from memoryknowledge.infrastructure.graph.entity_extractor import MarkerBasedEntityExtractorAdapter
 from memoryknowledge.infrastructure.persistence.in_memory import (
     InMemoryAuditRecordRepository,
     InMemoryCommandIdempotencyRepository,
@@ -51,6 +52,7 @@ def _build_service():
         DeterministicHashEmbeddingProvider(), InMemoryEmbeddingRepository(), RegexRedactionPolicyAdapter(),
         InMemoryCommandIdempotencyRepository(), outbox_repository, InMemoryAuditRecordRepository(),
         StaticAuthorizationPolicyAdapter(), SystemClockAdapter(), MemoryTelemetry(),
+        MarkerBasedEntityExtractorAdapter(),
     )
     return service, candidate_repository, memory_repository, outbox_repository, graph_node_repository, graph_edge_repository
 
@@ -289,6 +291,78 @@ def test_publish_supersede_writes_a_supersedes_edge_and_hides_the_old_version_no
     assert edge.edge_type.name == "SUPERSEDES"
 
 
+def _marker_command(candidate_id: MemoryCandidateId, content: str, idempotency_key: str) -> PublishMemoryCommand:
+    return PublishMemoryCommand(
+        candidate_id=candidate_id, usefulness_score=0.7, published_by="admin-1",
+        idempotency_key=IdempotencyKey(idempotency_key), content=content, summary="short summary",
+        source_trust_score=0.9,
+    )
+
+
+def test_publish_links_the_version_node_to_the_entity_nodes_its_content_names() -> None:
+    """UC-05 step 6 "为新版本建立 ... 关系": a published version's own redacted content is
+    run through the same marker-based EntityExtractorPort ingestion uses, and its
+    MEMORY_VERSION node gets a MENTIONS edge to each entity node it names.
+    """
+    service, candidate_repository, _, outbox_repository, graph_node_repository, graph_edge_repository = _build_service()
+    candidate_id = _seed_validated_candidate(candidate_repository)
+
+    view = service.publish(_marker_command(
+        candidate_id, "resolved by reconnecting. SERVICE: vpn APPLICATION: housing-portal", "publish-markers-1",
+    ))
+
+    version_node = graph_node_repository.find_by_stable_key(
+        f"memory_version:{view.memory_version_id}", GraphNodeType.MEMORY_VERSION,
+    )
+    service_node = graph_node_repository.find_by_stable_key("memory:service:vpn", GraphNodeType.SERVICE)
+    application_node = graph_node_repository.find_by_stable_key("memory:application:housing-portal", GraphNodeType.APPLICATION)
+    assert service_node is not None and application_node is not None
+
+    linked = {e.to_node_id for e in graph_edge_repository.find_adjacent(version_node.node_id, limit=10) if e.edge_type.name == "MENTIONS"}
+    assert service_node.node_id in linked
+    assert application_node.node_id in linked
+    assert any(r.event_type == "knowledge.graph.updated.v1" for r in outbox_repository.recorded())
+
+
+def test_two_memories_naming_the_same_service_share_one_entity_node() -> None:
+    """The join SearchMemoryService's graph expansion walks: distinct published
+    memories that name the same entity resolve to one shared node.
+    """
+    service, candidate_repository, _, _, graph_node_repository, graph_edge_repository = _build_service()
+
+    first_id = _seed_validated_candidate(candidate_repository)
+    first = service.publish(_marker_command(first_id, "step one. SERVICE: vpn", "publish-shared-1"))
+    second_id = _seed_validated_candidate(candidate_repository)
+    second = service.publish(_marker_command(second_id, "step two, different memory. SERVICE: vpn", "publish-shared-2"))
+
+    service_nodes = [
+        graph_node_repository.find_by_stable_key("memory:service:vpn", GraphNodeType.SERVICE),
+    ]
+    assert service_nodes[0] is not None
+    shared_id = service_nodes[0].node_id
+
+    first_version = graph_node_repository.find_by_stable_key(f"memory_version:{first.memory_version_id}", GraphNodeType.MEMORY_VERSION)
+    second_version = graph_node_repository.find_by_stable_key(f"memory_version:{second.memory_version_id}", GraphNodeType.MEMORY_VERSION)
+    for version_node in (first_version, second_version):
+        targets = {e.to_node_id for e in graph_edge_repository.find_adjacent(version_node.node_id, limit=10) if e.edge_type.name == "MENTIONS"}
+        assert shared_id in targets
+
+
+def test_publish_without_markers_creates_no_entity_nodes_or_mentions_edges() -> None:
+    """Backward compatibility: content with no markers extracts nothing, so the graph
+    upsert is exactly the pre-existing MEMORY + MEMORY_VERSION node pair.
+    """
+    service, candidate_repository, _, _, graph_node_repository, graph_edge_repository = _build_service()
+    candidate_id = _seed_validated_candidate(candidate_repository)
+
+    view = service.publish(_command(candidate_id))
+
+    version_node = graph_node_repository.find_by_stable_key(
+        f"memory_version:{view.memory_version_id}", GraphNodeType.MEMORY_VERSION,
+    )
+    assert not [e for e in graph_edge_repository.find_adjacent(version_node.node_id, limit=10) if e.edge_type.name == "MENTIONS"]
+
+
 def test_publishing_against_an_unknown_memory_id_raises_not_found() -> None:
     service, candidate_repository, *_ = _build_service()
     candidate_id = _seed_validated_candidate(candidate_repository)
@@ -321,6 +395,7 @@ def test_embedding_failure_during_publish_propagates_instead_of_creating_a_parti
         _FailingEmbeddingProvider(), InMemoryEmbeddingRepository(), RegexRedactionPolicyAdapter(),
         InMemoryCommandIdempotencyRepository(), InMemoryOutboxRepository(), InMemoryAuditRecordRepository(),
         StaticAuthorizationPolicyAdapter(), SystemClockAdapter(), MemoryTelemetry(),
+        MarkerBasedEntityExtractorAdapter(),
     )
     candidate_id = _seed_validated_candidate(candidate_repository)
     command = PublishMemoryCommand(

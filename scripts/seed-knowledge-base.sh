@@ -45,8 +45,8 @@ ingested=0
 skipped_unchanged=0
 failed=0
 
-# manifest.json -> TSV: file \t external_id \t title \t document_type
-while IFS=$'\t' read -r file external_id title document_type; do
+# manifest.json -> TSV: file \t external_id \t title \t document_type \t version
+while IFS=$'\t' read -r file external_id title document_type version; do
   [ -n "$file" ] || continue
   src_file="${SEED_DIR}/${file}"
   if [ ! -f "$src_file" ]; then
@@ -56,7 +56,7 @@ while IFS=$'\t' read -r file external_id title document_type; do
   fi
 
   payload="$(
-    MK_FILE="$src_file" MK_EXTID="$external_id" MK_TITLE="$title" MK_DOCTYPE="$document_type" \
+    MK_FILE="$src_file" MK_EXTID="$external_id" MK_TITLE="$title" MK_DOCTYPE="$document_type" MK_VERSION="$version" \
     MK_MANIFEST="$MANIFEST" python3 - <<'PY'
 import json, os
 manifest = json.load(open(os.environ["MK_MANIFEST"]))
@@ -66,7 +66,7 @@ print(json.dumps({
     "external_id": os.environ["MK_EXTID"],
     "title": os.environ["MK_TITLE"],
     "document_type": os.environ["MK_DOCTYPE"],
-    "version": manifest["version"],
+    "version": int(os.environ["MK_VERSION"]),
     "raw_content": raw,
     "ingested_by": manifest["ingested_by"],
     "classification": "INTERNAL",
@@ -92,7 +92,7 @@ PY
       skipped_unchanged=$((skipped_unchanged + 1))
       ;;
     409)
-      echo "  CONFLICT ${external_id}  (content changed under the same version -- bump manifest.json \"version\")"
+      echo "  CONFLICT ${external_id}  (content changed under version ${version} -- add a per-doc \"version\": $((version + 1)) to its manifest.json entry)"
       failed=$((failed + 1))
       ;;
     *)
@@ -103,8 +103,10 @@ PY
 done < <(python3 -c '
 import json, sys
 m = json.load(open(sys.argv[1]))
+default_version = m["version"]
 for d in m["documents"]:
-    print("\t".join([d["file"], d["external_id"], d["title"], d["document_type"]]))
+    version = str(d.get("version", default_version))
+    print("\t".join([d["file"], d["external_id"], d["title"], d["document_type"], version]))
 ' "$MANIFEST")
 
 echo

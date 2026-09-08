@@ -112,7 +112,7 @@
     {
       "name": "ticket:resolution-confirm",
       "protocol": "openid-connect",
-      "description": "Real gap found live 2026-09-08 (frontend integration verification): ConfirmResolutionApplicationService requires this scope (SPEC-EP-016 confirm-resolution / SPEC-TW-026) but it never existed in this realm, so the employee portal's confirm path 403'd end-to-end.",
+      "description": "SPEC-EP-016 / SPEC-TW-026: ConfirmResolutionApplicationService requires this scope. Added 2026-09-08 (frontend integration verification) — the employee portal's confirm path 403'd without it.",
       "attributes": {
         "include.in.token.scope": "true",
         "display.on.consent.screen": "false"
@@ -122,6 +122,24 @@
       "name": "ticket:reopen-request",
       "protocol": "openid-connect",
       "description": "Real gap found live 2026-09-08 (frontend integration verification): RequesterReopenTicketApplicationService requires this scope (SPEC-EP-017 reopen / SPEC-TW-028) but it never existed in this realm, so the employee portal's reopen path 403'd end-to-end.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "tickets:message:self",
+      "protocol": "openid-connect",
+      "description": "AddTicketMessageApplicationService requires this scope for a PUBLIC_REQUESTER_MESSAGE (SPEC-TW-004). Added 2026-09-08 so the employee portal / demo seed can post requester replies.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "tickets:message:public",
+      "protocol": "openid-connect",
+      "description": "AddTicketMessageApplicationService requires this scope for a PUBLIC_SUPPORT_MESSAGE (SPEC-TW-004). Added 2026-09-08 so the support console / demo seed can post agent replies.",
       "attributes": {
         "include.in.token.scope": "true",
         "display.on.consent.screen": "false"
@@ -194,7 +212,7 @@
     {
       "name": "approval:decide",
       "protocol": "openid-connect",
-      "description": "SPEC-PG-014 (11-security Permission Model): the RBAC half of approval grant/deny — JwtIdentityAuthorizationAdapter#isAuthorizedApprover requires SCOPE_approval:decide. The ABAC half is the token's own risk_clearance claim (see the risk-clearance client scope).",
+      "description": "SPEC-PG-014: RBAC half of approval grant/deny (JwtIdentityAuthorizationAdapter#isAuthorizedApprover needs SCOPE_approval:decide). ABAC half is the risk_clearance claim.",
       "attributes": {
         "include.in.token.scope": "true",
         "display.on.consent.screen": "false"
@@ -203,7 +221,7 @@
     {
       "name": "risk-clearance",
       "protocol": "openid-connect",
-      "description": "SPEC-PG-014: emits the risk_clearance claim JwtIdentityAuthorizationAdapter#hasRiskClearance reads (a list of RiskLevel names). Hardcoded to full clearance here — per-user/per-role differentiation needs managed user attributes, fiddly to seed through --import-realm on Keycloak 25's declarative user profile, and the RBAC gate (approval:decide) is the real fix; a production IdP sets risk_clearance per principal. See attachment-service-and-multimodal-wiring memory note: never round-trip this file through json.load/dump.",
+      "description": "SPEC-PG-014: emits the risk_clearance claim (RiskLevel names) JwtIdentityAuthorizationAdapter#hasRiskClearance reads. Hardcoded to full clearance; a production IdP sets it per principal. approval:decide is the real RBAC gate.",
       "attributes": {
         "include.in.token.scope": "false",
         "display.on.consent.screen": "false"
@@ -472,6 +490,7 @@
         "policy:publish",
         "tickets:read:queue",
         "tickets:timeline:internal",
+        "tickets:message:public",
         "approval:decide",
         "risk-clearance"
       ],
@@ -536,6 +555,7 @@
         "email",
         "tickets:create",
         "tickets:read:self",
+        "tickets:message:self",
         "ticket:resolution-confirm",
         "ticket:reopen-request"
       ]

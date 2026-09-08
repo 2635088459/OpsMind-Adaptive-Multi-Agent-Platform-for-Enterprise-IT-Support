@@ -44,7 +44,14 @@ class HttpKnowledgeRetrievalClient:
                     "access_scope": {"tenant": _TENANT, "role": _ROLE, "classification": _CLASSIFICATION},
                     "correlation_id": str(workflow_instance_id),
                     "workflow_instance_id": str(workflow_instance_id),
-                    "filters": {"max_results": _MAX_RESULTS, "include_graph_paths": False},
+                    # include_graph_paths=True lets 04-memory-knowledge run its bounded
+                    # graph expansion + rerank over the retrieved seeds: two memories
+                    # that name the same service/application are now connected through a
+                    # shared entity node (memory publish links them — SPEC-MK-018), so a
+                    # graph-related memory gets its rank boosted before the top snippet
+                    # reaches the reasoning step. A graph-only failure degrades to the
+                    # vector/keyword order, never the whole turn (graph_degraded=true).
+                    "filters": {"max_results": _MAX_RESULTS, "include_graph_paths": True},
                 },
             )
         except httpx.HTTPError as exc:

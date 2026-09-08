@@ -23,7 +23,15 @@ any document errors or any probe comes back empty. It is also a step in
 
 `(source_system, external_id, version)` is the ingestion idempotency natural
 key, so re-running is a no-op for unchanged files. If you edit a document's
-content, bump `version` in `manifest.json` or the re-ingest returns HTTP 409.
+content, add a per-doc `"version"` (one higher than its last) to that entry in
+`manifest.json`, or the re-ingest returns HTTP 409. The top-level `"version"`
+is the default for entries with no override.
+
+Note: the service has no "supersede prior version" step, so a bumped version's
+chunks join the retrieval pool *alongside* the old version's until the old rows
+are removed by hand. While iterating on a document that has not been committed
+or deployed yet, prefer deleting its rows and re-ingesting at the same version
+over bumping.
 
 ## Authoring rules
 
