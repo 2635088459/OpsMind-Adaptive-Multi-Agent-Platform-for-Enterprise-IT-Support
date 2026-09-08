@@ -1,0 +1,13 @@
+---
+SPEC-EP-019:
+  domain: '09-employee-portal'
+  phase: Phase-07
+  status: implemented
+  service: apps/employee-portal
+  lld_mapping:
+  - 10-error-handling-and-reconciliation §2.3
+  components:
+  - features/session/useOnlineStatus.ts
+  tests:
+  - features/session/useOnlineStatus.test.ts
+  implementation_notes: Purely client-side (navigator.onLine + heartbeat).

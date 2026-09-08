@@ -1,0 +1,26 @@
+---
+SPEC-EP-008:
+  domain: '09-employee-portal'
+  phase: Phase-03
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-03
+  api:
+  - POST /api/v1/conversations/{id}/actions/{id}/confirm (SPEC-ARO-040)
+  invariants:
+  - BI-EP-003
+  - BI-EP-005
+  lld_mapping:
+  - 04-use-cases UC-EP-03
+  - 05-api-contracts §2.3
+  - SPEC-ARO-040
+  components:
+  - features/conversation/useConfirmAction.ts
+  - features/conversation/ActionExecutionStatus.tsx
+  - features/conversation/api.ts
+  tests:
+  - features/conversation/ActionExecutionStatus.test.tsx
+  - features/conversation/api.test.ts
+  implementation_notes: 'Live 2026-09-08: confirm (LOW risk) -> 200 {"outcome":"still-processing"}
+    (bounded wait times out, no real tool executor - expected, BI-EP-005 holds).'

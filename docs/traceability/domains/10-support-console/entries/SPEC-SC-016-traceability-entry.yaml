@@ -1,0 +1,24 @@
+---
+SPEC-SC-016:
+  domain: 10-support-console
+  phase: Phase-07
+  status: implemented
+  service: apps/support-console
+  use_cases:
+  - UC-SC-04
+  api:
+  - POST /api/v1/tickets/{id}/triage (raced with SPEC-ARO-041)
+  invariants:
+  - BI-SC-005
+  lld_mapping:
+  - 10-error-handling-and-reconciliation §2
+  - SPEC-SC-010
+  - SPEC-SC-013
+  - SPEC-ARO-041
+  components:
+  - features/triage/TriageForm.tsx
+  - features/ticketOps/useVersionedMutation.ts
+  tests:
+  - features/triage/TriageForm.agentRace.test.tsx
+  implementation_notes: Human-vs-agent triage race (the agent can re-triage via SPEC-ARO-041),
+    distinct from SPEC-SC-013's generic human-vs-human case.

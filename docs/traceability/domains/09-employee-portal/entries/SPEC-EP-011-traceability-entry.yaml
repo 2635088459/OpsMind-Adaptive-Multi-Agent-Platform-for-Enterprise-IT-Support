@@ -1,0 +1,19 @@
+---
+SPEC-EP-011:
+  domain: '09-employee-portal'
+  phase: Phase-04
+  status: implemented
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-02
+  invariants:
+  - BI-EP-002
+  lld_mapping:
+  - 03-state-machine §3.2
+  - 01-domain-model §Attachment (MIME/size allow-list)
+  components:
+  - features/attachment/validation.ts
+  tests:
+  - features/attachment/validation.test.ts
+  implementation_notes: Client-visible file metadata only; allow-list values are config,
+    not an API call.

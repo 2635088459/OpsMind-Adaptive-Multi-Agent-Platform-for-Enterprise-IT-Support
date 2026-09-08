@@ -132,7 +132,10 @@ class PublishMemoryService:
             existing_versions = self._memory_repository.find_versions(memory.memory_id)
             next_version = max((v.version for v in existing_versions), default=0) + 1
         else:
-            memory = Memory.create(MemoryId.new_id(), candidate.memory_type, now, classification=command.classification)
+            memory = Memory.create(
+                MemoryId.new_id(), candidate.memory_type, now,
+                classification=command.classification, owner_id=command.owner_id,
+            )
             memory = self._memory_repository.save_memory(memory)
             next_version = 1
 

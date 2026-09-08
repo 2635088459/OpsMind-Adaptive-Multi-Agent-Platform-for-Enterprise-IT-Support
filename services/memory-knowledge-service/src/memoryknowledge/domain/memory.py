@@ -24,16 +24,35 @@ class Memory:
     `memory.memories` §"classification text not null" — 02-business-invariants:
     "高敏 classification 的 memory 默认不可跨 queue / role 检索"; 11-security §"检索前必须
     计算 access scope，并应用到：Memory classification."
+
+    ``owner_id`` is the per-user isolation dimension (frontend-product-vision's
+    "each employee's own isolated RAG space, seeded identically at first, then
+    personalized over time, while the shared org-wide knowledge base keeps
+    growing"). ``None`` = organization-wide (the default and every Memory
+    published before this field existed); a non-``None`` value scopes the
+    Memory to exactly that principal — retrieval returns it only when the
+    requester's own id matches (see SearchMemoryService). Classification/ACL
+    still apply on top; owner is an additional narrowing, never a widening.
     """
 
     memory_id: MemoryId
     memory_type: MemoryType
     classification: str
     created_at: datetime
+    owner_id: str | None = None
 
     @staticmethod
-    def create(memory_id: MemoryId, memory_type: MemoryType, created_at: datetime, classification: str = "INTERNAL") -> "Memory":
-        return Memory(memory_id=memory_id, memory_type=memory_type, classification=classification, created_at=created_at)
+    def create(
+        memory_id: MemoryId,
+        memory_type: MemoryType,
+        created_at: datetime,
+        classification: str = "INTERNAL",
+        owner_id: str | None = None,
+    ) -> "Memory":
+        return Memory(
+            memory_id=memory_id, memory_type=memory_type, classification=classification,
+            created_at=created_at, owner_id=owner_id,
+        )
 
 
 @dataclass(frozen=True, slots=True)

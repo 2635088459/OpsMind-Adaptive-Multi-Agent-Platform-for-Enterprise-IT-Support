@@ -1,0 +1,32 @@
+---
+SPEC-SC-003:
+  domain: 10-support-console
+  phase: Phase-02
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-01
+  api:
+  - GET /api/v1/support/tickets (SupportTicketQueryController)
+  invariants:
+  - BI-SC (queue reflects real backend state)
+  lld_mapping:
+  - 01-domain-model §TicketQueueRow
+  - 04-use-cases UC-SC-01
+  - 05-api-contracts §1
+  components:
+  - features/queue/QueueTable.tsx
+  - features/queue/useQueue.ts
+  - features/queue/api.ts
+  - features/queue/types.ts
+  - pages/QueuePage.tsx
+  tests:
+  - features/queue/QueueTable.test.tsx
+  - features/queue/api.test.ts
+  implementation_notes: 'Live 2026-09-08: GET /api/v1/support/tickets -> 200; QueueRow
+    + QueueResponse.page shapes match queue/types.ts field-for-field. Required a `support_queues`
+    JWT claim (list of ApplicationCode) that the support-console Keycloak client did
+    NOT emit - only actor_type + support_teams. Added a `support-queues-all-application-codes`
+    hardcoded-claim mapper (JSON array [HOUSING_PORTAL,EMAIL,VPN,OTHER]) to the realm
+    JSON + the running KC; without it the queue returned 0 items and every support
+    ticket read 404''d.'

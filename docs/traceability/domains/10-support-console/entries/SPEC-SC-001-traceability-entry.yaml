@@ -1,0 +1,26 @@
+---
+SPEC-SC-001:
+  domain: 10-support-console
+  phase: Phase-01
+  status: implemented+backend-verified
+  service: apps/support-console
+  api:
+  - GET {BFF}/oauth2/authorization/support-console
+  - GET {BFF}/api/v1/session/browser-token
+  invariants:
+  - BI-SC (session presence)
+  lld_mapping:
+  - 01-domain-model §UserSession
+  - 05-api-contracts §1
+  - domain 01 OIDC contract
+  components:
+  - pages/LoginPage.tsx
+  - lib/authClient.ts
+  - store/authStore.ts
+  - app/AppLayout.tsx
+  - app/router.tsx
+  tests:
+  - app/AppLayout.test.tsx
+  implementation_notes: Distinct `support-console` Keycloak client (standardFlow,
+    redirect http://localhost:8087/login/oauth2/code/support-console). Same real Authorization-Code+PKCE
+    mechanism proven live for domain 01.

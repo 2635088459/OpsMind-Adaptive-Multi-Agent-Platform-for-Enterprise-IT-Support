@@ -1,0 +1,28 @@
+---
+SPEC-EP-013:
+  domain: '09-employee-portal'
+  phase: Phase-05
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-05
+  api:
+  - GET /api/v1/tickets/{id} (02-ticket-workflow, real)
+  invariants:
+  - BI-EP-004
+  lld_mapping:
+  - 01-domain-model §TicketStatusView
+  - 04-use-cases UC-EP-05
+  - 05-api-contracts §5
+  components:
+  - features/ticket/TicketStatusPanel.tsx
+  - features/ticket/useTicket.ts
+  - features/ticket/api.ts
+  - features/ticket/types.ts
+  tests:
+  - features/ticket/TicketStatusPanel.test.tsx
+  - features/ticket/api.test.ts
+  implementation_notes: 'Live 2026-09-08: GET /api/v1/tickets/{id} -> 200, TicketDetail
+    matches field-for-field. Required Keycloak scope `tickets:read:self` was MISSING
+    from the running realm (only in opsmind-realm.json) - added to the running KC
+    + confirmed 200. Without it the employee token 403''d.'

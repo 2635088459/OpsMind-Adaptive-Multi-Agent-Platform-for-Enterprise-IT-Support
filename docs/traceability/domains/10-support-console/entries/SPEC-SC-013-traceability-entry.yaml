@@ -1,0 +1,25 @@
+---
+SPEC-SC-013:
+  domain: 10-support-console
+  phase: Phase-05
+  status: implemented
+  service: apps/support-console
+  use_cases:
+  - UC-SC-04
+  - UC-SC-05
+  - UC-SC-06
+  api:
+  - 409/version-conflict response shape of SPEC-SC-010/011/012's endpoints
+  invariants:
+  - BI-SC-005
+  lld_mapping:
+  - 01-domain-model §BI-SC-005
+  - 10-error-handling-and-reconciliation §2
+  components:
+  - features/ticketOps/versionConflict.ts
+  - features/ticketOps/useVersionedMutation.ts
+  - features/ticketOps/VersionConflictBanner.tsx
+  tests:
+  - features/ticketOps/versionConflict.test.ts
+  implementation_notes: 'Shared conflict-handling utility for the 3 mutations: on
+    409, drop the local optimistic state, re-fetch, show the diff before retry.'

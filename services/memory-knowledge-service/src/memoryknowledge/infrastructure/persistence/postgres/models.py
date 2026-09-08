@@ -84,6 +84,11 @@ class MemoryRow(Base):
     application_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     classification: Mapped[str] = mapped_column(String(40), nullable=False, default="INTERNAL")
+    # Per-user RAG isolation (domain.memory.Memory.owner_id's own docstring):
+    # NULL = organization-wide (every Memory published before this column
+    # existed); a value scopes retrieval to exactly that principal. Indexed
+    # because SearchMemoryService filters on it on the hot seed-scan path.
+    owner_id: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

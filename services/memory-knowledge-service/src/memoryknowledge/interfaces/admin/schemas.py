@@ -99,6 +99,11 @@ class ApproveCandidateRequest(BaseModel):
     source_trust_score: float = Field(ge=0, le=1)
     memory_id: UUID | None = None
     classification: str = Field(default="INTERNAL", min_length=1)
+    # Per-user RAG isolation. Omit (or null) to publish an organization-wide
+    # Memory (the default); set to a principal id to scope the new Memory to
+    # that user's own isolated retrieval space. Ignored when memory_id is set
+    # (an existing Memory's owner never changes).
+    owner_id: str | None = Field(default=None, min_length=1)
 
 
 class MemoryCandidateResponse(BaseModel):

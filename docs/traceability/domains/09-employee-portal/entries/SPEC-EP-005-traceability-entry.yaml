@@ -1,0 +1,31 @@
+---
+SPEC-EP-005:
+  domain: '09-employee-portal'
+  phase: Phase-02
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-02
+  api:
+  - POST /api/v1/conversations/{id}/messages (SPEC-ARO-039)
+  invariants:
+  - BI-EP-002
+  lld_mapping:
+  - 01-domain-model §Message
+  - 05-api-contracts §2.2
+  - 03-state-machine §3.1
+  components:
+  - features/conversation/MessageComposer.tsx
+  - features/conversation/useSendMessage.ts
+  - features/conversation/ConversationView.tsx
+  - features/conversation/api.ts
+  - features/conversation/types.ts
+  tests:
+  - features/conversation/api.test.ts
+  - features/conversation/ConversationView.test.tsx
+  - features/conversation/MessageComposer.resilience.test.tsx
+  implementation_notes: 'Live 2026-09-08 (agent-runtime in static reasoning mode):
+    all 3 response shapes verified against the real endpoint - text, proposedAction
+    {action_id, summary, risk_level, requires_confirmation}, escalation {ticket_id,
+    display_id, reason, assigned_team}. camelCase `type` value with snake_case sibling
+    fields is intentional and handled by toMessageTurn.'

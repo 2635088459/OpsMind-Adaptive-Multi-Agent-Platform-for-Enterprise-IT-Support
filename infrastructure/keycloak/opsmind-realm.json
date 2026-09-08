@@ -192,6 +192,40 @@
       }
     },
     {
+      "name": "approval:decide",
+      "protocol": "openid-connect",
+      "description": "SPEC-PG-014 (11-security Permission Model): the RBAC half of approval grant/deny — JwtIdentityAuthorizationAdapter#isAuthorizedApprover requires SCOPE_approval:decide. The ABAC half is the token's own risk_clearance claim (see the risk-clearance client scope).",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "risk-clearance",
+      "protocol": "openid-connect",
+      "description": "SPEC-PG-014: emits the risk_clearance claim JwtIdentityAuthorizationAdapter#hasRiskClearance reads (a list of RiskLevel names). Hardcoded to full clearance here — per-user/per-role differentiation needs managed user attributes, fiddly to seed through --import-realm on Keycloak 25's declarative user profile, and the RBAC gate (approval:decide) is the real fix; a production IdP sets risk_clearance per principal. See attachment-service-and-multimodal-wiring memory note: never round-trip this file through json.load/dump.",
+      "attributes": {
+        "include.in.token.scope": "false",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "risk-clearance-hardcoded",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-hardcoded-claim-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "risk_clearance",
+            "claim.value": "[\"LOW\",\"MEDIUM\",\"HIGH\",\"CRITICAL\"]",
+            "jsonType.label": "JSON",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
       "name": "policy:read",
       "protocol": "openid-connect",
       "description": "Read side of the Admin Policy API (GET /api/v1/policies, GET /api/v1/policies/{id}) — support-console's Policy admin list/detail view.",
@@ -437,7 +471,9 @@
         "policy:review",
         "policy:publish",
         "tickets:read:queue",
-        "tickets:timeline:internal"
+        "tickets:timeline:internal",
+        "approval:decide",
+        "risk-clearance"
       ],
       "protocolMappers": [
         {

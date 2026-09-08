@@ -328,7 +328,10 @@ class PostgresMemoryRepository:
         with self._session_factory() as session:
             row = session.get(MemoryRow, memory_id.value)
             return (
-                Memory(memory_id=MemoryId(row.id), memory_type=MemoryType[row.memory_type], classification=row.classification, created_at=row.created_at)
+                Memory(
+                    memory_id=MemoryId(row.id), memory_type=MemoryType[row.memory_type],
+                    classification=row.classification, created_at=row.created_at, owner_id=row.owner_id,
+                )
                 if row else None
             )
 
@@ -340,7 +343,7 @@ class PostgresMemoryRepository:
                 session.execute(
                     MemoryRow.__table__.insert().values(
                         id=memory.memory_id.value, memory_type=memory.memory_type.name, classification=memory.classification,
-                        created_at=memory.created_at, updated_at=memory.created_at,
+                        owner_id=memory.owner_id, created_at=memory.created_at, updated_at=memory.created_at,
                     )
                 )
                 session.commit()

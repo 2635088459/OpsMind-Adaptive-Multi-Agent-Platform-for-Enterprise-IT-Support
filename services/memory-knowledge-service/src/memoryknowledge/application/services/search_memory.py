@@ -111,6 +111,15 @@ class SearchMemoryService:
             memory_type_names = tuple(t.name for t in command.memory_types)
             for version in self._memory_repository.find_active_versions_by_type(memory_type_names, limit=200):
                 memory = self._memory_repository.find_memory_by_id(version.memory_id)
+                # Per-user RAG isolation (domain.memory.Memory.owner_id): an
+                # owner-scoped Memory is only ever retrievable by that exact
+                # principal. owner_id is None for every organization-wide
+                # Memory (the default), so this is a no-op for the shared
+                # knowledge base and a hard filter for personalized memories —
+                # applied before, and independently of, the classification/ACL
+                # gate below (owner narrows, it never widens).
+                if memory is not None and memory.owner_id is not None and memory.owner_id != command.requester_id:
+                    continue
                 classification = memory.classification if memory is not None else _FALLBACK_CLASSIFICATION
                 if not self._authorization_port.is_retrieval_authorized(command.access_scope, classification):
                     continue

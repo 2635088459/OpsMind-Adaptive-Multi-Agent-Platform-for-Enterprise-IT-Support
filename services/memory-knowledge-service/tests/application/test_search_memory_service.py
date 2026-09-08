@@ -269,3 +269,58 @@ def test_search_excludes_deprecated_and_deleted_memory_versions() -> None:
     assert str(active.memory_id) in returned_ids
     assert str(deprecated_source.memory_id) not in returned_ids
     assert str(deleted_source.memory_id) not in returned_ids
+
+
+def _seed_active_version_owned(
+    memory_repository: InMemoryMemoryRepository, *, summary: str, owner_id: str | None,
+    memory_type: MemoryType = MemoryType.EPISODIC,
+) -> MemoryVersion:
+    """Like _seed_active_version but sets Memory.owner_id (per-user RAG isolation)."""
+    memory = Memory.create(MemoryId.new_id(), memory_type, _now(), classification="INTERNAL", owner_id=owner_id)
+    memory_repository.save_memory(memory)
+    version = MemoryVersion.create_active(
+        MemoryVersionId.new_id(), memory.memory_id, 1, summary, summary, (SourceRef("ticket", "T-1"),),
+        RedactionReport(), 0.8, 0.7, f"hash-{uuid.uuid4()}", "agent-1", _now(),
+    )
+    return memory_repository.save_version(version, expected_status=None)
+
+
+def test_search_isolates_an_owner_scoped_memory_to_its_own_principal() -> None:
+    """Per-user RAG isolation: a Memory published with owner_id="employee-A" is
+    retrievable only when the requester_id is exactly "employee-A". A different
+    requester never sees it, even with the same tenant/role/classification and a
+    matching query.
+    """
+    service, memory_repository, _ = _build_service()
+    _seed_active_version_owned(memory_repository, summary="vpn keeps dropping on my macbook", owner_id="employee-A")
+
+    scope = AccessScope(tenant="acme", role="agent", classification="INTERNAL")
+
+    owner_result = service.search(SearchMemoryCommand(
+        query="vpn keeps dropping", requester_type="employee", requester_id="employee-A",
+        access_scope=scope, correlation_id=CorrelationId.new_id(),
+    ))
+    other_result = service.search(SearchMemoryCommand(
+        query="vpn keeps dropping", requester_type="employee", requester_id="employee-B",
+        access_scope=scope, correlation_id=CorrelationId.new_id(),
+    ))
+
+    assert len(owner_result.results) == 1
+    assert other_result.results == ()
+
+
+def test_search_still_returns_organization_wide_memories_to_every_requester() -> None:
+    """owner_id=None (the default and every Memory published before this field)
+    stays org-wide — the shared knowledge base is unchanged by the isolation
+    filter.
+    """
+    service, memory_repository, _ = _build_service()
+    _seed_active_version_owned(memory_repository, summary="printer on floor 3 needs a firmware update", owner_id=None)
+
+    scope = AccessScope(tenant="acme", role="agent", classification="INTERNAL")
+    for requester in ("employee-A", "employee-B", "knowledge-agent-1"):
+        result = service.search(SearchMemoryCommand(
+            query="printer firmware update", requester_type="agent", requester_id=requester,
+            access_scope=scope, correlation_id=CorrelationId.new_id(),
+        ))
+        assert len(result.results) == 1, f"org-wide memory not returned for {requester}"

@@ -1,0 +1,24 @@
+---
+SPEC-EP-004:
+  domain: '09-employee-portal'
+  phase: Phase-02
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-01
+  api:
+  - POST /api/v1/conversations (SPEC-ARO-038)
+  invariants:
+  - BI-EP-001
+  lld_mapping:
+  - 01-domain-model §Conversation
+  - 05-api-contracts §2.1
+  components:
+  - features/conversation/useCreateConversation.ts
+  - features/conversation/api.ts
+  - features/conversation/conversationStore.ts
+  - pages/HomePage.tsx
+  tests:
+  - features/conversation/api.test.ts
+  implementation_notes: 'SPEC-ARO-038 is now real. Live 2026-09-08: POST /api/v1/conversations
+    -> {conversation_id, started_at}, matches api.ts startConversation exactly.'

@@ -334,3 +334,36 @@ def test_embedding_failure_during_publish_propagates_instead_of_creating_a_parti
     # embed() is called before save_version() in _do_publish() — a failure there
     # must never leave a MemoryVersion behind, redacted content or not.
     assert memory_repository.find_by_source_hash(hashlib.sha256(b"x").hexdigest()) is None
+
+
+def test_publish_without_owner_id_creates_an_organization_wide_memory() -> None:
+    """Per-user RAG isolation, default path: owner_id omitted -> Memory.owner_id
+    is None -> the Memory is org-wide, exactly as every publish behaved before
+    the field existed.
+    """
+    service, candidate_repository, memory_repository, *_ = _build_service()
+    candidate_id = _seed_validated_candidate(candidate_repository)
+
+    view = service.publish(_command(candidate_id))
+
+    memory = memory_repository.find_memory_by_id(view.memory_id)
+    assert memory is not None and memory.owner_id is None
+
+
+def test_publish_with_owner_id_scopes_the_new_memory_to_that_principal() -> None:
+    """owner_id set -> the new Memory identity carries it, so SearchMemoryService
+    will only ever return it to that principal.
+    """
+    service, candidate_repository, memory_repository, *_ = _build_service()
+    candidate_id = _seed_validated_candidate(candidate_repository)
+    command = PublishMemoryCommand(
+        candidate_id=candidate_id, usefulness_score=0.7, published_by="admin-1",
+        idempotency_key=IdempotencyKey("publish-owned-1"),
+        content="full resolution content", summary="short summary", source_trust_score=0.9,
+        owner_id="employee-A",
+    )
+
+    view = service.publish(command)
+
+    memory = memory_repository.find_memory_by_id(view.memory_id)
+    assert memory is not None and memory.owner_id == "employee-A"

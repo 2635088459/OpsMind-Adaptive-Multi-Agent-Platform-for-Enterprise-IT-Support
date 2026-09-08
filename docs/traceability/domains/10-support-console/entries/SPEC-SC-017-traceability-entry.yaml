@@ -1,0 +1,24 @@
+---
+SPEC-SC-017:
+  domain: 10-support-console
+  phase: Phase-07
+  status: implemented+source-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-03
+  api:
+  - POST /api/v1/approval-requests/{id}:grant / :deny (SPEC-PG-011 3-way check)
+  invariants:
+  - BI-SC-005
+  lld_mapping:
+  - SPEC-PG-011
+  - SPEC-SC-009
+  components:
+  - features/approval/ApprovalCard.tsx
+  - features/approval/api.ts
+  - features/approval/useApproval.ts
+  tests:
+  - features/approval/ApprovalCard.concurrentDecision.test.tsx
+  implementation_notes: 'Verifies the frontend handles both real outcomes of ApprovalService#decide''s
+    strict AND check (commandIdempotencyKey + outcome + decidedBy): exact-3-way-match
+    idempotent replay vs. any-mismatch-is-a-conflict.'

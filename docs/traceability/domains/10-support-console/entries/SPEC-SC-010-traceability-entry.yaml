@@ -1,0 +1,26 @@
+---
+SPEC-SC-010:
+  domain: 10-support-console
+  phase: Phase-05
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-04
+  api:
+  - POST /api/v1/tickets/{id}/triage (TriageTicketController)
+  invariants:
+  - BI-SC (fidelity)
+  lld_mapping:
+  - 04-use-cases UC-SC-04
+  - domain 02 triage endpoint (also SPEC-ARO-041's path)
+  components:
+  - features/triage/TriageForm.tsx
+  - features/triage/useTriageTicket.ts
+  - features/triage/api.ts
+  - features/triage/types.ts
+  tests:
+  - features/triage/TriageForm.test.tsx
+  implementation_notes: 'Live 2026-09-08: POST .../triage -> 200 status TRIAGED. TriageInput
+    {categoryId, subcategoryId?, priority, supportQueueId, reason} and TriageTicketResponse
+    match the real @NotNull/@NotBlank/@Size-annotated Java records. SC sends bare
+    (unquoted) If-Match: <version>, accepted live.'

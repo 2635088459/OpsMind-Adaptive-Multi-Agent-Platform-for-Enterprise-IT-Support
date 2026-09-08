@@ -235,15 +235,20 @@ class Container:
         self.expand_knowledge_graph_service = ExpandKnowledgeGraphService(
             self.graph_node_repository, self.graph_edge_repository, self.authorization_port, self.telemetry,
         )
+        # Only a real semantic embedding provider gets the pgvector nearest-
+        # neighbour path wired: a hash embedding has no meaningful neighbours, so
+        # its cosine distances are noise that would outrank real keyword hits.
+        # This must gate on the *actual* provider, not settings.embedding_provider
+        # — "openai" with a missing key falls back to the deterministic hash
+        # provider (see _build_embedding_provider), and that fallback has to land
+        # on clean keyword-only retrieval, not garbage-scored semantic results.
+        semantic_retrieval_active = isinstance(self.embedding_provider, OpenAIEmbeddingProvider)
         self.search_memory_service = SearchMemoryService(
             self.memory_repository, self.knowledge_document_repository, self.graph_node_repository,
             self.retrieval_log_repository, self.authorization_port, self.redaction_policy_port,
             self.graph_reranker_port, self.expand_knowledge_graph_service, self.clock, self.telemetry,
-            # Only the real OpenAI provider gets the pgvector semantic path wired
-            # (a hash embedding has no meaningful nearest neighbours). With the
-            # deterministic default this stays None and search is keyword-only.
-            embedding_provider=self.embedding_provider if settings.embedding_provider == "openai" else None,
-            embedding_repository=self.embedding_repository if settings.embedding_provider == "openai" else None,
+            embedding_provider=self.embedding_provider if semantic_retrieval_active else None,
+            embedding_repository=self.embedding_repository if semantic_retrieval_active else None,
         )
         self.ingest_document_service = IngestKnowledgeDocumentService(
             self.knowledge_document_repository, self.document_parser_port, self.redaction_policy_port,

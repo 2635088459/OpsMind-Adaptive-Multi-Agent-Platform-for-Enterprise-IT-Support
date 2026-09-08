@@ -1,0 +1,23 @@
+---
+SPEC-SC-004:
+  domain: 10-support-console
+  phase: Phase-02
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-01
+  api:
+  - GET /api/v1/support/tickets (same response, sla + priority fields)
+  invariants:
+  - BI-SC-002
+  lld_mapping:
+  - 01-domain-model §TicketQueueRow
+  - domain 02 severity/SLA field defs
+  components:
+  - features/queue/slaDisplay.ts
+  - features/queue/QueueTable.tsx
+  tests:
+  - features/queue/slaDisplay.test.ts
+  implementation_notes: SLA countdown computed from the real `sla.responseDueAt`/`resolutionDueAt`
+    /`urgencyRank` fields present in the live queue-row payload. Semantic severity
+    color kept separate from the brand accent.

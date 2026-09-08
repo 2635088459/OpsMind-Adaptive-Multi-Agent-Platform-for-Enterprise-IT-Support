@@ -1,0 +1,26 @@
+---
+SPEC-EP-010:
+  domain: '09-employee-portal'
+  phase: Phase-04
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-02
+  api:
+  - POST /api/v1/attachments (attachment-service)
+  invariants:
+  - BI-EP-002
+  lld_mapping:
+  - 01-domain-model §Attachment
+  - 03-state-machine §3.2
+  - 05-api-contracts §3
+  components:
+  - features/attachment/AttachmentPicker.tsx
+  - features/attachment/useUploadAttachment.ts
+  - features/attachment/attachmentStore.ts
+  - features/attachment/api.ts
+  tests:
+  - features/attachment/useUploadAttachment.test.ts
+  implementation_notes: 'The shared attachments capability is real (services/attachment-service,
+    port 8090). Live 2026-09-08: POST /api/v1/attachments -> 201 {"ref": "..."}, matches
+    uploadAttachment exactly.'

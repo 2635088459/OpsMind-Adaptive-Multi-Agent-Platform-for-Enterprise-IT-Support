@@ -1,0 +1,47 @@
+---
+SPEC-SC-015:
+  domain: 10-support-console
+  phase: Phase-06
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-07
+  api:
+  - GET /evaluation/runs/{id}
+  - GET /evaluation/runs/{id}/scores
+  - GET /evaluation/runs/{id}/regression-report
+  invariants:
+  - table reflects real scoring data, no fabricated numbers
+  lld_mapping:
+  - 01-domain-model §EvaluationComparisonTable
+  - 04-use-cases UC-SC-07
+  - Agent Observability mockup (LangSmith section)
+  - domain 07 run/scoring model
+  components:
+  - pages/ObservabilityPage.tsx
+  - features/evaluation/EvaluationComparisonTable.tsx
+  - features/evaluation/useEvaluationComparison.ts
+  - features/evaluation/api.ts
+  - features/evaluation/comparisonTable.ts
+  - features/evaluation/types.ts
+  - app/router.tsx
+  - app/AppLayout.tsx
+  tests:
+  - features/evaluation/EvaluationComparisonTable.test.tsx
+  - features/evaluation/api.test.ts
+  - features/evaluation/comparisonTable.test.ts
+  - pages/ObservabilityPage.test.tsx
+  - e2e/observability.spec.ts
+  implementation_notes: 'ROUND 5 (2026-09-08): WIRED into the Observability page (paste-a-runId
+    form + "View in LangSmith" link-out, UC-SC-06). ROUND 6: seeded a real demo comparison
+    via evaluation-improvement-service/migrations/…e1c7a9d4b206_seed_demo_evaluation_run.py
+    — a published dataset + 3 test cases + baseline run agent-v1.0.0 + candidate run
+    agent-v1.1.0 (id 20000000-0000-0000-0000-000000000002) + 9 scores each across
+    CLASSIFICATION_ACCURACY / TOOL_SELECTION / RESOLUTION_SUCCESS + a regression report,
+    with a deliberate TOOL_SELECTION regression (0.92 -> 0.83). Browser E2E now renders
+    the real table: "agent-v1.1.0 vs. baseline agent-v1.0.0" with the 3 metric rows
+    and the regression highlighted. Migration gotchas: `op.execute` parses `:0` in
+    `"delta":0.05` as a bind param (switched to `bind.exec_driver_sql`); `metric_diffs_json`
+    entries are deserialized as `MetricDiff(**entry)` so a non-matching shape 500s
+    the regression-report read (seeded as `[]`). Wire shape is genuinely snake_case
+    (run_id, baseline_run_id, ...), no alias_generator - preserved as-is in evaluation/types.ts.'

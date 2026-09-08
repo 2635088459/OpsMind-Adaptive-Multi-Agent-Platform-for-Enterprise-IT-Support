@@ -1,0 +1,26 @@
+---
+SPEC-EP-021:
+  domain: '09-employee-portal'
+  phase: Phase-08
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  api:
+  - all SPEC-EP-001..020 call sites
+  lld_mapping:
+  - 11-security-and-authorization (all)
+  - each prior spec §14
+  components:
+  - lib/httpClient.ts
+  - lib/authClient.ts
+  - features/conversation/api.ts
+  - features/ticket/api.ts
+  - features/attachment/api.ts
+  tests:
+  - features/conversation/api.test.ts
+  - features/ticket/api.test.ts
+  - features/attachment/api.test.ts
+  - lib/authClient.test.ts
+  implementation_notes: 'The 2026-09-08 integration pass IS a live instance of this
+    audit: it found 3 real missing Keycloak scopes (tickets:read:self, ticket:resolution-confirm,
+    ticket:reopen-request) that this app''s calls legitimately need and the running
+    realm did not grant. All now added.'

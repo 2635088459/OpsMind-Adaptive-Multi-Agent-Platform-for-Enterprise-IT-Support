@@ -1,0 +1,22 @@
+---
+SPEC-EP-006:
+  domain: '09-employee-portal'
+  phase: Phase-02
+  status: implemented
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-02
+  invariants:
+  - BI-EP-003
+  lld_mapping:
+  - 03-state-machine §3.1
+  - 13-package-and-class-design §4
+  components:
+  - features/conversation/turnState.ts
+  - features/conversation/turnStore.ts
+  tests:
+  - features/conversation/turnState.test.ts
+  - features/conversation/turnStore.test.ts
+  implementation_notes: Pure client-side state module. Structurally enforces BI-EP-003
+    (no path from AWAITING_CONFIRMATION to a side-effecting state without an explicit
+    confirm event).

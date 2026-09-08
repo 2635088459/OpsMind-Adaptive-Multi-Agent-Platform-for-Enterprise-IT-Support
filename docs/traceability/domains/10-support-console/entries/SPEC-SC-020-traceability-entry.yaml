@@ -1,0 +1,24 @@
+---
+SPEC-SC-020:
+  domain: 10-support-console
+  phase: Phase-08
+  status: implemented+backend-verified
+  service: apps/support-console
+  api:
+  - every fetch/EventSource call site across SPEC-SC-001..019
+  invariants:
+  - no network call in this app is untraceable
+  lld_mapping:
+  - 12-observability-and-audit (all)
+  - each prior spec §15
+  - SPEC-SC-014
+  components:
+  - lib/trace.ts
+  - lib/httpClient.ts
+  - features/ailog/useAiLog.ts
+  tests:
+  - features/ailog/api.test.ts
+  - features/queue/api.test.ts
+  implementation_notes: SPEC-SC-006's 3 concurrent calls share one parent span. traceparent
+    presence confirmed on the 2026-09-08 live requests. Alongside SPEC-EP-023 this
+    closes the entire 43-spec frontend Feature Spec roadmap.

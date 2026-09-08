@@ -1,0 +1,19 @@
+---
+SPEC-EP-022:
+  domain: '09-employee-portal'
+  phase: Phase-08
+  status: implemented
+  service: apps/employee-portal
+  invariants:
+  - BI-EP-004
+  lld_mapping:
+  - 11-security-and-authorization §4 (content-rendering security)
+  components:
+  - features/conversation/ConversationView.tsx
+  - features/conversation/ProposedActionCard.tsx
+  - features/conversation/EscalationNotice.tsx
+  - features/attachment/AttachmentPicker.tsx
+  tests:
+  - features/conversation/xssAudit.test.tsx
+  implementation_notes: Adversarial-fixture rendering across every LLM-authored /
+    user-uploaded content surface; no script execution, no unescaped HTML.

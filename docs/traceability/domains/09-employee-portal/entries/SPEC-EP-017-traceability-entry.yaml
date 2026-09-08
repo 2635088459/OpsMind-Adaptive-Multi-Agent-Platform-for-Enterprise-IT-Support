@@ -1,0 +1,23 @@
+---
+SPEC-EP-017:
+  domain: '09-employee-portal'
+  phase: Phase-06
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-05 (reopen continuation of SPEC-EP-016)
+  api:
+  - POST /api/v1/tickets/{id}/reopen-request (02-ticket-workflow / SPEC-TW-028)
+  invariants:
+  - BI-EP-004
+  lld_mapping:
+  - 01-domain-model §TicketStatusView
+  - ticket-workflow reopen contract
+  components:
+  - features/ticket/TicketStatusPanel.tsx
+  - features/ticket/api.ts
+  tests:
+  - features/ticket/TicketStatusPanel.test.tsx
+  implementation_notes: 'Same as SPEC-EP-016: required scope `ticket:reopen-request`
+    existed nowhere; added it (realm JSON + running KC + 2 clients). After the fix
+    the call passes auth and returns 409 INVALID_TICKET_STATE for a NEW ticket.'

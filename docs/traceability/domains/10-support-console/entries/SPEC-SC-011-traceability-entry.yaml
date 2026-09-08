@@ -1,0 +1,31 @@
+---
+SPEC-SC-011:
+  domain: 10-support-console
+  phase: Phase-05
+  status: implemented+source-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-05
+  api:
+  - POST /api/v1/tickets/{id}/assign (TicketAssignmentController)
+  - POST .../reassign
+  - POST .../unassign
+  invariants:
+  - BI-SC-005
+  lld_mapping:
+  - 04-use-cases UC-SC-05
+  - domain 02 assignment endpoint
+  - domain 01 user directory
+  components:
+  - features/assignment/AssignmentForm.tsx
+  - features/assignment/useAssignTicket.ts
+  - features/assignment/api.ts
+  - features/assignment/types.ts
+  tests:
+  - features/assignment/AssignmentForm.test.tsx
+  implementation_notes: AssignInput {assigneeId, reason} / UnassignInput {reason}
+    / TicketAssignmentResponse match the real Java records. Live 2026-09-08 the assign
+    call reached its domain check and returned ASSIGNEE_NOT_FOUND - resolveEligibleAssignee
+    needs a ticket.support_agents row + a ticket.support_queue_memberships row that
+    no migration seeded. Closed by a new V046__seed_support_agents_and_memberships.sql
+    (support.agent / support.admin as agents in the default Network Support queue).

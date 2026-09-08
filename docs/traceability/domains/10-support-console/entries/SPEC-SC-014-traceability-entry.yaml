@@ -1,0 +1,61 @@
+---
+SPEC-SC-014:
+  domain: 10-support-console
+  phase: Phase-06
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-07
+  api:
+  - GET {BFF}/api/v1/observability/traces/{traceId} (user-access-authentication-service
+    TraceWaterfallController)
+  invariants:
+  - waterfall renders real span data, never a placeholder
+  lld_mapping:
+  - 01-domain-model §TraceWaterfall
+  - 04-use-cases UC-SC-07
+  - Agent Observability mockup (OTel section)
+  - SPEC-OP-030/031 (Tempo has no auth of its own)
+  components:
+  - pages/ObservabilityPage.tsx
+  - features/trace/TraceWaterfall.tsx
+  - features/trace/useTraceWaterfall.ts
+  - features/trace/TicketTraceLink.tsx
+  - features/trace/api.ts
+  - features/trace/waterfallLayout.ts
+  - features/trace/types.ts
+  - pages/TicketDetailPage.tsx
+  - app/router.tsx
+  - app/AppLayout.tsx
+  - services/user-access-authentication-service .../api/browser/TraceWaterfallController.java
+  - services/user-access-authentication-service .../application/observability/TraceWaterfallService.java
+  - services/user-access-authentication-service .../infrastructure/observability/TempoQueryClient.java
+  - services/user-access-authentication-service .../application/dto/TraceWaterfallView.java
+  - services/ticket-workflow-service .../api/publicapi/TicketTraceController.java
+  - services/ticket-workflow-service .../application/service/GetTicketTraceApplicationService.java
+  - services/ticket-workflow-service .../infrastructure/query/JdbcTicketTraceQueryAdapter.java
+  tests:
+  - features/trace/TraceWaterfall.test.tsx
+  - features/trace/TicketTraceLink.test.tsx
+  - features/trace/api.test.ts
+  - features/trace/waterfallLayout.test.ts
+  - pages/ObservabilityPage.test.tsx
+  - e2e/observability.spec.ts
+  - e2e/ticket-approval.spec.ts
+  - 'user-access-authentication-service: TraceWaterfallControllerTest, TraceWaterfallServiceTest,
+    TempoQueryClientTest'
+  - 'ticket-workflow-service: TicketTraceControllerTest, GetTicketTraceApplicationServiceTest'
+  implementation_notes: 'A new authenticated BFF proxy was built (confirmed with the
+    user first) rather than pointing a browser at unauthenticated Tempo. ROUND 5:
+    WIRED into the Observability page (route /observability, top-nav) — paste-a-traceId
+    form + "Open in Tempo" link-out; browser E2E confirmed the REAL authenticated
+    round trip (session cookie -> 200/404, never 401). ROUND 7: added the "详情页直接深链"
+    the LLD''s UC-SC-05 asks for — a new `GET /api/v1/tickets/{id}/trace` endpoint
+    on ticket-workflow-service (TicketTraceController + GetTicketTraceApplicationService
+    + JdbcTicketTraceQueryAdapter, 6 backend tests) reads the ticket''s latest `ticket.audit_records.trace_id`
+    (a real 32-hex W3C id), gated by `tickets:timeline:internal`. Deliberately its
+    OWN route, not a field on the governed Get Ticket / Timeline schemas (both additionalProperties:false).
+    Frontend `TicketTraceLink` renders "Open trace in Tempo ↗" in the detail header
+    when non-null. Live-verified: a processed ticket -> 200 {traceId:"52a4..."}, an
+    unprocessed one -> 200 {traceId:null}, an employee token -> 403. E2E `@sc-014`
+    asserts the deep link on a real ticket.'

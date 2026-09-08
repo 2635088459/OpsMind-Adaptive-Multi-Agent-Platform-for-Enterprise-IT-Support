@@ -1,0 +1,31 @@
+---
+SPEC-SC-006:
+  domain: 10-support-console
+  phase: Phase-03
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-02
+  api:
+  - GET /api/v1/tickets/{id}/timeline (02-ticket-workflow)
+  - GET /api/v1/governance-audit-records?ticketId= (06-policy-approval-governance)
+  - GET /internal/tool-gateway/v1/tool-requests/{id} (05-tool-integration-gateway)
+  invariants:
+  - BI-SC-003
+  lld_mapping:
+  - 01-domain-model §AiLogEntry
+  - 04-use-cases UC-SC-02
+  - 05-api-contracts §3 (client-side aggregation, no BFF)
+  components:
+  - features/ailog/useAiLog.ts
+  - features/ailog/api.ts
+  - features/ailog/AiLogPanel.tsx
+  - features/ailog/types.ts
+  tests:
+  - features/ailog/api.test.ts
+  - features/ailog/AiLogPanel.test.tsx
+  implementation_notes: 'Live 2026-09-08: timeline -> 200 (SupportTimelineItemWire
+    fields SC reads - itemId/occurredAt/summary - present); governance-audit-records
+    -> 200 [] (shape matches); tool-requests GET -> 200/404 no-auth as designed. 3
+    concurrent real cross-domain fetches merged client-side via Promise.allSettled
+    (no new BFF, per the LLD).'

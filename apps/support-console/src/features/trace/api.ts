@@ -1,7 +1,23 @@
-import { BFF_BASE_URL } from "@/lib/env";
+import { authedFetch } from "@/lib/httpClient";
+import { BFF_BASE_URL, TICKET_WORKFLOW_BASE_URL } from "@/lib/env";
 import { newTraceparent } from "@/lib/trace";
 import { parseApiError } from "@/lib/apiError";
 import type { TraceWaterfall } from "@/features/trace/types";
+
+/**
+ * SPEC-SC-014 / UC-SC-05: the latest OpenTelemetry trace id recorded against
+ * a ticket, so the detail page can build a Tempo deep link without an agent
+ * pasting an id on the Observability page. Real endpoint
+ * `GET /api/v1/tickets/{id}/trace` (ticket-workflow-service
+ * `TicketTraceController`) — a plain bearer call (unlike `fetchTraceWaterfall`
+ * below, which is a session-cookie BFF call), gated by
+ * `tickets:timeline:internal`. `null` means no trace-bearing audit row yet.
+ */
+export async function fetchTicketTraceId(ticketId: string): Promise<string | null> {
+  const response = await authedFetch(`${TICKET_WORKFLOW_BASE_URL}/api/v1/tickets/${ticketId}/trace`, { method: "GET" });
+  const body = (await response.json()) as { traceId: string | null };
+  return body.traceId;
+}
 
 /**
  * SPEC-SC-014: `GET /api/v1/observability/traces/{traceId}` — a real

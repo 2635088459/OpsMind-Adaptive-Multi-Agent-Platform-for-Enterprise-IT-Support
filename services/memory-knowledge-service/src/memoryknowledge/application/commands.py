@@ -341,6 +341,13 @@ class PublishMemoryCommand:
     source_trust_score: float
     memory_id: MemoryId | None = None
     classification: str = "INTERNAL"
+    # Per-user RAG isolation (domain.memory.Memory.owner_id). None (the
+    # default and every publish before this field existed) creates an
+    # organization-wide Memory; a value scopes the new Memory identity to
+    # that principal. Only used when memory_id is None — publishing a new
+    # version of an existing Memory never changes its owner (a Memory's own
+    # fields never change after creation).
+    owner_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

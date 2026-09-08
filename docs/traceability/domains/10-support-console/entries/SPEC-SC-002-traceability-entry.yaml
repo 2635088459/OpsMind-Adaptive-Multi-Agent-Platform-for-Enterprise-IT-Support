@@ -1,0 +1,30 @@
+---
+SPEC-SC-002:
+  domain: 10-support-console
+  phase: Phase-01
+  status: implemented
+  service: apps/support-console
+  api:
+  - session token claim shape (domain 01)
+  invariants:
+  - console never fakes an authorization boundary the backend doesn't enforce
+  lld_mapping:
+  - 01-domain-model §UserSession
+  - 11-security-and-authorization §1-2
+  components:
+  - features/auth/roles.ts
+  - features/auth/AdminOnly.tsx
+  - app/AppLayout.tsx
+  tests:
+  - features/auth/AdminOnly.test.tsx
+  implementation_notes: 'UI-gating convenience only. The realm''s `roles` mapper exposes
+    realm_access.roles (support_agent/support_admin). ROUND 9 (2026-09-08): the "policy-approval-governance
+    ApprovalController has no fine-grained authz" note this and SPEC-SC-019 carried
+    is now STALE — the backend enforcement is real (SPEC-PG-014''s JwtIdentityAuthorizationAdapter:
+    RBAC `SCOPE_approval:decide` + ABAC `risk_clearance` claim >= the request''s riskLevel
+    + self-approval / SoD checks, all in ApprovalService.grant/deny). The actual gap
+    was the Keycloak realm never ISSUING `approval:decide` or `risk_clearance` to
+    anyone; added both as new client-scopes on `support-console`. Live-verified: a
+    scoped support token grants a HIGH-risk approval (200 APPROVED); an employee /
+    unscoped-service token -> 403 APPROVAL_NOT_AUTHORIZED. The frontend still correctly
+    does NOT fake the boundary — it now simply lets the (real) backend 403 surface.'

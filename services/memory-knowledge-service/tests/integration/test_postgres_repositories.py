@@ -120,6 +120,21 @@ def test_memory_candidate_round_trips_and_enforces_status_cas(session_factory) -
 # --------------------------------------------------------------------------------
 
 
+def test_memory_owner_id_round_trips_and_defaults_to_none(session_factory) -> None:
+    """Per-user RAG isolation: Memory.owner_id survives a Postgres round trip,
+    and an org-wide Memory (no owner) reads back as None.
+    """
+    repository = PostgresMemoryRepository(session_factory)
+
+    org_memory = Memory.create(MemoryId.new_id(), MemoryType.EPISODIC, _now())
+    repository.save_memory(org_memory)
+    assert repository.find_memory_by_id(org_memory.memory_id).owner_id is None
+
+    owned_memory = Memory.create(MemoryId.new_id(), MemoryType.EPISODIC, _now(), owner_id="employee-A")
+    repository.save_memory(owned_memory)
+    assert repository.find_memory_by_id(owned_memory.memory_id).owner_id == "employee-A"
+
+
 def test_memory_version_round_trips_and_one_active_per_memory_enforced(session_factory) -> None:
     repository = PostgresMemoryRepository(session_factory)
     memory = Memory.create(MemoryId.new_id(), MemoryType.EPISODIC, _now())

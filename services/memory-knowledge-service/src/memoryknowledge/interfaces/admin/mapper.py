@@ -125,6 +125,7 @@ def to_publish_command(candidate_id: UUID, request: ApproveCandidateRequest) -> 
         content=request.content, summary=request.summary, source_trust_score=request.source_trust_score,
         memory_id=MemoryId(request.memory_id) if request.memory_id is not None else None,
         classification=request.classification,
+        owner_id=request.owner_id,
     )
 
 

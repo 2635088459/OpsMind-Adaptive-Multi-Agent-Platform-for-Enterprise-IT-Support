@@ -1,0 +1,42 @@
+---
+SPEC-EP-015:
+  domain: '09-employee-portal'
+  phase: Phase-05
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-06
+  api:
+  - GET /api/v1/conversations/{id} (SPEC-ARO-042)
+  - GET /api/v1/conversations/most-recent (SPEC-ARO-042)
+  invariants:
+  - BI-EP-004
+  - BI-EP-006
+  lld_mapping:
+  - 01-domain-model §Conversation
+  - 04-use-cases UC-EP-06
+  - 05-api-contracts §2.4
+  - SPEC-ARO-042
+  components:
+  - features/conversation/useResumeConversation.ts
+  - features/conversation/api.ts
+  - features/conversation/turnState.ts
+  - features/conversation/turnStore.ts
+  - features/conversation/conversationStore.ts
+  - features/conversation/ConversationView.tsx
+  tests:
+  - features/conversation/useResumeConversation.test.tsx
+  - features/conversation/turnState.test.ts
+  - features/conversation/ConversationView.test.tsx
+  - e2e/escalation.spec.ts
+  implementation_notes: 'Live 2026-09-08: both endpoints -> 200 {conversation_id,
+    state, started_at, updated_at}, matches api.ts findConversation / findMostRecentConversation
+    (404 -> null path also present). ROUND 6: fixed the resume-a-non-RUNNING- conversation
+    gap the E2E surfaced — `useResumeConversation` used to always `seed("IDLE")`,
+    re-enabling the composer for a terminal (COMPLETED/FAILED/ CANCELLED, incl. escalation)
+    OR paused (WAITING_FOR_x/PAUSED) most-recent conversation; the next send then
+    409''d and SPEC-EP-018 rendered it as a misleading "agent temporarily unavailable".
+    Now any non-RUNNING resumed state seeds a new terminal turn state `RESUMED_CLOSED`
+    (composer hidden + an honest "conversation isn''t active — start a new one" banner
+    whose button `reset()`s + returns to IDLE). `escalation.spec.ts` is no longer
+    `test.fixme` — it dismisses the banner and passes end to end.'

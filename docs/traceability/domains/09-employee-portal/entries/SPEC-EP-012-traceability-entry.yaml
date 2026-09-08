@@ -1,0 +1,25 @@
+---
+SPEC-EP-012:
+  domain: '09-employee-portal'
+  phase: Phase-05
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-04
+  api:
+  - conversation message stream escalation entry (SPEC-ARO-039/041)
+  invariants:
+  - BI-EP-004
+  - BI-EP-005
+  lld_mapping:
+  - 01-domain-model §EscalationNotice
+  - 04-use-cases UC-EP-04
+  - 05-api-contracts §4
+  components:
+  - features/conversation/EscalationNotice.tsx
+  - features/conversation/ConversationView.tsx
+  tests:
+  - features/conversation/EscalationNotice.test.tsx
+  implementation_notes: 'Live 2026-09-08: an escalation-worthy message returns a real
+    {type:"escalation", ticket_id, display_id, reason, assigned_team} with a real
+    ticket created in ticket-workflow (SPEC-ARO-041 triage path).'

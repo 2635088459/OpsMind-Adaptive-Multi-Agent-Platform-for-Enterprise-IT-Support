@@ -1,0 +1,26 @@
+---
+SPEC-EP-016:
+  domain: '09-employee-portal'
+  phase: Phase-06
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-05 (resolution-feedback extension)
+  api:
+  - POST /api/v1/tickets/{id}/resolution-confirmation (02-ticket-workflow / SPEC-TW-026)
+  invariants:
+  - BI-EP-004
+  lld_mapping:
+  - 01-domain-model §TicketStatusView
+  - ticket-workflow resolution-confirmation contract
+  components:
+  - features/ticket/TicketStatusPanel.tsx
+  - features/ticket/api.ts
+  tests:
+  - features/ticket/TicketStatusPanel.test.tsx
+  implementation_notes: 'Live 2026-09-08: the required scope `ticket:resolution-confirm`
+    existed NOWHERE (not in opsmind-realm.json, not in the running KC, not on any
+    client) - confirm 403''d end-to-end. Added the client-scope + granted it to user-access-authentication-service
+    + employee-test-client, in both the realm JSON and the running KC. After the fix
+    the call passes auth and correctly returns 409 INVALID_STATUS_TRANSITION for a
+    non-RESOLVED ticket.'

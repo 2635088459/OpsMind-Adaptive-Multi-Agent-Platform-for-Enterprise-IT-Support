@@ -1,0 +1,21 @@
+---
+SPEC-EP-003:
+  domain: '09-employee-portal'
+  phase: Phase-01
+  status: implemented+msw
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-01
+  invariants:
+  - BI-EP-006
+  lld_mapping:
+  - 02-business-invariants BI-EP-006
+  - 07-data-model §2.2 draft:{conversationId}
+  - 10-error-handling-and-reconciliation §2.5
+  components:
+  - features/session/draftPreservation.ts
+  - store/authStore.ts
+  tests:
+  - features/session/draftPreservation.test.ts
+  implementation_notes: Pure client-side (localStorage, subject-prefixed keys). No
+    backend contract.

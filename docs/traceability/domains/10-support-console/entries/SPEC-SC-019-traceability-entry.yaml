@@ -1,0 +1,25 @@
+---
+SPEC-SC-019:
+  domain: 10-support-console
+  phase: Phase-08
+  status: implemented
+  service: apps/support-console
+  use_cases:
+  - UC-SC-02
+  api:
+  - 403 response shape of SPEC-SC-006's 3 endpoints
+  invariants:
+  - a permission gap must never look like a data gap or an outage (extends BI-SC-003)
+  lld_mapping:
+  - 11-security-and-authorization §3
+  - SPEC-SC-006
+  - SPEC-SC-007
+  components:
+  - features/ailog/useAiLog.ts
+  - features/ailog/AiLogPanel.tsx
+  tests:
+  - features/ailog/AiLogPanel.test.tsx
+  implementation_notes: Distinguishes a 403 on one aggregation source from an outage
+    - distinct "access restricted" copy, no retry button. Explicitly refuses to fake
+    an authorization boundary the policy-approval-governance backend does not itself
+    enforce.

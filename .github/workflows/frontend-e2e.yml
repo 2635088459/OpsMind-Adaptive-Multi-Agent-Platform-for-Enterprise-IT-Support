@@ -1,0 +1,106 @@
+name: Frontend E2E
+
+# The heavy gate that `frontend-ci.yml` deliberately leaves out: real
+# browser-driven Playwright suites for both apps against the WHOLE platform
+# (all backend services + Keycloak + the 2 frontend nginx containers) brought
+# up from `full-platform.yml`. Not run on every PR — it builds ~11 images and
+# drives a real OIDC login. Runs nightly, on `main` when the apps or the
+# compose stack change, and on demand.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC nightly
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+      - "services/**"
+      - "infrastructure/docker-compose/local-platform.yml"
+      - "infrastructure/docker-compose/full-platform.yml"
+      - "infrastructure/keycloak/**"
+      - ".github/workflows/frontend-e2e.yml"
+
+concurrency:
+  group: frontend-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: full-platform e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      COMPOSE: docker compose -f infrastructure/docker-compose/local-platform.yml -f infrastructure/docker-compose/full-platform.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          docker system prune -af || true
+
+      - name: Resolve keycloak hostname (the BFF's iss claim uses it)
+        run: echo "127.0.0.1 keycloak" | sudo tee -a /etc/hosts
+
+      - name: Configure offline reasoning (deterministic @static-reasoning specs)
+        run: |
+          cat > infrastructure/docker-compose/.env <<'EOF'
+          CONVERSATION_REASONING_MODE=static
+          OPENAI_API_KEY=
+          ANTHROPIC_API_KEY=
+          EOF
+
+      - name: Build + start the full platform
+        run: $COMPOSE up -d --build --wait --wait-timeout 600
+
+      - name: Platform status
+        run: docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+      - name: Seed the RAG knowledge base
+        run: scripts/seed-knowledge-base.sh
+        env:
+          MK_BASE_URL: http://localhost:8010
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter employee-portal exec playwright install --with-deps chromium
+
+      - name: employee-portal e2e
+        run: pnpm --filter employee-portal test:e2e
+        env:
+          E2E_REASONING_MODE: static
+
+      - name: support-console e2e
+        if: always()
+        run: pnpm --filter support-console test:e2e
+
+      - name: Dump platform logs on failure
+        if: failure()
+        run: $COMPOSE logs --no-color --tail 200
+
+      - name: Upload Playwright reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-reports
+          path: |
+            apps/*/playwright-report
+            apps/*/e2e/.output
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v --remove-orphans

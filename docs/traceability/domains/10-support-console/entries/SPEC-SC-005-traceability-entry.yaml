@@ -1,0 +1,21 @@
+---
+SPEC-SC-005:
+  domain: 10-support-console
+  phase: Phase-02
+  status: implemented
+  service: apps/support-console
+  use_cases:
+  - UC-SC-01
+  api:
+  - GET /api/v1/support/tickets (same endpoint, polled)
+  invariants:
+  - BI-SC (freshness)
+  lld_mapping:
+  - 01-domain-model §TicketQueueRow
+  - TanStack Query refetchInterval
+  components:
+  - features/queue/useQueue.ts
+  tests:
+  - features/queue/QueueTable.test.tsx
+  - features/queue/api.test.ts
+  implementation_notes: refetchInterval + pause-when-tab-hidden on SPEC-SC-003's query.

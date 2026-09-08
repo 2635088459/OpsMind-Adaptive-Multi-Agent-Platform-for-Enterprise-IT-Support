@@ -1,0 +1,25 @@
+---
+SPEC-EP-014:
+  domain: '09-employee-portal'
+  phase: Phase-05
+  status: implemented+backend-pending
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-05
+  api:
+  - GET /api/v1/tickets/{id}/events (SSE)
+  invariants:
+  - BI-EP-004
+  lld_mapping:
+  - 01-domain-model §TicketStatusView
+  - 05-api-contracts §5
+  - technology-baseline §4 (SSE)
+  components:
+  - features/ticket/useTicketStatusStream.ts
+  tests:
+  - features/ticket/useTicketStatusStream.test.tsx
+  implementation_notes: '2026-09-08: GET /api/v1/tickets/{id}/events 404s on the RUNNING
+    container, but ticket-workflow-service source DOES have TicketEventStreamController
+    (+ TicketEventBroadcaster, ?token= query-param auth filter chain) as of commit
+    17ccb66 (2026-09-07). The running image predates it; a rebuild closes this gap.
+    Hook still uses a mock EventSource in tests.'

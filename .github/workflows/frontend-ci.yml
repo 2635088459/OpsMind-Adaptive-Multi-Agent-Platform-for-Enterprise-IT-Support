@@ -1,7 +1,8 @@
 name: Frontend CI
 
 # Both Vite apps in the pnpm workspace: typecheck, lint, unit tests, and a
-# production build. Playwright e2e is intentionally out of this fast gate.
+# production build. Playwright e2e is intentionally out of this fast gate —
+# it needs the whole platform up; see frontend-e2e.yml (nightly / on-demand).
 
 on:
   pull_request:

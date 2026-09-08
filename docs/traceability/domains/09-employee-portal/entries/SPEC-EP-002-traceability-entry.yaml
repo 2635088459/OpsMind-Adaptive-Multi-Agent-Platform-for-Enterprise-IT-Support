@@ -1,0 +1,19 @@
+---
+SPEC-EP-002:
+  domain: '09-employee-portal'
+  phase: Phase-01
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  use_cases:
+  - UC-EP-01
+  api:
+  - GET {BFF}/api/v1/session/browser-token
+  lld_mapping:
+  - 03-state-machine §3.3 (AUTHENTICATED <-> TOKEN_REFRESHING <-> SESSION_EXPIRED)
+  components:
+  - store/authStore.ts
+  - app/AuthGate.tsx
+  - lib/authClient.ts
+  tests:
+  - store/authStore.test.ts
+  - app/AuthGate.sessionExpiry.test.tsx

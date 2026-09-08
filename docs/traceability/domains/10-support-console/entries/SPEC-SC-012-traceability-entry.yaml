@@ -1,0 +1,28 @@
+---
+SPEC-SC-012:
+  domain: 10-support-console
+  phase: Phase-05
+  status: implemented+source-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-06
+  api:
+  - POST /api/v1/tickets/{id}/status-transitions (TransitionTicketStatusController)
+  - POST /api/v1/tickets/{id}/resolution (ResolveTicketController)
+  invariants:
+  - BI-SC-005
+  lld_mapping:
+  - 04-use-cases UC-SC-06
+  - domain 02 ticket state machine
+  components:
+  - features/statusTransition/StatusTransitionControl.tsx
+  - features/statusTransition/useStatusTransition.ts
+  - features/statusTransition/api.ts
+  - features/statusTransition/types.ts
+  tests:
+  - features/statusTransition/StatusTransitionControl.test.tsx
+  implementation_notes: TransitionInput {targetStatus, reason, approvalReference?}
+    and ResolveInput {resolutionCode, resolutionSummary} match the real @NotNull/@NotBlank/@Size
+    Java records; SC's TransitionTarget type correctly narrows to IN_PROGRESS|WAITING_FOR_APPROVAL
+    (the only two the generic endpoint accepts) and routes RESOLVED through the separate
+    /resolution endpoint. Live chain blocked by the same missing seed data as SPEC-SC-011.

@@ -1,0 +1,22 @@
+---
+SPEC-SC-007:
+  domain: 10-support-console
+  phase: Phase-03
+  status: implemented
+  service: apps/support-console
+  use_cases:
+  - UC-SC-02
+  api:
+  - same 3 endpoints as SPEC-SC-006 (failure branch)
+  invariants:
+  - BI-SC-003
+  lld_mapping:
+  - 10-error-handling-and-reconciliation §1
+  - SPEC-SC-006
+  components:
+  - features/ailog/useAiLog.ts
+  - features/ailog/AiLogPanel.tsx
+  tests:
+  - features/ailog/AiLogPanel.test.tsx
+  implementation_notes: Per-source error state from Promise.allSettled; partial result
+    always labeled partial.

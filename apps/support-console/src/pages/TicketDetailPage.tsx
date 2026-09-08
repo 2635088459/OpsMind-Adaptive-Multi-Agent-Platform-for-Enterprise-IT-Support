@@ -5,6 +5,7 @@ import { AssignmentForm } from "@/features/assignment/AssignmentForm";
 import { StatusTransitionControl } from "@/features/statusTransition/StatusTransitionControl";
 import { AiLogPanel } from "@/features/ailog/AiLogPanel";
 import { TicketApprovals } from "@/features/approval/TicketApprovals";
+import { TicketTraceLink } from "@/features/trace/TicketTraceLink";
 
 /**
  * A real route for one ticket, backed by `GET /api/v1/tickets/{id}` — which
@@ -35,12 +36,13 @@ export function TicketDetailPage() {
         </div>
       ) : (
         <>
-          <div className="mt-3 flex items-baseline gap-3">
+          <div className="mt-3 flex flex-wrap items-baseline gap-3">
             <h1 className="font-mono text-xl font-semibold text-ink">{ticket.displayId}</h1>
             <span className="text-sm text-ink-muted">
               {ticket.status} · {ticket.priority}
               {ticket.assignment.teamId ? ` · ${ticket.assignment.teamId}` : " · unassigned"}
             </span>
+            <TicketTraceLink ticketId={ticket.ticketId} />
           </div>
           <p className="mt-1 text-ink-muted">{ticket.title}</p>
           <p className="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{ticket.description}</p>

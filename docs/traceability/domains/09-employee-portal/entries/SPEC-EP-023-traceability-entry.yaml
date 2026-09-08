@@ -1,0 +1,23 @@
+---
+SPEC-EP-023:
+  domain: '09-employee-portal'
+  phase: Phase-08
+  status: implemented+backend-verified
+  service: apps/employee-portal
+  api:
+  - every fetch/EventSource call site across SPEC-EP-001..022
+  lld_mapping:
+  - 12-observability-and-audit (all)
+  - each prior spec §15
+  components:
+  - lib/trace.ts
+  - lib/httpClient.ts
+  - lib/authClient.ts
+  tests:
+  - features/conversation/api.test.ts
+  - features/ticket/api.test.ts
+  - lib/authClient.test.ts
+  implementation_notes: authClient.ts's browser-token call was the one site not going
+    through authedFetch (runs before any token exists) and originally had no traceparent
+    - fixed during this spec's own audit. Every call site now emits traceparent, confirmed
+    in the 2026-09-08 live requests.

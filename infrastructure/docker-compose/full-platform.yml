@@ -198,11 +198,15 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       EVENT_PUBLISHER_ADAPTER: rabbitmq
-      # Real semantic RAG: OpenAI text-embedding-3-small for both ingest and the
-      # pgvector cosine-similarity retrieval path in SearchMemoryService. With
-      # no key present the service logs a warning and falls back to the
-      # deterministic hash provider (keyword-only retrieval) — it still boots.
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      # RAG embedding provider. "deterministic" (safe default, no key needed) is
+      # the honest offline hash embedder — retrieval is lexical keyword-only,
+      # which is what SearchMemoryService's own scorer delivers. Set
+      # EMBEDDING_PROVIDER=openai plus a real OPENAI_API_KEY in the compose .env
+      # to wire OpenAI text-embedding-3-small for both ingest and the pgvector
+      # cosine-similarity retrieval path (same opt-in pattern as
+      # CONVERSATION_REASONING_MODE). "openai" with no key logs a warning and
+      # falls back to deterministic keyword-only retrieval — it still boots.
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-deterministic}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
       # support-console's admin knowledge-ingest UI (SPEC-SC follow-up).

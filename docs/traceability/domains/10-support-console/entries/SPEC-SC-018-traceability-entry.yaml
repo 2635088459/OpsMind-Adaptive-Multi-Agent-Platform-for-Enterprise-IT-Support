@@ -1,0 +1,33 @@
+---
+SPEC-SC-018:
+  domain: 10-support-console
+  phase: Phase-08
+  status: implemented+backend-verified
+  service: apps/support-console
+  api:
+  - all SPEC-SC-001..017 call sites
+  invariants:
+  - no call carries a scope broader than its own spec declares
+  lld_mapping:
+  - 11-security-and-authorization (all)
+  - each prior spec §14
+  - SPEC-SC-006 §14
+  components:
+  - lib/httpClient.ts
+  - lib/authClient.ts
+  - features/queue/api.ts
+  - features/ailog/api.ts
+  - features/approval/api.ts
+  - features/triage/api.ts
+  - features/assignment/api.ts
+  - features/statusTransition/api.ts
+  - features/trace/api.ts
+  - features/evaluation/api.ts
+  tests:
+  - features/queue/api.test.ts
+  - features/ailog/api.test.ts
+  - features/approval/api.test.ts
+  implementation_notes: 'The 2026-09-08 pass is a live instance of this audit: it
+    confirmed the support-console token needs `tickets:read:queue`, `governance:audit:read`,
+    `tickets:timeline:internal` (all present) and found `support_queues` missing entirely
+    (added). connectors/api.ts base-path bug also found here.'

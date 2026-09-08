@@ -1,0 +1,40 @@
+---
+SPEC-SC-009:
+  domain: 10-support-console
+  phase: Phase-04
+  status: implemented+backend-verified
+  service: apps/support-console
+  use_cases:
+  - UC-SC-03
+  api:
+  - POST /api/v1/approval-requests/{id}:grant (SPEC-PG-011)
+  - POST /api/v1/approval-requests/{id}:deny (SPEC-PG-011)
+  invariants:
+  - BI-SC-005
+  lld_mapping:
+  - 04-use-cases UC-SC-03
+  - SPEC-PG-011 (commandIdempotencyKey 3-way replay check)
+  components:
+  - features/approval/api.ts
+  - features/approval/ApprovalCard.tsx
+  - features/approval/useApproval.ts
+  - features/approval/TicketApprovals.tsx
+  - pages/TicketDetailPage.tsx
+  tests:
+  - features/approval/api.test.ts
+  - features/approval/ApprovalCard.test.tsx
+  - features/approval/ApprovalCard.concurrentDecision.test.tsx
+  - e2e/ticket-approval.spec.ts
+  implementation_notes: 'ROUND 5 (2026-09-08): grant/deny controls now reachable —
+    the ApprovalCard is mounted on the ticket detail page (see SPEC-SC-008). The E2E
+    confirms the card renders for a real approval-linked ticket; a still-REQUESTED
+    one shows the grant/deny controls. DecideApprovalRequest {sourceRequestId, requestHash,
+    reason, conditions, commandIdempotencyKey, sessionId?, deviceId?, stepUpVerified}
+    verified field-for-field against the real Java record. REAL BUG found + fixed
+    live 2026-09-08: decideApproval did NOT send the `X-Correlation-Id` header, which
+    every governance command endpoint requires (GovernanceRequestContext#correlationId
+    -> 400 VALIDATION_ERROR without it) - so every grant/deny would have failed against
+    the real backend. Added it (matching this app''s own admin/policy/api.ts, which
+    already sent it). After the fix, grant reaches the domain-layer authz check (403
+    APPROVAL_NOT_AUTHORIZED for a non-approver service account - expected). Relies
+    on the backend''s real 3-way idempotency check.'
