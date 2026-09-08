@@ -49,6 +49,12 @@ dependencies = [
     # SDK; the openai SDK is this service's own first use of it.
     "anthropic>=0.69",
     "openai>=3.0",
+    # The real multi-step reasoning loop (infrastructure.conversation_deliberation.
+    # LangGraphConversationDeliberationAdapter), gated behind
+    # Settings.conversation_deliberation_mode="langgraph". Imported lazily inside
+    # deliberate() so the "single_turn" default never pays the import cost and
+    # hermetic tests that never opt in don't need the package resolved.
+    "langgraph>=0.2",
 ]
 
 [dependency-groups]

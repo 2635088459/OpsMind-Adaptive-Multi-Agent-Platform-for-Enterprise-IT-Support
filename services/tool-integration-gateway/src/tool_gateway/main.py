@@ -41,11 +41,17 @@ def create_app() -> FastAPI:
     # Settings.cors_allowed_origins's own docstring for why GET-only and why
     # X-Caller-Id/X-Caller-Type are deliberately excluded from allow_headers.
     if settings.cors_allowed_origins_list:
+        write_methods = ["GET", "POST", "PATCH", "OPTIONS"] if settings.cors_allow_writes else ["GET", "OPTIONS"]
+        write_headers = (
+            ["Authorization", "Content-Type", "traceparent", "X-Caller-Id", "X-Caller-Type"]
+            if settings.cors_allow_writes
+            else ["Authorization", "Content-Type", "traceparent"]
+        )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.cors_allowed_origins_list,
-            allow_methods=["GET", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", "traceparent"],
+            allow_methods=write_methods,
+            allow_headers=write_headers,
             allow_credentials=False,
         )
 

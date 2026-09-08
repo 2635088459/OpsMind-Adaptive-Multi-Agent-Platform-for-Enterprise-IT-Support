@@ -18,10 +18,17 @@ for ``event_publisher_adapter`` ("logging" default vs "rabbitmq").
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from tool_gateway.adapters.approval.approval_client import InMemoryApprovalAdapter
 from tool_gateway.adapters.clock import SystemClockAdapter
 from tool_gateway.adapters.connectors.builtin.echo_connector import EchoConnectorAdapter
+from tool_gateway.adapters.connectors.builtin.keycloak_admin_connector import (
+    CAP_ADD_TO_GROUP,
+    CAP_RESET_PASSWORD,
+    CAP_UNLOCK,
+    KeycloakAdminConnectorAdapter,
+)
 from tool_gateway.adapters.connectors.registry import ConnectorRegistry
 from tool_gateway.adapters.credentials.vault_adapter import InMemoryVaultCredentialAdapter
 from tool_gateway.adapters.db.repositories import (
@@ -83,6 +90,10 @@ from tool_gateway.application.reclaim_expired_leases import ReclaimExpiredLeases
 from tool_gateway.application.reconcile_execution import ReconcileExecutionService
 from tool_gateway.application.register_connector import RegisterConnectorService
 from tool_gateway.application.telemetry import ToolGatewayTelemetry
+from tool_gateway.domain.connector import Capability, ToolConnector
+from tool_gateway.domain.enums import RequestedByType, RiskLevel, SideEffectKind
+from tool_gateway.domain.ids import ConnectorId
+from tool_gateway.domain.values import NetworkPolicy, RetryPolicy, TimeoutPolicy
 from tool_gateway.settings import Settings, get_settings
 
 
@@ -233,6 +244,61 @@ class Container:
         self.audit_query_port: AuditQueryUseCase = self.audit_query_service
         self.admin_outbox_port: AdminOutboxUseCase = self.admin_outbox_service
         self.gateway_recovery_port: GatewayRecoveryUseCase = self.gateway_recovery_service
+
+        self._register_builtin_connectors(settings)
+
+    def _register_builtin_connectors(self, settings: Settings) -> None:
+        """Bind the real, outbound-calling built-in connectors that ship with
+        the service (today: Keycloak Admin). Unlike an admin ``POST /connectors``
+        registration — which always binds ``EchoConnectorAdapter`` — these bind
+        their own concrete ``ConnectorPort``. Idempotent across restarts: the
+        Postgres manifest row is reused by name; only the in-memory adapter
+        table (lost on restart) is re-bound.
+        """
+
+        if not settings.keycloak_connector_enabled:
+            return
+
+        keycloak_adapter = KeycloakAdminConnectorAdapter(
+            base_url=settings.keycloak_base_url,
+            realm=settings.keycloak_realm,
+            admin_username=settings.keycloak_admin_username,
+            admin_password=settings.keycloak_admin_password,
+            admin_realm=settings.keycloak_admin_realm,
+            admin_client_id=settings.keycloak_admin_client_id,
+        )
+        host = urlparse(settings.keycloak_base_url).hostname or "keycloak"
+        registry = self.connector_registry_port
+
+        builtin_manifests = (
+            # A brute-force unlock is reversible and low-blast-radius — no
+            # standing approval gate; policy can still add one.
+            ("keycloak-identity-unlock", (CAP_UNLOCK,), RiskLevel.MEDIUM, False),
+            # Credential/authorization changes are HIGH risk and approval-gated.
+            ("keycloak-identity-credentials", (CAP_RESET_PASSWORD, CAP_ADD_TO_GROUP), RiskLevel.HIGH, True),
+        )
+        for name, capabilities, risk_level, requires_approval in builtin_manifests:
+            existing = registry.find_by_name(name)
+            if existing is not None:
+                registry.bind_adapter(existing.connector_id, keycloak_adapter)
+                continue
+            manifest = ToolConnector.register(
+                connector_id=ConnectorId.new_id(),
+                name=name,
+                version="1.0.0",
+                capabilities=tuple(Capability(capability) for capability in capabilities),
+                input_schema_ref=f"builtin://{name}/input",
+                output_schema_ref=f"builtin://{name}/output",
+                risk_level=risk_level,
+                requires_approval=requires_approval,
+                side_effect_kind=SideEffectKind.MUTATING,
+                secret_requirements=(),
+                network_policy=NetworkPolicy(allowed_hosts=(host,), deny_by_default=True),
+                timeout_policy=TimeoutPolicy(connect_timeout_seconds=5, invoke_timeout_seconds=30),
+                retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=5),
+                allowed_requester_types=(RequestedByType.AGENT, RequestedByType.SYSTEM, RequestedByType.HUMAN_OPERATOR),
+            )
+            registry.register(manifest, keycloak_adapter)
 
 
 @lru_cache(maxsize=1)

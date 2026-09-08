@@ -19,3 +19,6 @@ export const TOOL_INTEGRATION_GATEWAY_BASE_URL: string = import.meta.env.VITE_TO
 
 /** evaluation-improvement-service — SPEC-SC-015's real run/scores/regression-report read endpoints (`/evaluation/runs/...`). This app is its first browser caller; CORS was added there for real, this session. */
 export const EVALUATION_IMPROVEMENT_BASE_URL: string = import.meta.env.VITE_EVALUATION_IMPROVEMENT_BASE_URL ?? "http://localhost:8011";
+
+/** memory-knowledge-service — the admin knowledge-document ingest surface (`/internal/memory/v1/admin/...`). CORS for this browser origin was opened alongside the admin UI. */
+export const MEMORY_KNOWLEDGE_BASE_URL: string = import.meta.env.VITE_MEMORY_KNOWLEDGE_BASE_URL ?? "http://localhost:8010";

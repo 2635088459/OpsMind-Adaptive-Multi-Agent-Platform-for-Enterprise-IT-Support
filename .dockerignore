@@ -1,0 +1,23 @@
+# Keeps the frontend image build context (repo root, pnpm workspace) small.
+**/node_modules
+**/dist
+**/build
+**/.venv
+**/__pycache__
+**/target
+**/.pytest_cache
+**/coverage
+**/playwright-report
+**/test-results
+**/*.tsbuildinfo
+.git
+.github
+docs
+services
+tests
+scripts
+infrastructure/observability
+**/.env
+**/.env.*
+!**/.env.example
+.DS_Store

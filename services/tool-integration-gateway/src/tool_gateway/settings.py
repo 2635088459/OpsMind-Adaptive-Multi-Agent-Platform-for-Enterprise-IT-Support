@@ -75,6 +75,21 @@ class Settings(BaseSettings):
     connector_degrade_after_failures: int = 3
     connector_disable_after_failures: int = 5
 
+    # The Keycloak Admin REST connector (adapters/connectors/builtin/
+    # keycloak_admin_connector.py). Disabled by default so every hermetic unit
+    # test that boots the container never tries to reach a Keycloak — the
+    # docker-compose full-platform stack sets KEYCLOAK_CONNECTOR_ENABLED=true.
+    # Admin auth is a deploy-time service account (password grant on the
+    # admin-cli client of the admin realm), never a per-request credential
+    # binding — see that adapter's own docstring.
+    keycloak_connector_enabled: bool = False
+    keycloak_base_url: str = "http://localhost:8080"
+    keycloak_realm: str = "opsmind"
+    keycloak_admin_realm: str = "master"
+    keycloak_admin_client_id: str = "admin-cli"
+    keycloak_admin_username: str = "admin"
+    keycloak_admin_password: str = "admin"
+
     # SPEC-SC-018/020 follow-up: support-console (domain 10) is this service's first
     # browser caller — empty/deny by default, mirrors evaluation-improvement-
     # service's own cors_allowed_origins field exactly. Deliberately GET-only, and
@@ -84,6 +99,15 @@ class Settings(BaseSettings):
     # all) nor spoof a SERVICE-caller identity through a real browser (the header a
     # forged caller-type would need is never let through CORS preflight).
     cors_allowed_origins: str = ""
+
+    # By default the CORS surface above is GET/OPTIONS-only (see this field's
+    # neighbours' history). support-console's connector-admin UI needs to POST
+    # /connectors and PATCH /connectors/{id}/status from a browser, so an
+    # operator opts writes in explicitly with CORS_ALLOW_WRITES=true — which
+    # also lets the X-Caller-Id / X-Caller-Type identity headers through
+    # preflight. Still deny-by-default; unset keeps the stricter posture every
+    # existing deployment and test relies on.
+    cors_allow_writes: bool = False
 
     @property
     def cors_allowed_origins_list(self) -> list[str]:

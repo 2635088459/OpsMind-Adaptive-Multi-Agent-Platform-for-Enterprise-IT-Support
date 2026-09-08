@@ -1,0 +1,105 @@
+name: Python Services CI
+
+# Covers every uv-managed Python service. Mirrors the Java sibling workflow's
+# shape: one matrix leg per service, unit + static analysis on every relevant
+# change, integration (Testcontainers) as its own job so a fast unit failure
+# is not blocked behind image pulls.
+
+on:
+  pull_request:
+    paths:
+      - "services/agent-runtime-service/**"
+      - "services/memory-knowledge-service/**"
+      - "services/tool-integration-gateway/**"
+      - "services/evaluation-improvement-service/**"
+      - "packages/**"
+      - ".github/workflows/services-python-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/agent-runtime-service/**"
+      - "services/memory-knowledge-service/**"
+      - "services/tool-integration-gateway/**"
+      - "services/evaluation-improvement-service/**"
+      - "packages/**"
+      - ".github/workflows/services-python-ci.yml"
+
+concurrency:
+  group: python-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: ${{ matrix.service }} · unit + static
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - agent-runtime-service
+          - memory-knowledge-service
+          - tool-integration-gateway
+          - evaluation-improvement-service
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: services/${{ matrix.service }}/uv.lock
+
+      - name: Sync (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Unit tests
+        run: uv run pytest -q -m "not integration"
+
+      - name: import-linter contracts
+        run: uv run lint-imports
+
+      - name: pyflakes (if configured)
+        run: |
+          if uv run python -c "import pyflakes" 2>/dev/null; then
+            uv run pyflakes src tests
+          else
+            echo "pyflakes not in this service's dev deps — skipping"
+          fi
+
+  integration:
+    name: ${{ matrix.service }} · integration
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - agent-runtime-service
+          - memory-knowledge-service
+          - tool-integration-gateway
+          - evaluation-improvement-service
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: services/${{ matrix.service }}/uv.lock
+
+      - name: Sync (frozen)
+        run: uv sync --frozen --dev
+
+      - name: Integration tests (Testcontainers)
+        # exit 5 = "no integration tests in this service" — not a failure.
+        run: |
+          set +e
+          uv run pytest -q -m integration
+          code=$?
+          if [ "$code" -eq 5 ]; then echo "no integration tests — ok"; exit 0; fi
+          exit "$code"

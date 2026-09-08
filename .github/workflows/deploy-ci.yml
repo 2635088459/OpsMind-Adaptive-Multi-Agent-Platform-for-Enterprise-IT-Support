@@ -1,0 +1,59 @@
+name: Deploy Manifests CI
+
+on:
+  pull_request:
+    paths:
+      - "infrastructure/helm/**"
+      - "apps/*/Dockerfile"
+      - "apps/*/nginx.conf"
+      - ".github/workflows/deploy-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infrastructure/helm/**"
+      - ".github/workflows/deploy-ci.yml"
+
+jobs:
+  helm:
+    name: helm lint + template validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: helm lint
+        run: helm lint infrastructure/helm/opsmind
+
+      - name: helm template (default + secrets example + ingress on)
+        run: |
+          helm template opsmind infrastructure/helm/opsmind > /tmp/default.yaml
+          helm template opsmind infrastructure/helm/opsmind \
+            -f infrastructure/helm/opsmind/values-secrets.example.yaml \
+            --set ingress.enabled=true > /tmp/full.yaml
+          echo "rendered $(grep -c '^kind:' /tmp/full.yaml) objects"
+
+      - name: Install kubeconform
+        run: |
+          curl -sSLo /tmp/kc.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kc.tar.gz -C /tmp kubeconform
+          sudo mv /tmp/kubeconform /usr/local/bin/
+
+      - name: Validate rendered manifests against the k8s schema
+        run: |
+          kubeconform -strict -summary -kubernetes-version 1.30.0 \
+            -schema-location default \
+            /tmp/default.yaml /tmp/full.yaml
+
+  frontend-images:
+    name: build frontend images
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [employee-portal, support-console]
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker build (no push)
+        run: docker build -f apps/${{ matrix.app }}/Dockerfile -t ${{ matrix.app }}:ci .

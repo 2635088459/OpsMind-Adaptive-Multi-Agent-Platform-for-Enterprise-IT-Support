@@ -1,0 +1,19 @@
+{{- $root := . -}}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    {{- include "opsmind.selectorLabels" (dict "root" $root "svc" $name) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "opsmind.selectorLabels" (dict "root" $root "svc" $name) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $svc.port }}
+      targetPort: http
+{{- end }}

@@ -1,0 +1,38 @@
+# gitleaks config for OpsMind. Extends the built-in rule set; the allowlist
+# below covers the intentionally-public material (spec docs, REST-client
+# examples with template variables, local-dev compose/realm fixtures) so the
+# scan flags only a real leak.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Docs, REST-client examples, local-dev fixtures — never real credentials"
+paths = [
+  '''(^|/)docs/''',
+  '''.*\.http$''',
+  '''.*\.env\.example$''',
+  '''.*/application-local\.ya?ml$''',
+  '''^infrastructure/keycloak/opsmind-realm\.json$''',
+  '''^infrastructure/docker-compose/.*\.ya?ml$''',
+  '''^infrastructure/helm/opsmind/values.*\.ya?ml$''',
+  '''^scripts/observability-stack\.sh$''',
+  '''(^|/)(test|tests)/''',
+  '''(^|/)src/test/''',
+  '''.*fixtures?/.*''',
+  '''.*nonconformant.*''',
+  '''.*/config/Rabbit.*\.java$''',
+  '''.*/configuration/RabbitMq.*\.java$''',
+]
+
+[[allowlists]]
+description = "Well-known throwaway values in compose/realm/test fixtures"
+regexTarget = "match"
+regexes = [
+  '''(change-me|ticket_workflow|opsmind-minio(-secret)?|guest|admin/admin)''',
+  '''(integration-test-secret|support-console-secret|user-access-secret)''',
+  '''(REPLACE_ME|sk-REPLACE_ME|\{\{[a-zA-Z]+\}\})''',
+  # RabbitMQ routing-key / exchange / event-type string constants, not secrets.
+  '''(ROUTING_KEY|EXCHANGE|EVENT_TYPE|_KEY)\s*=\s*"[a-z][a-z0-9.-]+"''',
+]
+stopwords = ["example", "placeholder", "changeme", "template"]

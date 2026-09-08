@@ -1,0 +1,74 @@
+{{- $root := . }}
+{{- $defaults := .Values.defaults }}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    {{- include "opsmind.selectorLabels" (dict "root" $root "svc" $name) | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas | default $defaults.replicas }}
+  selector:
+    matchLabels:
+      {{- include "opsmind.selectorLabels" (dict "root" $root "svc" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "opsmind.selectorLabels" (dict "root" $root "svc" $name) | nindent 8 }}
+    spec:
+      {{- with $root.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml $defaults.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "opsmind.image" (list $svc.image $root) }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml $defaults.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $svc.port }}
+          {{- if ne $svc.runtime "static" }}
+          envFrom:
+            - configMapRef:
+                name: opsmind-shared-config
+            - secretRef:
+                name: {{ $root.Values.externalSecrets.secretName }}
+          {{- end }}
+          {{- with $svc.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ include "opsmind.healthPath" $svc.runtime }}
+              port: http
+            initialDelaySeconds: {{ if eq $svc.runtime "java" }}30{{ else }}5{{ end }}
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: {{ include "opsmind.healthPath" $svc.runtime }}
+              port: http
+            initialDelaySeconds: {{ if eq $svc.runtime "java" }}60{{ else }}15{{ end }}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml ($svc.resources | default $defaults.resources) | nindent 12 }}
+          {{- if eq $svc.runtime "java" }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          {{- end }}
+      {{- if eq $svc.runtime "java" }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- end }}
+{{ end }}

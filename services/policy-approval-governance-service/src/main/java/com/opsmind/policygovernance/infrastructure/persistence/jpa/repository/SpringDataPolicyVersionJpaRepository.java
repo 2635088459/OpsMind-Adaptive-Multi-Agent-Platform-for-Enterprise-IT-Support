@@ -23,6 +23,9 @@ public interface SpringDataPolicyVersionJpaRepository extends JpaRepository<Poli
     /** SPEC-PG-019: backs {@code application.port.PolicyVersionRepository#findLatestVersion}. */
     java.util.Optional<PolicyVersionJpaEntity> findFirstByPolicyIdOrderByVersionNumberDesc(String policyId);
 
+    /** Backs {@code application.port.PolicyVersionRepository#findByPolicyId} — the admin read view's version history. */
+    List<PolicyVersionJpaEntity> findByPolicyIdOrderByVersionNumberDesc(String policyId);
+
     /** SPEC-PG-020: backs {@code application.port.PolicyVersionRepository#findByPolicyIdAndVersionNumber}. */
     java.util.Optional<PolicyVersionJpaEntity> findByPolicyIdAndVersionNumber(String policyId, int versionNumber);
 }

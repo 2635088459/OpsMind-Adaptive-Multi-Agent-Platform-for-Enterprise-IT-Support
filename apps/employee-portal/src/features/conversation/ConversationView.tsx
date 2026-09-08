@@ -9,6 +9,7 @@ import { ActionExecutionStatus } from "@/features/conversation/ActionExecutionSt
 import { MessageComposer } from "@/features/conversation/MessageComposer";
 import { TicketStatusPanel } from "@/features/ticket/TicketStatusPanel";
 import { useAuthStore } from "@/store/authStore";
+import { usePortalViewStore } from "@/store/portalViewStore";
 
 /**
  * The real screen domain 09's employee lands on once authenticated — wires
@@ -31,6 +32,7 @@ export function ConversationView() {
   const lastActionOutcome = useConversationStore((state) => state.lastActionOutcome);
   const turnState = useTurnStore((state) => state.state);
   const subject = useAuthStore((state) => state.lastKnownSubject);
+  const showNewTicket = usePortalViewStore((state) => state.showNewTicket);
 
   const confirmAction = useConfirmAction(conversationId ?? "");
   const declineAction = useDeclineAction(conversationId ?? "");
@@ -47,14 +49,24 @@ export function ConversationView() {
           <span className="text-base font-bold tracking-tight text-ink">OpsMind</span>
           <span className="border-l border-border pl-2 text-xs text-faint">IT Support</span>
         </div>
-        {subject ? (
-          <div className="flex items-center gap-2.5 text-sm text-ink-muted">
-            <span>{subject}</span>
-            <div className="flex size-[30px] items-center justify-center rounded-full bg-warm-soft text-xs font-bold text-warm-ink">
-              {initials}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={showNewTicket}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-surface-muted"
+            data-testid="open-new-ticket"
+          >
+            Submit a ticket
+          </button>
+          {subject ? (
+            <div className="flex items-center gap-2.5 text-sm text-ink-muted">
+              <span>{subject}</span>
+              <div className="flex size-[30px] items-center justify-center rounded-full bg-warm-soft text-xs font-bold text-warm-ink">
+                {initials}
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </header>
 
       <div className="grid flex-1 grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">

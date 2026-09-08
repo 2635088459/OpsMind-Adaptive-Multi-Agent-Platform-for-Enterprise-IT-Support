@@ -1,0 +1,27 @@
+OpsMind {{ .Chart.AppVersion }} deployed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Workloads:
+{{- range $name, $svc := .Values.services }}
+  - {{ $name }} ({{ $svc.runtime }}) on :{{ $svc.port }}
+{{- end }}
+
+Shared config:  ConfigMap/opsmind-shared-config
+Shared secrets: Secret/{{ .Values.externalSecrets.secretName }}
+  {{- if .Values.externalSecrets.enabled }}(you provide this — externalSecrets.enabled=true){{ else }}(rendered by this chart from .Values.secrets){{ end }}
+
+Prerequisites this chart does NOT create — they must already resolve in the namespace:
+  PostgreSQL   at {{ .Values.config.DB_HOST }}:{{ .Values.config.DB_PORT }}
+  RabbitMQ     at {{ .Values.config.RABBITMQ_HOST }}:{{ .Values.config.RABBITMQ_PORT }}
+  Keycloak     at {{ .Values.config.KEYCLOAK_ISSUER_URI }}
+  MinIO / S3   at {{ .Values.config.ATTACHMENT_STORAGE_ENDPOINT }}
+
+{{- if .Values.ingress.enabled }}
+
+Ingress ({{ .Values.ingress.className }}):
+{{- range $svc, $host := .Values.ingress.hosts }}
+  https://{{ $host }}  ->  {{ $svc }}
+{{- end }}
+{{- else }}
+
+Ingress is disabled. `kubectl port-forward svc/employee-portal 8080:80` to reach a frontend.
+{{- end }}

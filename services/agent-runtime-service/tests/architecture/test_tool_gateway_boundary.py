@@ -27,7 +27,7 @@ _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "agentruntime"
 
 
 def _imports_name(path: Path, name: str) -> bool:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and any(alias.name == name for alias in node.names):
             return True

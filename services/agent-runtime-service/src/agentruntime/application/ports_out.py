@@ -6,6 +6,7 @@ these by shape, without inheriting from anything here.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from typing import Protocol
 
@@ -18,6 +19,7 @@ from agentruntime.application.records import (
     CheckpointRecord,
     CommandIdempotencyRecord,
     CreatedTicketRef,
+    DeliberationResult,
     KnowledgeSnippet,
     OutboxRecord,
     PoisonEventRecord,
@@ -469,6 +471,25 @@ class ConversationReasoningPort(Protocol):
     def decide(
         self, message_text: str, knowledge_snippets: list[KnowledgeSnippet], attachments: list[AttachmentContent] | None = None,
     ) -> ReasoningOutcome: ...
+
+
+class ConversationDeliberationPort(Protocol):
+    """A multi-step wrapper around ConversationReasoningPort.decide(). The
+    "single_turn" adapter just calls decide() once (today's behavior). The
+    "langgraph" adapter runs a real langgraph.StateGraph that may call
+    ``retrieve`` again with a refined query when its first answer looks
+    under-supported, bounded by a max-iteration count. ``retrieve`` is supplied
+    by SendMessageService (it closes over the workflow id + requester subject
+    the KnowledgeRetrievalPort call needs).
+    """
+
+    def deliberate(
+        self,
+        message_text: str,
+        initial_snippets: list[KnowledgeSnippet],
+        attachments: list[AttachmentContent] | None,
+        retrieve: "Callable[[str], list[KnowledgeSnippet]]",
+    ) -> "DeliberationResult": ...
 
 
 class AttachmentClientPort(Protocol):

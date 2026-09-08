@@ -19,7 +19,7 @@ _INTERFACES_ROOT = _SRC_ROOT / "interfaces"
 
 
 def _imports_infrastructure(path: Path) -> bool:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("memoryknowledge.infrastructure"):
             return True

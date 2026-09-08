@@ -15,6 +15,23 @@ from memoryknowledge.domain.ids import CausationId, CorrelationId, IdempotencyKe
 
 
 @dataclass(frozen=True, slots=True)
+class ChunkSimilarityHit:
+    """One row of ``EmbeddingRepository.search_similar_chunks`` — a document
+    chunk ranked by cosine distance against the query vector. ``distance`` is
+    pgvector's ``<=>`` output (0 = identical direction, 2 = opposite); the
+    caller turns it into a 0..1 semantic score. Postgres-only: the in-memory
+    adapter has no chunk↔vector join and returns nothing, so hermetic tests
+    exercise SearchMemoryService's keyword path instead.
+    """
+
+    chunk_id: str
+    document_id: str
+    document_version: int
+    content: str
+    distance: float
+
+
+@dataclass(frozen=True, slots=True)
 class OutboxRecord:
     """08-transaction-and-outbox (deferred detail to SPEC-MK-003) §"Outbox Publisher".
     SPEC-MK-001 domain-rules: "所有发布事件必须通过 Memory outbox."

@@ -9,6 +9,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import logging
+import uuid
 
 from opentelemetry import trace
 
@@ -16,6 +17,8 @@ from memoryknowledge.application.commands import ExpandKnowledgeGraphCommand, Se
 from memoryknowledge.application.ports_out import (
     AuthorizationPort,
     ClockPort,
+    EmbeddingProvider,
+    EmbeddingRepository,
     GraphNodeRepository,
     GraphRerankerPort,
     KnowledgeDocumentRepository,
@@ -27,7 +30,7 @@ from memoryknowledge.application.services.expand_knowledge_graph import ExpandKn
 from memoryknowledge.application.telemetry import MemoryTelemetry
 from memoryknowledge.application.views import SearchResultView
 from memoryknowledge.domain.enums import GraphNodeType
-from memoryknowledge.domain.ids import RetrievalId
+from memoryknowledge.domain.ids import KnowledgeDocumentId, RetrievalId
 from memoryknowledge.domain.retrieval import RetrievalLog, score_text_relevance
 from memoryknowledge.domain.values import GraphPath, Provenance, RetrievalResultItem
 
@@ -57,6 +60,8 @@ class SearchMemoryService:
         expand_knowledge_graph_service: ExpandKnowledgeGraphService,
         clock: ClockPort,
         telemetry: MemoryTelemetry,
+        embedding_provider: EmbeddingProvider | None = None,
+        embedding_repository: EmbeddingRepository | None = None,
     ) -> None:
         self._memory_repository = memory_repository
         self._knowledge_document_repository = knowledge_document_repository
@@ -68,6 +73,15 @@ class SearchMemoryService:
         self._expand_knowledge_graph_service = expand_knowledge_graph_service
         self._clock = clock
         self._telemetry = telemetry
+        # Optional real-semantic path (SPEC-MK phase-05 "retrieval-and-knowledge-
+        # graph"): when both are wired — container.py does so only for
+        # Settings.embedding_provider="openai" — the query is embedded and
+        # matched against document-chunk vectors by pgvector cosine distance,
+        # additively to the keyword (token-overlap) scan below. Left None
+        # everywhere else, so the keyword-only behavior is byte-for-byte
+        # unchanged.
+        self._embedding_provider = embedding_provider
+        self._embedding_repository = embedding_repository
 
     def search(self, command: SearchMemoryCommand) -> SearchResultView:
         """12-observability §"Traces" §"Search trace spans" (request validation / access
@@ -133,6 +147,17 @@ class SearchMemoryService:
             logger.exception("search_memory degraded: repository access failed")
             degraded = True
             degraded_reason = "REPOSITORY_UNAVAILABLE"
+
+        # Real semantic retrieval (only when container.py wired the OpenAI
+        # provider). A failure here — no API key, rate limit, provider down —
+        # degrades to the keyword results already collected above, never raises.
+        if self._embedding_provider is not None and self._embedding_repository is not None:
+            try:
+                self._append_semantic_chunk_results(query, command, results)
+            except Exception:
+                logger.exception("search_memory degraded: semantic retrieval failed")
+                degraded = True
+                degraded_reason = degraded_reason or "EMBEDDING_UNAVAILABLE"
 
         results.sort(key=lambda item: item.score, reverse=True)
         results = results[: command.max_results]
@@ -207,3 +232,53 @@ class SearchMemoryService:
             retrieval_id=retrieval_id, degraded=degraded, degraded_reason=degraded_reason, graph_degraded=graph_degraded,
             results=tuple(results),
         )
+
+    def _append_semantic_chunk_results(
+        self, query: str, command: SearchMemoryCommand, results: list[RetrievalResultItem]
+    ) -> None:
+        """Embed the (already redacted) query, pull the nearest document-chunk
+        vectors, and add them to ``results`` — same ACL/classification gate as
+        the keyword chunk scan, deduped by chunk id so a chunk that both paths
+        found keeps its higher score.
+        """
+
+        assert self._embedding_provider is not None and self._embedding_repository is not None
+        query_ref, query_vector = self._embedding_provider.embed(query)
+        hits = self._embedding_repository.search_similar_chunks(
+            query_vector, query_ref.provider, query_ref.model, limit=max(command.max_results * 4, 20)
+        )
+        by_ref: dict[str, RetrievalResultItem] = {
+            item.provenance.source_ref: item for item in results if item.result_type == "DOCUMENT_CHUNK"
+        }
+        for hit in hits:
+            score = _distance_to_score(hit.distance)
+            if score <= 0:
+                continue
+            existing = by_ref.get(hit.chunk_id)
+            if existing is not None:
+                if score > existing.score:
+                    results[results.index(existing)] = dataclasses.replace(existing, score=score)
+                continue
+            document = self._knowledge_document_repository.find_by_id(KnowledgeDocumentId(uuid.UUID(hit.document_id)))
+            if document is None:
+                continue
+            if document.acl and command.access_scope.role not in document.acl:
+                continue
+            if not self._authorization_port.is_retrieval_authorized(command.access_scope, document.classification):
+                continue
+            item = RetrievalResultItem(
+                result_type="DOCUMENT_CHUNK", source_id=hit.document_id, source_version=hit.document_version,
+                snippet=hit.content, score=score,
+                provenance=Provenance(source_type="document_chunk", source_ref=hit.chunk_id, redacted=True),
+            )
+            results.append(item)
+            by_ref[hit.chunk_id] = item
+
+
+def _distance_to_score(distance: float) -> float:
+    """pgvector cosine distance (0 = identical direction, 1 ≈ orthogonal, 2 =
+    opposite) → a 0..1 relevance score. A chunk roughly orthogonal to the query
+    (distance ≥ 1) contributes nothing.
+    """
+
+    return max(0.0, min(1.0, 1.0 - distance))

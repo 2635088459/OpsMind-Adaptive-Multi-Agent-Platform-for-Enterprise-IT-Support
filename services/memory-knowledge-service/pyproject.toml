@@ -30,12 +30,15 @@ dependencies = [
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
     "pika>=1.3",
+    # OpenAIEmbeddingProvider (infrastructure/embedding/openai_embedding_provider.py)
+    # makes a real outbound HTTP call, so httpx is a runtime dependency now — not
+    # dev-only. The production image runs `uv sync --no-dev`.
+    "httpx>=0.28",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.28",
     "import-linter>=2.1",
     "testcontainers[postgres,rabbitmq]>=4.9",
     "pyflakes>=3.2",

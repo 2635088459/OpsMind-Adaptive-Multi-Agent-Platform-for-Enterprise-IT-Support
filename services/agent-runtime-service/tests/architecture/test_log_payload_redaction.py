@@ -24,7 +24,7 @@ _LOG_METHODS = {"info", "warning", "error", "debug", "exception", "critical"}
 
 
 def _logger_calls_referencing_a_payload_attribute(path: Path) -> list[int]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     offending_lines: list[int] = []
     for node in ast.walk(tree):
         if not (

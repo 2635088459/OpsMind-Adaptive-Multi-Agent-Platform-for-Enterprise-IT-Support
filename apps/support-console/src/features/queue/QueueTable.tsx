@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { useQueue } from "@/features/queue/useQueue";
 import { computeSlaDisplay, formatRemaining } from "@/features/queue/slaDisplay";
 import type { QueueFilters } from "@/features/queue/types";
@@ -69,7 +70,9 @@ export function QueueTable({ filters }: { filters: QueueFilters }) {
             return (
               <tr key={row.ticketId} className="border-b border-border last:border-0" data-testid="queue-row">
                 <td className="px-4 py-2">
-                  <div className="font-medium text-ink">{row.displayId}</div>
+                  <Link to={`/tickets/${row.ticketId}`} className="font-medium text-ink hover:underline">
+                    {row.displayId}
+                  </Link>
                   <div className="text-ink-muted">{row.title}</div>
                 </td>
                 <td className="px-4 py-2 text-ink-muted">{row.status}</td>

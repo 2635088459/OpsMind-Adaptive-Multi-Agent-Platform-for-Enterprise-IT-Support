@@ -166,6 +166,18 @@ class Settings(BaseSettings):
     # an employee would tolerate waiting on a chat reply.
     conversation_reasoning_timeout_seconds: float = 30.0
 
+    # A real multi-step reasoning loop over the single-turn decide() above.
+    # "single_turn" (default) keeps today's exact behavior — one retrieval, one
+    # decide() call — so every hermetic test is unaffected. "langgraph" wires
+    # LangGraphConversationDeliberationAdapter: a real langgraph.StateGraph that
+    # can re-query knowledge with a refined query when its first answer looks
+    # under-supported, bounded by conversation_deliberation_max_iterations. The
+    # per-node decision logic still runs through ConversationReasoningPort
+    # (static/openai/anthropic) — LangGraph supplies the control flow, not a new
+    # planner model.
+    conversation_deliberation_mode: Literal["single_turn", "langgraph"] = "single_turn"
+    conversation_deliberation_max_iterations: int = 3
+
     @property
     def cors_allowed_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

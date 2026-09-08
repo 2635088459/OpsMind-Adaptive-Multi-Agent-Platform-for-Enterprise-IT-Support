@@ -15,6 +15,7 @@ entirely, are unaffected either way).
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from memoryknowledge.application.ports_in import (
@@ -55,6 +56,7 @@ from memoryknowledge.infrastructure.authorization import StaticAuthorizationPoli
 from memoryknowledge.infrastructure.clock import SystemClockAdapter
 from memoryknowledge.infrastructure.document_parser import SimpleDocumentParserAdapter
 from memoryknowledge.infrastructure.embedding.embedding_provider import DeterministicHashEmbeddingProvider
+from memoryknowledge.infrastructure.embedding.openai_embedding_provider import OpenAIEmbeddingProvider
 from memoryknowledge.infrastructure.event_publisher import LoggingEventPublisherAdapter
 from memoryknowledge.infrastructure.event_publisher_rabbitmq import RabbitMqEventPublisherAdapter
 from memoryknowledge.infrastructure.graph.entity_extractor import MarkerBasedEntityExtractorAdapter
@@ -170,6 +172,26 @@ def _build_postgres_adapters(settings: Settings) -> _PersistenceAdapters:
     )
 
 
+def _build_embedding_provider(settings: Settings):
+    """``Settings.embedding_provider`` selects the adapter. "openai" needs a key;
+    if it is missing we log and fall back to the deterministic placeholder
+    rather than refusing to boot — mirroring how event_publisher_adapter/
+    otel_exporter degrade to their inert defaults.
+    """
+
+    if settings.embedding_provider == "openai":
+        if settings.openai_api_key:
+            return OpenAIEmbeddingProvider(
+                settings.openai_api_key,
+                model=settings.openai_embedding_model,
+                base_url=settings.openai_base_url,
+            )
+        logging.getLogger("memoryknowledge.container").warning(
+            "embedding_provider='openai' but OPENAI_API_KEY is empty; falling back to the deterministic hash provider"
+        )
+    return DeterministicHashEmbeddingProvider()
+
+
 class Container:
     def __init__(self, settings: Settings | None = None) -> None:
         settings = settings or get_settings()
@@ -192,7 +214,7 @@ class Container:
 
         self.redaction_policy_port = RegexRedactionPolicyAdapter()
         self.document_parser_port = SimpleDocumentParserAdapter()
-        self.embedding_provider = DeterministicHashEmbeddingProvider()
+        self.embedding_provider = _build_embedding_provider(settings)
         self.entity_extractor_port = MarkerBasedEntityExtractorAdapter()
         self.graph_reranker_port = SimpleGraphRerankerAdapter()
         self.authorization_port = StaticAuthorizationPolicyAdapter()
@@ -217,6 +239,11 @@ class Container:
             self.memory_repository, self.knowledge_document_repository, self.graph_node_repository,
             self.retrieval_log_repository, self.authorization_port, self.redaction_policy_port,
             self.graph_reranker_port, self.expand_knowledge_graph_service, self.clock, self.telemetry,
+            # Only the real OpenAI provider gets the pgvector semantic path wired
+            # (a hash embedding has no meaningful nearest neighbours). With the
+            # deterministic default this stays None and search is keyword-only.
+            embedding_provider=self.embedding_provider if settings.embedding_provider == "openai" else None,
+            embedding_repository=self.embedding_repository if settings.embedding_provider == "openai" else None,
         )
         self.ingest_document_service = IngestKnowledgeDocumentService(
             self.knowledge_document_repository, self.document_parser_port, self.redaction_policy_port,

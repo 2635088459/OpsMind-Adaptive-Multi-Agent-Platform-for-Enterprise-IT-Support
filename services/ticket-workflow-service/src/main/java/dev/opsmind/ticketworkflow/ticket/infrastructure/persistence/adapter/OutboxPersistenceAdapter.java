@@ -8,6 +8,8 @@ import dev.opsmind.ticketworkflow.ticket.application.port.out.OutboxEventReposit
 import dev.opsmind.ticketworkflow.ticket.domain.value.TicketId;
 import dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.jpa.entity.OutboxEventJpaEntity;
 import dev.opsmind.ticketworkflow.ticket.infrastructure.persistence.jpa.repository.SpringDataOutboxEventJpaRepository;
+import dev.opsmind.ticketworkflow.ticket.infrastructure.sse.TicketOutboxEventAppended;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -65,17 +67,20 @@ public class OutboxPersistenceAdapter implements OutboxEventRepository {
     private final EventSchemaValidator eventSchemaValidator;
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public OutboxPersistenceAdapter(
         SpringDataOutboxEventJpaRepository repository,
         EventSchemaValidator eventSchemaValidator,
         NamedParameterJdbcTemplate jdbcTemplate,
-        ObjectMapper objectMapper
+        ObjectMapper objectMapper,
+        ApplicationEventPublisher eventPublisher
     ) {
         this.repository = repository;
         this.eventSchemaValidator = eventSchemaValidator;
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -102,6 +107,14 @@ public class OutboxPersistenceAdapter implements OutboxEventRepository {
             entry.createdAt(),
             entry.availableAt()
         ));
+
+        // TicketEventBroadcaster's own real fan-out point for GET
+        // /api/v1/tickets/{id}/events -- only acted on AFTER_COMMIT (see its
+        // own @TransactionalEventListener), so publishing unconditionally
+        // here, before this method's own caller's transaction has actually
+        // committed, cannot fan out a false positive for a mutation that
+        // later rolls back.
+        eventPublisher.publishEvent(new TicketOutboxEventAppended(entry.ticketId(), entry.eventType(), entry.createdAt()));
     }
 
     @Override

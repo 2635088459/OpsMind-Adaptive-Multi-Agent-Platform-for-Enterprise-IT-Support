@@ -1,6 +1,6 @@
 import { authedFetch, newIdempotencyKey } from "@/lib/httpClient";
 import { TICKET_WORKFLOW_BASE_URL } from "@/lib/env";
-import type { TicketDetail } from "@/features/ticket/types";
+import type { CreateTicketInput, CreateTicketResult, TicketDetail } from "@/features/ticket/types";
 
 const BASE = `${TICKET_WORKFLOW_BASE_URL}/api/v1/tickets`;
 
@@ -49,20 +49,39 @@ export async function reopenTicket(ticketId: string, expectedVersion: number, re
 }
 
 /**
- * SPEC-EP-018's own fallback path: the real, already-implemented `POST
- * /api/v1/tickets` (PublicTicketController) — used directly (not through
- * agent-runtime-service's own create_ticket, which requires a working
- * conversation round trip that is, by definition, the very thing that just
- * failed). `applicationCode: OTHER`/`source: PORTAL` are honest defaults —
- * this spec's own manual-fallback path collects no category selection of
- * its own.
+ * The real, already-implemented `POST /api/v1/tickets` (PublicTicketController)
+ * — a ticket filed straight into ticket-workflow-service's own state machine,
+ * never through agent-runtime-service's conversational `create_ticket`. Used
+ * two ways:
+ *
+ *  - SPEC-EP-018's agent-unavailable fallback (`createTicketManually` below),
+ *    which has no category of its own and passes `OTHER`.
+ *  - The employee's deliberate "file a ticket for a human instead of chatting"
+ *    choice (NewTicketForm), which collects a real `applicationCode`.
+ *
+ * `source` is always `PORTAL` (real `TicketSource` enum). The endpoint
+ * requires `SCOPE_tickets:create` — the same scope the portal token already
+ * carries for the fallback path.
  */
-export async function createTicketManually(title: string, description: string): Promise<{ ticketId: string; displayId: string }> {
+export async function createTicket(input: CreateTicketInput): Promise<CreateTicketResult> {
   const response = await authedFetch(BASE, {
     method: "POST",
     idempotencyKey: newIdempotencyKey(),
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, description, applicationCode: "OTHER", source: "PORTAL" }),
+    body: JSON.stringify({
+      title: input.title,
+      description: input.description,
+      applicationCode: input.applicationCode,
+      source: "PORTAL",
+    }),
   });
-  return (await response.json()) as { ticketId: string; displayId: string };
+  return (await response.json()) as CreateTicketResult;
+}
+
+/**
+ * SPEC-EP-018's fallback wrapper: same endpoint as {@link createTicket}, with
+ * `applicationCode: OTHER` because that recovery path collects no category.
+ */
+export async function createTicketManually(title: string, description: string): Promise<{ ticketId: string; displayId: string }> {
+  return createTicket({ title, description, applicationCode: "OTHER" });
 }

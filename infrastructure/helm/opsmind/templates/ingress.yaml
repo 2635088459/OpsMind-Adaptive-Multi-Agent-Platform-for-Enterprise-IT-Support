@@ -1,0 +1,44 @@
+{{- if .Values.ingress.enabled }}
+{{- $root := . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opsmind
+  labels:
+    {{- include "opsmind.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range $svc, $host := .Values.ingress.hosts }}
+    - host: {{ $host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svc }}
+                port:
+                  number: {{ (index $root.Values.services $svc).port }}
+    {{- end }}
+    {{- range $svc, $host := .Values.ingress.apiHosts }}
+    - host: {{ $host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svc }}
+                port:
+                  number: {{ (index $root.Values.services $svc).port }}
+    {{- end }}
+{{- end }}

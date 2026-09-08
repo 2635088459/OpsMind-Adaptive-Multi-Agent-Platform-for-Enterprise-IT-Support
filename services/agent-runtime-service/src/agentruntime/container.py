@@ -256,6 +256,37 @@ def _build_conversation_reasoning_port(settings: Settings) -> ConversationReason
     return StaticConversationReasoningAdapter()
 
 
+def _build_conversation_deliberation_port(settings: Settings, reasoning_port: ConversationReasoningPort):
+    """Settings.conversation_deliberation_mode="single_turn" (default) wraps the
+    reasoning port in a one-call adapter — behaviourally identical to the
+    pre-existing path. "langgraph" wires the real StateGraph loop; if langgraph
+    can't be imported/constructed we degrade to single-turn rather than failing
+    the service, the same posture `_build_conversation_reasoning_port` takes.
+    """
+
+    from agentruntime.infrastructure.conversation_deliberation import SingleTurnDeliberationAdapter
+
+    if settings.conversation_deliberation_mode == "langgraph":
+        try:
+            from agentruntime.infrastructure.conversation_deliberation import LangGraphConversationDeliberationAdapter
+
+            adapter = LangGraphConversationDeliberationAdapter(
+                reasoning_port, max_iterations=settings.conversation_deliberation_max_iterations
+            )
+            # Fail fast at wiring time if the package is missing, not on the
+            # first employee's chat turn.
+            import langgraph.graph  # noqa: F401
+
+            return adapter
+        except Exception:
+            logger.warning(
+                "conversation_deliberation_mode=langgraph but LangGraph could not be loaded; falling back to single_turn",
+                exc_info=True,
+            )
+
+    return SingleTurnDeliberationAdapter(reasoning_port)
+
+
 def _build_postgres_adapters(settings: Settings) -> _PersistenceAdapters:
     engine = build_engine(settings.sqlalchemy_url)
     session_factory = build_session_factory(engine)
@@ -304,6 +335,9 @@ class Container:
         )
         self.knowledge_retrieval_client = HttpKnowledgeRetrievalClient(settings.memory_knowledge_base_url)
         self.conversation_reasoning_port = _build_conversation_reasoning_port(settings)
+        self.conversation_deliberation_port = _build_conversation_deliberation_port(
+            settings, self.conversation_reasoning_port
+        )
         # SPEC-ARO-039's own multimodal follow-up. Same outbound service identity as
         # ticket_workflow_client's own triage_ticket() call — see AttachmentClientPort's
         # own docstring for why.
@@ -414,6 +448,7 @@ class Container:
             settings.escalation_default_category_id, settings.escalation_default_support_queue_id,
             settings.escalation_default_priority, settings.escalation_default_team_name,
             attachment_client_port=self.attachment_client,
+            conversation_deliberation_port=self.conversation_deliberation_port,
         )
         self.action_confirmation_service = ActionConfirmationService(
             self.workflow_instance_repository, self.agent_task_repository, self.checkpoint_repository,

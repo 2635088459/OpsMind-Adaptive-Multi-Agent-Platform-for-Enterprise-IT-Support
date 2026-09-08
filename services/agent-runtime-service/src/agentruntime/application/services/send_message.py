@@ -46,6 +46,7 @@ from agentruntime.application.ports_out import (
     CheckpointRepository,
     ClockPort,
     CommandIdempotencyRepository,
+    ConversationDeliberationPort,
     ConversationReasoningPort,
     KnowledgeRetrievalPort,
     TicketWorkflowClientPort,
@@ -100,6 +101,7 @@ class SendMessageService:
         escalation_priority: str,
         escalation_team_name: str,
         attachment_client_port: AttachmentClientPort | None = None,
+        conversation_deliberation_port: ConversationDeliberationPort | None = None,
     ) -> None:
         self._workflow_instance_repository = workflow_instance_repository
         self._agent_task_repository = agent_task_repository
@@ -107,6 +109,12 @@ class SendMessageService:
         self._clock = clock
         self._knowledge_retrieval_port = knowledge_retrieval_port
         self._conversation_reasoning_port = conversation_reasoning_port
+        # None (every pre-existing caller, hermetic fixtures included) keeps the
+        # exact single retrieval + single decide() path below. The container
+        # always supplies one — SingleTurnDeliberationAdapter by default,
+        # LangGraphConversationDeliberationAdapter when
+        # conversation_deliberation_mode="langgraph".
+        self._conversation_deliberation_port = conversation_deliberation_port
         self._ticket_workflow_client = ticket_workflow_client
         # SPEC-ARO-039's own multimodal follow-up. Optional/None-able (unlike every
         # other collaborator here) so every existing caller that predates this
@@ -185,7 +193,14 @@ class SendMessageService:
 
         snippets = self._knowledge_retrieval_port.search(command.text, workflow.id, command.requester_subject)
         attachments = self._fetch_attachments(command.attachment_refs)
-        outcome = self._conversation_reasoning_port.decide(command.text, snippets, attachments)
+        if self._conversation_deliberation_port is not None:
+            deliberation = self._conversation_deliberation_port.deliberate(
+                command.text, snippets, attachments,
+                lambda query: self._knowledge_retrieval_port.search(query, workflow.id, command.requester_subject),
+            )
+            outcome = deliberation.outcome
+        else:
+            outcome = self._conversation_reasoning_port.decide(command.text, snippets, attachments)
 
         if outcome.kind == "proposed_action":
             return self._enter_awaiting_confirmation(claimed, outcome, now)

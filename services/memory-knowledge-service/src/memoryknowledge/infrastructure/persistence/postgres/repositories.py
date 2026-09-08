@@ -27,7 +27,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from memoryknowledge.application.exceptions import OptimisticConcurrencyConflictException, WorkingMemoryScopeConflictException
-from memoryknowledge.application.records import AuditRecordEntry, CommandIdempotencyRecord, OutboxRecord, PoisonEventRecord
+from memoryknowledge.application.records import (
+    AuditRecordEntry,
+    ChunkSimilarityHit,
+    CommandIdempotencyRecord,
+    OutboxRecord,
+    PoisonEventRecord,
+)
 from memoryknowledge.domain.enums import (
     DocumentIngestionStatus,
     GraphEdgeType,
@@ -573,6 +579,39 @@ class PostgresEmbeddingRepository:
         with self._session_factory() as session:
             row = session.get(EmbeddingRow, vector_id)
             return tuple(float(v) for v in row.embedding) if row is not None else None
+
+    def search_similar_chunks(
+        self, query_vector: tuple[float, ...], provider: str, model: str, limit: int
+    ) -> list[ChunkSimilarityHit]:
+        if not query_vector or limit <= 0:
+            return []
+        distance = EmbeddingRow.embedding.cosine_distance(list(query_vector)).label("distance")
+        stmt = (
+            select(
+                DocumentChunkRow.id,
+                DocumentChunkRow.document_id,
+                DocumentChunkRow.document_version,
+                DocumentChunkRow.content,
+                distance,
+            )
+            .join(EmbeddingRow, EmbeddingRow.vector_id == DocumentChunkRow.embedding_ref_json["vector_id"].astext)
+            .where(
+                DocumentChunkRow.status == "ACTIVE",
+                EmbeddingRow.provider == provider,
+                EmbeddingRow.model == model,
+            )
+            .order_by(distance)
+            .limit(limit)
+        )
+        with self._session_factory() as session:
+            rows = session.execute(stmt).all()
+        return [
+            ChunkSimilarityHit(
+                chunk_id=str(row.id), document_id=str(row.document_id), document_version=int(row.document_version),
+                content=row.content, distance=float(row.distance),
+            )
+            for row in rows
+        ]
 
 
 def _utcnow() -> datetime:

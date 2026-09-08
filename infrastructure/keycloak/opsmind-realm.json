@@ -101,6 +101,15 @@
       }
     },
     {
+      "name": "tickets:read:self",
+      "protocol": "openid-connect",
+      "description": "Real bug found live 2026-09-03: TicketViewPolicy's own EMPLOYEE_VIEW required this scope but it never existed in this realm.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
       "name": "ticket:triage",
       "protocol": "openid-connect",
       "attributes": {
@@ -159,6 +168,42 @@
     {
       "name": "governance:audit:read",
       "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "policy:read",
+      "protocol": "openid-connect",
+      "description": "Read side of the Admin Policy API (GET /api/v1/policies, GET /api/v1/policies/{id}) — support-console's Policy admin list/detail view.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "policy:draft",
+      "protocol": "openid-connect",
+      "description": "POST /api/v1/policies:draft (PolicyAdminController @PreAuthorize SCOPE_policy:draft).",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "policy:review",
+      "protocol": "openid-connect",
+      "description": "POST /api/v1/policy-versions/{id}:review. The service still enforces actor-level reviewer/publisher separation of duties on top of this scope.",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "policy:publish",
+      "protocol": "openid-connect",
+      "description": "POST /api/v1/policy-versions/{id}:publish.",
       "attributes": {
         "include.in.token.scope": "true",
         "display.on.consent.screen": "false"
@@ -282,7 +327,8 @@
         "basic",
         "profile",
         "email",
-        "tickets:create"
+        "tickets:create",
+        "tickets:read:self"
       ]
     },
     {
@@ -366,6 +412,10 @@
         "ticket:assign-route",
         "ticket:assign",
         "governance:audit:read",
+        "policy:read",
+        "policy:draft",
+        "policy:review",
+        "policy:publish",
         "tickets:read:queue",
         "tickets:timeline:internal"
       ],
@@ -414,7 +464,8 @@
         "basic",
         "profile",
         "email",
-        "tickets:create"
+        "tickets:create",
+        "tickets:read:self"
       ]
     }
   ],

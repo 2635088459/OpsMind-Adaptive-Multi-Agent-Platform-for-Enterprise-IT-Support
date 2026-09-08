@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 
 @Component
@@ -41,6 +42,13 @@ public class PolicyVersionPersistenceAdapter implements PolicyVersionRepository 
     @Override
     public Optional<PolicyVersion> findLatestVersion(String policyId) {
         return repository.findFirstByPolicyIdOrderByVersionNumberDesc(policyId).map(PolicyVersionMapper::toDomain);
+    }
+
+    @Override
+    public List<PolicyVersion> findByPolicyId(String policyId) {
+        return repository.findByPolicyIdOrderByVersionNumberDesc(policyId).stream()
+            .map(PolicyVersionMapper::toDomain)
+            .toList();
     }
 
     @Override

@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from memoryknowledge.infrastructure.observability import configure_observability
 from memoryknowledge.interfaces.admin.router import router as admin_router
@@ -31,8 +32,24 @@ def _configure_logging() -> None:
 
 def create_app() -> FastAPI:
     _configure_logging()
-    configure_observability(get_settings())
+    settings = get_settings()
+    configure_observability(settings)
     app = FastAPI(title="memory-knowledge-service", version="0.1.0")
+
+    # domain 10's support-console needs to reach the /internal/memory/v1/admin
+    # surface (knowledge-document ingest) from a real browser origin. Empty/
+    # deny by default, exactly like every sibling service's own CORS setting —
+    # an operator opts specific frontend origins in via
+    # MEMORY_CORS_ALLOWED_ORIGINS. Bearer-authenticated, no cookie crosses this
+    # boundary, so credentials stay off.
+    if settings.cors_allowed_origins_list:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_allowed_origins_list,
+            allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "traceparent", "X-Actor-Id"],
+            allow_credentials=False,
+        )
 
     register_exception_handlers(app)
 

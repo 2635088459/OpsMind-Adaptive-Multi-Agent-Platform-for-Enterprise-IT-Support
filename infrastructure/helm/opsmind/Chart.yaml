@@ -1,0 +1,13 @@
+apiVersion: v2
+name: opsmind
+description: >-
+  OpsMind platform — the eight application services plus the two frontends,
+  rendered from one values-driven template set. Stateful dependencies
+  (PostgreSQL, RabbitMQ, Keycloak, MinIO) are expected to already exist in the
+  namespace (see values.yaml `config.*` and README.md); this chart does not
+  bundle them so the same manifests target a managed database in a real cluster.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+maintainers:
+  - name: OpsMind platform

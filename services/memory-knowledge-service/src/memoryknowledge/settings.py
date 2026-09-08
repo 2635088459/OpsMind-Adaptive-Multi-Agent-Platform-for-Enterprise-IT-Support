@@ -64,6 +64,29 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str = "localhost:4317"
     otel_service_name: str = "memory-knowledge-service"
 
+    # Which EmbeddingProvider container.py wires. "deterministic" (the honest,
+    # offline, no-API-key hash placeholder — see infrastructure.embedding's own
+    # module docstring) stays the default so every hermetic test and offline run
+    # is unaffected. "openai" wires OpenAIEmbeddingProvider (text-embedding-3-
+    # small by default) and enables the real pgvector cosine-similarity path in
+    # SearchMemoryService; it needs OPENAI_API_KEY. If "openai" is requested but
+    # the key is missing, container.py logs a warning and falls back to
+    # "deterministic" rather than refusing to boot.
+    embedding_provider: Literal["deterministic", "openai"] = "deterministic"
+    openai_api_key: str = ""
+    openai_embedding_model: str = "text-embedding-3-small"
+    openai_base_url: str = "https://api.openai.com/v1"
+
+    # Browser origins allowed to call this service (support-console's admin
+    # knowledge-ingest UI). Comma-separated; empty = no CORS middleware at all.
+    # Mirrors tool-integration-gateway / evaluation-improvement-service's own
+    # cors_allowed_origins field.
+    cors_allowed_origins: str = ""
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
     @property
     def sqlalchemy_url(self) -> str:
         return f"postgresql+psycopg://{self.db_username}:{self.db_password}@{self.db_host}:{self.db_port}/{self.db_name}"

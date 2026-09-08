@@ -1,0 +1,192 @@
+# -----------------------------------------------------------------------------
+# Global image settings. In CI/CD, set image.tag to the commit SHA and
+# image.registry to your registry; the per-service `image` field below is just
+# the repository name appended to `<registry>/`.
+# -----------------------------------------------------------------------------
+image:
+  registry: ghcr.io/opsmind
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Shared NON-secret env, rendered into one ConfigMap that every service mounts
+# via envFrom. Point these at the real in-cluster services / managed endpoints.
+# -----------------------------------------------------------------------------
+config:
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ticket_workflow
+  DB_USERNAME: ticket_workflow
+  RABBITMQ_HOST: rabbitmq
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: guest
+  # Keycloak — a full base URL, scheme+host+port (KC_HOSTNAME must match, see
+  # docker-compose/full-platform.yml's own comment on why).
+  KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+  KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/opsmind/protocol/openid-connect/token
+  # Object storage for attachment-service.
+  ATTACHMENT_STORAGE_ENDPOINT: http://minio:9000
+  ATTACHMENT_STORAGE_ACCESS_KEY: opsmind-minio
+  ATTACHMENT_STORAGE_REGION: us-east-1
+  # Cross-service base URLs (in-cluster DNS: <service>.<namespace>.svc).
+  TICKET_WORKFLOW_BASE_URL: http://ticket-workflow-service:8080
+  MEMORY_KNOWLEDGE_BASE_URL: http://memory-knowledge-service:8010
+  POLICY_APPROVAL_GOVERNANCE_BASE_URL: http://policy-approval-governance-service:8086
+  ATTACHMENT_SERVICE_BASE_URL: http://attachment-service:8090
+  AGENT_RUNTIME_BASE_URL: http://agent-runtime-service:8000
+  EVENT_PUBLISHER_ADAPTER: rabbitmq
+  OTEL_EXPORTER: otlp
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+
+# -----------------------------------------------------------------------------
+# Shared SECRETS. DO NOT COMMIT REAL VALUES HERE.
+# Supply them at deploy time:  helm upgrade --install ... -f my-secrets.yaml
+# (my-secrets.yaml gitignored), or via --set, or set externalSecrets.enabled
+# and let external-secrets / sealed-secrets own the Secret instead.
+# See values-secrets.example.yaml and README.md.
+# -----------------------------------------------------------------------------
+secrets:
+  DB_PASSWORD: ""
+  RABBITMQ_PASSWORD: ""
+  KEYCLOAK_CLIENT_SECRET: ""
+  SUPPORT_CONSOLE_CLIENT_SECRET: ""
+  ATTACHMENT_STORAGE_SECRET_KEY: ""
+  # LLM providers. Empty is valid — memory-knowledge falls back to the
+  # deterministic embedding provider and agent-runtime to static reasoning.
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+  AGENT_RUNTIME_SERVICE_CLIENT_SECRET: ""
+
+externalSecrets:
+  # true  -> this chart does NOT render the Secret; you create
+  #          `opsmind-shared-secrets` yourself (external-secrets/sealed-secrets).
+  # false -> the Secret is rendered from `.Values.secrets` above.
+  enabled: false
+  secretName: opsmind-shared-secrets
+
+# -----------------------------------------------------------------------------
+# Defaults every service inherits unless it overrides them.
+# -----------------------------------------------------------------------------
+defaults:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 768Mi
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+# -----------------------------------------------------------------------------
+# The workloads. `runtime` only picks health-probe defaults (java -> Spring
+# actuator, python -> FastAPI /health, static -> nginx /). `env` is a plain
+# list of extra container env on top of the shared ConfigMap + Secret.
+# -----------------------------------------------------------------------------
+services:
+  ticket-workflow-service:
+    image: ticket-workflow-service
+    port: 8080
+    runtime: java
+    env:
+      - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
+
+  user-access-authentication-service:
+    image: user-access-authentication-service
+    port: 8087
+    runtime: java
+    env:
+      - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
+      - { name: SERVER_PORT, value: "8087" }
+
+  policy-approval-governance-service:
+    image: policy-approval-governance-service
+    port: 8086
+    runtime: java
+    env:
+      - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
+      - { name: SERVER_PORT, value: "8086" }
+      - { name: PORTAL_CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+
+  attachment-service:
+    image: attachment-service
+    port: 8090
+    runtime: java
+    env:
+      - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
+      - { name: SERVER_PORT, value: "8090" }
+      - { name: ATTACHMENT_CORS_ALLOWED_ORIGINS, value: "https://employee-portal.opsmind.local,https://support-console.opsmind.local" }
+
+  agent-runtime-service:
+    image: agent-runtime-service
+    port: 8000
+    runtime: python
+    env:
+      - { name: CONVERSATION_REASONING_MODE, value: static }
+      - { name: CONVERSATION_DELIBERATION_MODE, value: langgraph }
+      - { name: CORS_ALLOWED_ORIGINS, value: "https://employee-portal.opsmind.local,https://support-console.opsmind.local" }
+
+  memory-knowledge-service:
+    image: memory-knowledge-service
+    port: 8010
+    runtime: python
+    env:
+      - { name: EMBEDDING_PROVIDER, value: openai }
+      - { name: CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+
+  tool-integration-gateway:
+    image: tool-integration-gateway
+    port: 8020
+    runtime: python
+    env:
+      - { name: KEYCLOAK_CONNECTOR_ENABLED, value: "true" }
+      - { name: KEYCLOAK_BASE_URL, value: "http://keycloak:8080" }
+      - { name: KEYCLOAK_REALM, value: opsmind }
+      - { name: CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+      - { name: CORS_ALLOW_WRITES, value: "true" }
+
+  evaluation-improvement-service:
+    image: evaluation-improvement-service
+    port: 8011
+    runtime: python
+    env:
+      - { name: CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+
+  employee-portal:
+    image: employee-portal
+    port: 80
+    runtime: static
+
+  support-console:
+    image: support-console
+    port: 80
+    runtime: static
+
+# -----------------------------------------------------------------------------
+# Ingress. One host per frontend; the Keycloak host is assumed to be routed by
+# whatever runs Keycloak (not this chart). API services stay ClusterIP-only —
+# the browser talks to them cross-origin via their own Ingress entries below
+# only if you expose them (disabled by default; the frontends can also proxy).
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+  tls: []
+  hosts:
+    employee-portal: employee-portal.opsmind.local
+    support-console: support-console.opsmind.local
+  # Set to expose the backend APIs the browsers call directly.
+  apiHosts: {}
+    # ticket-workflow-service: api.opsmind.local

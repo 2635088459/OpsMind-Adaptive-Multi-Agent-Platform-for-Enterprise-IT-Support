@@ -230,6 +230,13 @@ class InMemoryEmbeddingRepository:
     def find(self, vector_id: str) -> tuple[float, ...] | None:
         return self._vectors.get(vector_id)
 
+    def search_similar_chunks(self, query_vector, provider, model, limit):  # noqa: ANN001, ANN201
+        # Vector similarity is a pgvector-only capability: this adapter stores
+        # bare vectors with no join back to document_chunks, so it returns
+        # nothing and SearchMemoryService falls back to its keyword path —
+        # exactly the behavior every hermetic test already asserts.
+        return []
+
 
 class InMemoryRetrievalLogRepository:
     def __init__(self) -> None:

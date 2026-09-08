@@ -1,15 +1,34 @@
-import { createBrowserRouter } from "react-router";
-import { AuthGate } from "@/app/AuthGate";
+import { createBrowserRouter, Navigate } from "react-router";
+import { AppLayout } from "@/app/AppLayout";
+import { QueuePage } from "@/pages/QueuePage";
+import { TicketDetailPage } from "@/pages/TicketDetailPage";
+import { AdminPage } from "@/pages/AdminPage";
+import { KnowledgeAdmin } from "@/features/admin/knowledge/KnowledgeAdmin";
+import { ConnectorsAdmin } from "@/features/admin/connectors/ConnectorsAdmin";
+import { PolicyAdmin } from "@/features/admin/policy/PolicyAdmin";
 
 /**
- * A single root route for now — SPEC-EP-001's own scope is login/session,
- * not navigation. `AuthGate` itself decides login-page vs. home-page purely
- * from `AuthStatus`; later specs add real routes (ticket detail, message
- * thread, etc.) as children here rather than replacing this shape.
+ * Real routes now (they used to be a single state-switched page). `AppLayout`
+ * is the auth gate + chrome; everything below it is only ever rendered once
+ * `AuthStatus` is authenticated.
  */
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <AuthGate />,
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <QueuePage /> },
+      { path: "tickets/:ticketId", element: <TicketDetailPage /> },
+      {
+        path: "admin",
+        element: <AdminPage />,
+        children: [
+          { index: true, element: <Navigate to="knowledge" replace /> },
+          { path: "knowledge", element: <KnowledgeAdmin /> },
+          { path: "connectors", element: <ConnectorsAdmin /> },
+          { path: "policy", element: <PolicyAdmin /> },
+        ],
+      },
+    ],
   },
 ]);

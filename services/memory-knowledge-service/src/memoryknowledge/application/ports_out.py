@@ -13,6 +13,7 @@ from typing import Protocol
 from memoryknowledge.application.commands import GraphEntityInput, GraphRelationInput
 from memoryknowledge.application.records import (
     AuditRecordEntry,
+    ChunkSimilarityHit,
     CommandIdempotencyRecord,
     OutboxRecord,
     PoisonEventRecord,
@@ -178,6 +179,18 @@ class EmbeddingRepository(Protocol):
     def save(self, embedding_ref: EmbeddingRef, vector: tuple[float, ...]) -> None: ...
 
     def find(self, vector_id: str) -> tuple[float, ...] | None: ...
+
+    def search_similar_chunks(
+        self, query_vector: tuple[float, ...], provider: str, model: str, limit: int
+    ) -> list[ChunkSimilarityHit]:
+        """Nearest ACTIVE ``document_chunks`` by pgvector cosine distance
+        (``embedding <=> query``), restricted to vectors from the same
+        ``provider``/``model`` as the query (mixed-model/mixed-dimension rows
+        are never compared). Ordered closest-first. The in-memory adapter has
+        no chunk↔vector join and returns ``[]`` — SearchMemoryService then
+        relies solely on its keyword path, exactly as before this method existed.
+        """
+        ...
 
 
 class RetrievalLogRepository(Protocol):

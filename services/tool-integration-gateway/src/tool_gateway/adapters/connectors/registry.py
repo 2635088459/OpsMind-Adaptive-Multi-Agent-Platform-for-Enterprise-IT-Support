@@ -29,6 +29,20 @@ class ConnectorRegistry:
             self._adapters[saved.connector_id] = adapter
         return saved
 
+    def bind_adapter(self, connector_id: ConnectorId, adapter: ConnectorPort) -> None:
+        """Attach a concrete ``ConnectorPort`` to an already-persisted manifest.
+        The manifest row survives a restart (Postgres); the in-memory adapter
+        table does not — the built-in-connector bootstrap
+        (``container._register_builtin_connectors``) re-binds on every boot
+        without inserting a duplicate manifest.
+        """
+
+        with self._lock:
+            self._adapters[connector_id] = adapter
+
+    def find_by_name(self, name: str) -> ToolConnector | None:
+        return next((c for c in self._connector_repository.list_all() if c.name == name), None)
+
     def find_by_capability(self, capability_name: str) -> ToolConnector | None:
         # SPEC-TG-019: ``is_executable()`` admits an eligible DEGRADED
         # fallback alongside ACTIVE — an ACTIVE candidate is always preferred

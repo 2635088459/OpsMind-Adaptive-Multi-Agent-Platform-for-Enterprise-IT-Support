@@ -329,6 +329,19 @@ class KnowledgeSnippet:
 
 
 @dataclass(frozen=True, slots=True)
+class DeliberationResult:
+    """What a ConversationDeliberationPort returns: the ReasoningOutcome to
+    render, plus the snippets the loop actually ended up using and how many
+    reason/retrieve iterations it took (both purely for logging/telemetry —
+    SendMessageService renders only `outcome`).
+    """
+
+    outcome: "ReasoningOutcome"
+    snippets_used: list["KnowledgeSnippet"]
+    iterations: int
+
+
+@dataclass(frozen=True, slots=True)
 class ApprovalRequestRef:
     """SPEC-ARO-040: the real 06-policy-approval-governance POST /api/v1/
     approval-requests response, reshaped to just what SendMessageService's confirm

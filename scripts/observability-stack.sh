@@ -49,9 +49,17 @@ ensure_dev_tls() {
   fi
   echo "→ generating ephemeral self-signed dev TLS cert (SPEC-OP-008, never committed)"
   mkdir -p "$TLS_DIR"
+  # Real bug found live (Git Bash/MSYS on Windows): a single leading "/" on -subj
+  # gets treated as a POSIX path by MSYS's own argv translation and rewritten to
+  # something like "D:/Git/CN=otel-collector" before openssl ever sees it, which
+  # openssl then rejects as a malformed subject -- but only *after* opening
+  # -keyout, so a stray server.key with no matching server.crt is left behind and
+  # this guard's own -f check above never finds "invalid" state. The standard
+  # MSYS workaround is a doubled leading slash ("//CN=..."), which real-world
+  # OpenSSL builds (Linux/macOS included) parse identically to a single slash.
   openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -keyout "$TLS_DIR/server.key" -out "$TLS_DIR/server.crt" \
-    -subj "/CN=otel-collector" \
+    -subj "//CN=otel-collector" \
     -addext "subjectAltName=DNS:otel-collector,DNS:localhost,IP:127.0.0.1" \
     >/dev/null 2>&1
   chmod 600 "$TLS_DIR/server.key"

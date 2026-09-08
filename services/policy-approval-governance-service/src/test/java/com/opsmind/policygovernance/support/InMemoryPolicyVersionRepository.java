@@ -6,6 +6,7 @@ import com.opsmind.policygovernance.domain.policy.PolicyVersion;
 
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,6 +42,14 @@ public class InMemoryPolicyVersionRepository implements PolicyVersionRepository 
         return byId.values().stream()
             .filter(v -> v.policyId().equals(policyId))
             .max(Comparator.comparingInt(PolicyVersion::versionNumber));
+    }
+
+    @Override
+    public List<PolicyVersion> findByPolicyId(String policyId) {
+        return byId.values().stream()
+            .filter(v -> v.policyId().equals(policyId))
+            .sorted(Comparator.comparingInt(PolicyVersion::versionNumber).reversed())
+            .toList();
     }
 
     @Override
