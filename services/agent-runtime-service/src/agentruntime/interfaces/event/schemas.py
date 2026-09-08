@@ -205,3 +205,59 @@ class TicketReopenedEventRequest(BaseModel):
             ),
             "reason_code": _first_present(raw.get("reason_code"), raw.get("reasonCode"), payload.get("reasonCode"), payload.get("reopenReasonCode")),
         })
+
+
+# --- evaluation-improvement-service events -----------------------------------
+
+def _improvement_envelope_payload(raw: Any, expected_type: str) -> dict[str, Any] | None:
+    """Detect evaluation-improvement-service's outbox envelope
+    (`{eventId, eventType, occurredAt, producer, correlationId, candidateId,
+    payload:{...}}`) for `expected_type` and return a flat dict the model can
+    parse, or None if `raw` is already flat / not this event.
+    """
+
+    if not isinstance(raw, dict) or "payload" not in raw or raw.get("eventType") != expected_type:
+        return None
+    payload = raw["payload"] if isinstance(raw["payload"], dict) else json.loads(raw["payload"])
+    return {
+        "event_id": raw.get("eventId") or raw.get("event_id"),
+        "event_type": raw.get("eventType"),
+        "producer": raw.get("producer"),
+        "occurred_at": raw.get("occurredAt") or payload.get("occurred_at"),
+        **payload,
+    }
+
+
+class ImprovementPromotedEventRequest(BaseModel):
+    """`improvement.promoted.v1` from evaluation-improvement-service."""
+
+    event_id: str = Field(min_length=1)
+    event_type: str = Field(min_length=1, default="improvement.promoted.v1")
+    producer: str = Field(min_length=1)
+    occurred_at: datetime
+    candidate_id: str = Field(min_length=1)
+    candidate_type: str = Field(min_length=1)
+    target_component: str = Field(min_length=1)
+    promoted_version: str = Field(min_length=1)
+    proposed_change: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_envelope(cls, raw: Any) -> Any:
+        return _improvement_envelope_payload(raw, "improvement.promoted.v1") or raw
+
+
+class ImprovementRollbackEventRequest(BaseModel):
+    """`improvement.rollback.requested.v1` from evaluation-improvement-service."""
+
+    event_id: str = Field(min_length=1)
+    event_type: str = Field(min_length=1, default="improvement.rollback.requested.v1")
+    producer: str = Field(min_length=1)
+    occurred_at: datetime
+    candidate_id: str = Field(min_length=1)
+    reason: str = Field(default="")
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_envelope(cls, raw: Any) -> Any:
+        return _improvement_envelope_payload(raw, "improvement.rollback.requested.v1") or raw

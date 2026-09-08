@@ -81,6 +81,24 @@ class ImprovementCandidateApproved:
 
 
 @dataclass(frozen=True, slots=True)
+class ImprovementPromoted:
+    """`improvement.promoted.v1` — a candidate that has passed benchmark + release
+    gate + approval + canary and is now the active version of its target component.
+    Carries the full `proposed_change` so a downstream service (agent-runtime's
+    active-config store) can adopt it without a callback: the loop the platform's
+    own "improvement is evaluation-gated" principle describes only closes if the
+    promotion is actually published and consumed.
+    """
+
+    candidate_id: CandidateId
+    candidate_type: str
+    target_component: str
+    promoted_version: str
+    proposed_change: dict
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class ImprovementRollbackRequested:
     """06-event-contracts: `improvement.rollback.requested.v1`."""
 

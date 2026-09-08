@@ -308,3 +308,19 @@ class CommandIdempotencyRow(Base):
     response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ActiveComponentConfigRow(Base):
+    """The currently-active version of one tunable component, adopted from an
+    `improvement.promoted.v1` event — the agent-runtime side of the platform's
+    "improvement is evaluation-gated" loop. One row per component; a promotion
+    replaces it, a rollback deletes it.
+    """
+
+    __tablename__ = "active_component_configs"
+
+    component: Mapped[str] = mapped_column(String(200), primary_key=True)
+    version: Mapped[str] = mapped_column(String(200), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    source_candidate_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

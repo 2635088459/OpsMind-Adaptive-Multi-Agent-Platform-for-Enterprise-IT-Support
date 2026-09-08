@@ -9,15 +9,29 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from agentruntime.application.ports_in import RuntimeEventConsumerPort, TicketCreatedConsumerPort, TicketCycleConsumerPort
-from agentruntime.container import get_runtime_event_consumer_port, get_ticket_created_consumer_port, get_ticket_cycle_consumer_port
+from agentruntime.application.ports_in import (
+    ImprovementConsumerPort,
+    RuntimeEventConsumerPort,
+    TicketCreatedConsumerPort,
+    TicketCycleConsumerPort,
+)
+from agentruntime.container import (
+    get_improvement_consumer_port,
+    get_runtime_event_consumer_port,
+    get_ticket_created_consumer_port,
+    get_ticket_cycle_consumer_port,
+)
 from agentruntime.interfaces.event.mapper import (
     to_envelope,
+    to_improvement_promoted_command,
+    to_improvement_rollback_command,
     to_ticket_cancelled_command,
     to_ticket_created_command,
     to_ticket_reopened_command,
 )
 from agentruntime.interfaces.event.schemas import (
+    ImprovementPromotedEventRequest,
+    ImprovementRollbackEventRequest,
     RuntimeEventRequest,
     TicketCancelledEventRequest,
     TicketCreatedEventRequest,
@@ -63,4 +77,27 @@ def ingest_ticket_reopened(
 ) -> dict[str, object]:
     """SPEC-ARO-023 06-event-contracts (02-ticket-workflow PUB-015 "ticket.reopened.v1")."""
     applied = port.consume_reopened(to_ticket_reopened_command(request))
+    return {"eventId": request.event_id, "applied": applied}
+
+
+@router.post("/improvement-promoted")
+def ingest_improvement_promoted(
+    request: ImprovementPromotedEventRequest, port: ImprovementConsumerPort = Depends(get_improvement_consumer_port)
+) -> dict[str, object]:
+    """`improvement.promoted.v1` — adopt evaluation-improvement-service's promoted
+    change as the active version of its target component. Dedicated route (no
+    workflow_instance_id: this is a platform-wide config change).
+    """
+    applied = port.consume_promoted(to_improvement_promoted_command(request))
+    return {"eventId": request.event_id, "applied": applied}
+
+
+@router.post("/improvement-rollback")
+def ingest_improvement_rollback(
+    request: ImprovementRollbackEventRequest, port: ImprovementConsumerPort = Depends(get_improvement_consumer_port)
+) -> dict[str, object]:
+    """`improvement.rollback.requested.v1` — revert the component the named
+    candidate promoted back to its built-in default.
+    """
+    applied = port.consume_rollback(to_improvement_rollback_command(request))
     return {"eventId": request.event_id, "applied": applied}

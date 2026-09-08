@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from agentruntime.application.exceptions import AgentTaskVersionConflictException, WorkflowInstanceVersionConflictException
 from agentruntime.application.records import (
+    ActiveComponentConfig,
     AgentTaskRecord,
     AuditRecordEntry,
     CheckpointRecord,
@@ -44,6 +45,7 @@ from agentruntime.domain.ids import (
     WorkflowType,
 )
 from agentruntime.infrastructure.persistence.postgres.models import (
+    ActiveComponentConfigRow,
     AgentTaskRow,
     AuditEventRow,
     CheckpointRow,
@@ -470,6 +472,49 @@ class PostgresProcessedEventRepository:
                 # loses is a no-op, not an error (02-business-invariants: duplicate events
                 # must not advance Workflow again).
                 session.rollback()
+
+
+class PostgresActiveComponentConfigRepository:
+    """One row per component. `upsert` replaces it; `clear` deletes it."""
+
+    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+        self._session_factory = session_factory
+
+    def find(self, component: str) -> ActiveComponentConfig | None:
+        with self._session_factory() as session:
+            row = session.get(ActiveComponentConfigRow, component)
+            return _to_active_component_config(row) if row is not None else None
+
+    def find_all(self) -> list[ActiveComponentConfig]:
+        with self._session_factory() as session:
+            rows = session.query(ActiveComponentConfigRow).order_by(ActiveComponentConfigRow.component).all()
+            return [_to_active_component_config(row) for row in rows]
+
+    def upsert(self, config: ActiveComponentConfig) -> None:
+        with self._session_factory() as session:
+            row = session.get(ActiveComponentConfigRow, config.component)
+            if row is None:
+                row = ActiveComponentConfigRow(component=config.component)
+                session.add(row)
+            row.version = config.version
+            row.payload = dict(config.payload)
+            row.source_candidate_id = config.source_candidate_id
+            row.activated_at = config.activated_at
+            session.commit()
+
+    def clear(self, component: str) -> None:
+        with self._session_factory() as session:
+            row = session.get(ActiveComponentConfigRow, component)
+            if row is not None:
+                session.delete(row)
+                session.commit()
+
+
+def _to_active_component_config(row: ActiveComponentConfigRow) -> ActiveComponentConfig:
+    return ActiveComponentConfig(
+        component=row.component, version=row.version, payload=dict(row.payload),
+        source_candidate_id=row.source_candidate_id, activated_at=row.activated_at,
+    )
 
 
 class PostgresPoisonEventRepository:

@@ -288,3 +288,40 @@ def test_static_adapter_ignores_attachments_entirely() -> None:
     )
 
     assert outcome.kind == "proposed_action"
+
+
+# --- promoted-prompt override (the "improvement is evaluation-gated" loop) ------
+
+def test_openai_adapter_uses_a_promoted_system_prompt_override() -> None:
+    client = _FakeOpenAIClient(decision=ConversationDecision(kind="text", text="ok"))
+    adapter = OpenAIConversationReasoningAdapter(
+        client, "gpt-5-mini", system_prompt_provider=lambda: "PROMOTED PROMPT v2",
+    )
+
+    adapter.decide("hi", [])
+
+    system_msg = next(m for m in client.chat.completions.last_call["messages"] if m["role"] == "system")
+    assert system_msg["content"] == "PROMOTED PROMPT v2"
+
+
+def test_openai_adapter_falls_back_to_the_builtin_prompt_when_override_is_blank_or_raises() -> None:
+    from agentruntime.infrastructure.conversation_reasoning import _SYSTEM_PROMPT
+
+    for provider in (lambda: None, lambda: "   ", _raising_provider):
+        client = _FakeOpenAIClient(decision=ConversationDecision(kind="text", text="ok"))
+        OpenAIConversationReasoningAdapter(client, "gpt-5-mini", system_prompt_provider=provider).decide("hi", [])
+        system_msg = next(m for m in client.chat.completions.last_call["messages"] if m["role"] == "system")
+        assert system_msg["content"] == _SYSTEM_PROMPT
+
+
+def test_anthropic_adapter_uses_a_promoted_system_prompt_override() -> None:
+    client = _FakeAnthropicClient(decision=ConversationDecision(kind="text", text="ok"))
+    AnthropicConversationReasoningAdapter(
+        client, "claude-sonnet-5", system_prompt_provider=lambda: "PROMOTED PROMPT v2",
+    ).decide("hi", [])
+
+    assert client.messages.last_call["system"] == "PROMOTED PROMPT v2"
+
+
+def _raising_provider() -> str | None:
+    raise RuntimeError("active-config store unreachable")

@@ -35,7 +35,11 @@ from evaluationimprovement.application.services.idempotency import CommandIdempo
 from evaluationimprovement.application.telemetry import EvaluationTelemetry
 from evaluationimprovement.application.views import ImprovementCandidateView
 from evaluationimprovement.domain.enums import CandidateStatus, CandidateType, CanaryStatus, RiskLevel, RunStatus
-from evaluationimprovement.domain.events import ImprovementCandidateApproved, ImprovementCandidateCreated
+from evaluationimprovement.domain.events import (
+    ImprovementCandidateApproved,
+    ImprovementCandidateCreated,
+    ImprovementPromoted,
+)
 from evaluationimprovement.domain.ids import CandidateId, RunId
 from evaluationimprovement.domain.improvement_candidate import ImprovementCandidate
 
@@ -214,8 +218,18 @@ class CreateImprovementCandidateService:
         if candidate.canary_status is None or candidate.canary_status.value != "SUCCEEDED":
             raise ValueError(f"candidate {command.candidate_id} cannot promote before its canary has SUCCEEDED")
         original_status = candidate.status
-        candidate = candidate.promote(command.promoted_version, self._clock.now())
+        now = self._clock.now()
+        candidate = candidate.promote(command.promoted_version, now)
         saved = self._candidate_repository.save(candidate, expected_status=original_status)
+        self._outbox_repository.append(build_outbox_record(
+            ImprovementPromoted(
+                candidate_id=saved.candidate_id, candidate_type=saved.candidate_type.value,
+                target_component=saved.target_component, promoted_version=command.promoted_version,
+                proposed_change=dict(saved.proposed_change), occurred_at=now,
+            ),
+            "improvement.promoted.v1", aggregate_id=str(saved.candidate_id), occurred_at=now,
+            correlation_id=to_correlation_id(command.correlation_id),
+        ))
         self._audit_recorder.record(
             action="promote_candidate", resource_type="IMPROVEMENT_CANDIDATE", resource_id=str(saved.candidate_id),
             actor=command.actor, outcome="SUCCESS", correlation_id=command.correlation_id,

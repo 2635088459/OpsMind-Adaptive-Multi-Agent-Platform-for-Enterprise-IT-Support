@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from agentruntime.application.commands import (
+    ConsumeImprovementPromotedCommand,
+    ConsumeImprovementRollbackCommand,
     ConsumeTicketCancelledCommand,
     ConsumeTicketCreatedCommand,
     ConsumeTicketReopenedCommand,
@@ -8,11 +10,29 @@ from agentruntime.application.commands import (
 )
 from agentruntime.domain.ids import CausationId, CorrelationId, TicketCycleId, TicketId, WorkflowInstanceId
 from agentruntime.interfaces.event.schemas import (
+    ImprovementPromotedEventRequest,
+    ImprovementRollbackEventRequest,
     RuntimeEventRequest,
     TicketCancelledEventRequest,
     TicketCreatedEventRequest,
     TicketReopenedEventRequest,
 )
+
+
+def to_improvement_promoted_command(request: ImprovementPromotedEventRequest) -> ConsumeImprovementPromotedCommand:
+    return ConsumeImprovementPromotedCommand(
+        event_id=request.event_id, event_type=request.event_type, producer=request.producer,
+        occurred_at=request.occurred_at, candidate_id=request.candidate_id, candidate_type=request.candidate_type,
+        target_component=request.target_component, promoted_version=request.promoted_version,
+        proposed_change=dict(request.proposed_change),
+    )
+
+
+def to_improvement_rollback_command(request: ImprovementRollbackEventRequest) -> ConsumeImprovementRollbackCommand:
+    return ConsumeImprovementRollbackCommand(
+        event_id=request.event_id, event_type=request.event_type, producer=request.producer,
+        occurred_at=request.occurred_at, candidate_id=request.candidate_id, reason=request.reason,
+    )
 
 
 def to_envelope(request: RuntimeEventRequest) -> RuntimeEventEnvelope:

@@ -402,6 +402,50 @@ class ConsumeTicketReopenedCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class ConsumeImprovementPromotedCommand:
+    """`improvement.promoted.v1` from evaluation-improvement-service. Its own
+    shape (not RuntimeEventEnvelope): no workflow_instance_id exists — this is a
+    platform-wide config change, not a per-workflow event.
+    """
+
+    event_id: str
+    event_type: str
+    producer: str
+    occurred_at: datetime
+    candidate_id: str
+    candidate_type: str
+    target_component: str
+    promoted_version: str
+    proposed_change: dict[str, object]
+
+    def __post_init__(self) -> None:
+        for name in ("event_id", "event_type", "producer", "candidate_id", "target_component", "promoted_version"):
+            value = getattr(self, name)
+            if not value or not str(value).strip():
+                raise ValueError(f"{name} must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeImprovementRollbackCommand:
+    """`improvement.rollback.requested.v1` — the promoted candidate is being
+    reverted; the component goes back to its built-in default.
+    """
+
+    event_id: str
+    event_type: str
+    producer: str
+    occurred_at: datetime
+    candidate_id: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        for name in ("event_id", "event_type", "producer", "candidate_id"):
+            value = getattr(self, name)
+            if not value or not str(value).strip():
+                raise ValueError(f"{name} must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
 class StartConversationCommand:
     """SPEC-ARO-038 05-api-contracts "POST /api/v1/conversations": for real, create a
     ticket in 02-ticket-workflow, then create a conversational_intake WorkflowInstance

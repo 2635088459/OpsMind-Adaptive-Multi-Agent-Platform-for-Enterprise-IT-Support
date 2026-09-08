@@ -16,6 +16,7 @@ from datetime import datetime
 
 from agentruntime.application.exceptions import AgentTaskVersionConflictException, WorkflowInstanceVersionConflictException
 from agentruntime.application.records import (
+    ActiveComponentConfig,
     AgentTaskRecord,
     AuditRecordEntry,
     CheckpointRecord,
@@ -244,6 +245,30 @@ class InMemoryPoisonEventRepository:
                 if record.id == id:
                     self._store[index] = dataclasses.replace(record, quarantined_at=quarantined_at)
                     return
+
+
+class InMemoryActiveComponentConfigRepository:
+    """One row per component, keyed by component name — the hermetic-test double
+    for the "improvement is evaluation-gated" adoption store.
+    """
+
+    def __init__(self) -> None:
+        self._store: dict[str, ActiveComponentConfig] = {}
+        self._lock = threading.Lock()
+
+    def find(self, component: str) -> ActiveComponentConfig | None:
+        return self._store.get(component)
+
+    def find_all(self) -> list[ActiveComponentConfig]:
+        return sorted(self._store.values(), key=lambda c: c.component)
+
+    def upsert(self, config: ActiveComponentConfig) -> None:
+        with self._lock:
+            self._store[config.component] = config
+
+    def clear(self, component: str) -> None:
+        with self._lock:
+            self._store.pop(component, None)
 
 
 class InMemoryAuditRecordRepository:

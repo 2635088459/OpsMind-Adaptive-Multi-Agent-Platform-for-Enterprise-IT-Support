@@ -12,6 +12,7 @@ from typing import Protocol
 
 from agentruntime.application.commands import WorkflowDefinitionInput
 from agentruntime.application.records import (
+    ActiveComponentConfig,
     AgentTaskRecord,
     ApprovalRequestRef,
     AttachmentContent,
@@ -200,6 +201,23 @@ class ProcessedEventRepository(Protocol):
         event_type: str | None = None,
         workflow_instance_id: WorkflowInstanceId | None = None,
     ) -> None: ...
+
+
+class ActiveComponentConfigRepository(Protocol):
+    """Stores one row per tunable component — its currently-active version,
+    adopted from `improvement.promoted.v1`. `upsert` replaces the row for a
+    component; `clear` removes it (a rollback reverts that component to its
+    built-in default). `find` / `find_all` back the reasoning wiring and the
+    admin visibility surface.
+    """
+
+    def find(self, component: str) -> ActiveComponentConfig | None: ...
+
+    def find_all(self) -> list[ActiveComponentConfig]: ...
+
+    def upsert(self, config: ActiveComponentConfig) -> None: ...
+
+    def clear(self, component: str) -> None: ...
 
 
 class PoisonEventRepository(Protocol):

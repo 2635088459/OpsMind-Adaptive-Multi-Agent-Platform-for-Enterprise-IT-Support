@@ -12,6 +12,8 @@ from agentruntime.application.commands import (
     CompleteAgentTaskCommand,
     CompleteWorkflowCommand,
     ConfirmActionCommand,
+    ConsumeImprovementPromotedCommand,
+    ConsumeImprovementRollbackCommand,
     ConsumeTicketCancelledCommand,
     ConsumeTicketCreatedCommand,
     ConsumeTicketReopenedCommand,
@@ -99,6 +101,18 @@ class RuntimeEventConsumerPort(Protocol):
     def consume(self, envelope: RuntimeEventEnvelope) -> bool:
         """Returns True if the event was newly processed, False if it was a duplicate/stale no-op."""
         ...
+
+
+class ImprovementConsumerPort(Protocol):
+    """Consumes evaluation-improvement-service's `improvement.promoted.v1` /
+    `improvement.rollback.requested.v1` — the agent-runtime side of the
+    "improvement is evaluation-gated" loop. Both return True if the event was
+    applied, False if it was a duplicate (idempotent per event_id).
+    """
+
+    def consume_promoted(self, command: ConsumeImprovementPromotedCommand) -> bool: ...
+
+    def consume_rollback(self, command: ConsumeImprovementRollbackCommand) -> bool: ...
 
 
 class TicketCreatedConsumerPort(Protocol):

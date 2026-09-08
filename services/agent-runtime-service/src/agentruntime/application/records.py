@@ -329,6 +329,24 @@ class KnowledgeSnippet:
 
 
 @dataclass(frozen=True, slots=True)
+class ActiveComponentConfig:
+    """The currently-active version of one tunable component (e.g. the
+    conversation-reasoning system prompt), adopted from an
+    `improvement.promoted.v1` event that evaluation-improvement-service
+    published after a candidate passed benchmark + release gate + approval +
+    canary. This is the agent-runtime side of the platform's
+    "improvement is evaluation-gated" loop: without it, a promoted change is
+    never actually picked up.
+    """
+
+    component: str
+    version: str
+    payload: dict[str, object]
+    source_candidate_id: str
+    activated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class DeliberationResult:
     """What a ConversationDeliberationPort returns: the ReasoningOutcome to
     render, plus the snippets the loop actually ended up using and how many

@@ -25,6 +25,7 @@ from agentruntime.application.ports_in import (
     AuditRecordQueryPort,
     ConversationCommandPort,
     ConversationQueryPort,
+    ImprovementConsumerPort,
     LeaseRecoveryPort,
     OutboxDispatchPort,
     PoisonEventCommandPort,
@@ -39,6 +40,7 @@ from agentruntime.application.ports_in import (
     WorkflowQueryPort,
 )
 from agentruntime.application.ports_out import (
+    ActiveComponentConfigRepository,
     AgentTaskRepository,
     AuditRecordRepository,
     CheckpointRepository,
@@ -64,6 +66,7 @@ from agentruntime.application.services.complete_agent_task import (
 )
 from agentruntime.application.services.complete_workflow import CompleteWorkflowService
 from agentruntime.application.services.consume_approval import ConsumeApprovalService
+from agentruntime.application.services.consume_improvement import ConsumeImprovementService
 from agentruntime.application.services.consume_runtime_event import (
     ConsumeRuntimeEventService,
 )
@@ -134,6 +137,7 @@ from agentruntime.infrastructure.outbound_identity import (
     KeycloakOutboundServiceTokenProvider,
 )
 from agentruntime.infrastructure.persistence.in_memory import (
+    InMemoryActiveComponentConfigRepository,
     InMemoryAgentTaskRepository,
     InMemoryAuditRecordRepository,
     InMemoryCheckpointRepository,
@@ -145,6 +149,7 @@ from agentruntime.infrastructure.persistence.in_memory import (
     InMemoryWorkflowInstanceRepository,
 )
 from agentruntime.infrastructure.persistence.postgres.repositories import (
+    PostgresActiveComponentConfigRepository,
     PostgresAgentTaskRepository,
     PostgresAuditRecordRepository,
     PostgresCheckpointRepository,
@@ -184,6 +189,7 @@ class _PersistenceAdapters:
         command_idempotency_repository: CommandIdempotencyRepository,
         poison_event_repository: PoisonEventRepository,
         audit_record_repository: AuditRecordRepository,
+        active_component_config_repository: ActiveComponentConfigRepository,
     ) -> None:
         self.workflow_instance_repository = workflow_instance_repository
         self.agent_task_repository = agent_task_repository
@@ -194,6 +200,7 @@ class _PersistenceAdapters:
         self.command_idempotency_repository = command_idempotency_repository
         self.poison_event_repository = poison_event_repository
         self.audit_record_repository = audit_record_repository
+        self.active_component_config_repository = active_component_config_repository
 
 
 def _build_memory_adapters() -> _PersistenceAdapters:
@@ -207,13 +214,21 @@ def _build_memory_adapters() -> _PersistenceAdapters:
         command_idempotency_repository=InMemoryCommandIdempotencyRepository(),
         poison_event_repository=InMemoryPoisonEventRepository(),
         audit_record_repository=InMemoryAuditRecordRepository(),
+        active_component_config_repository=InMemoryActiveComponentConfigRepository(),
     )
 
 
 logger = logging.getLogger("agentruntime.container")
 
+# The one active-component-config key agent-runtime reads back into behaviour
+# today: a promoted PROMPT_CHANGE improvement whose proposed_change carries
+# {"system_prompt": "..."}. evaluation-improvement-service must target this exact
+# component name for the change to take effect (other CandidateType targets are
+# stored + visible on the admin surface but not yet wired).
+REASONING_PROMPT_COMPONENT = "conversation_reasoning_prompt"
 
-def _build_conversation_reasoning_port(settings: Settings) -> ConversationReasoningPort:
+
+def _build_conversation_reasoning_port(settings: Settings, system_prompt_provider=None) -> ConversationReasoningPort:
     """Settings.conversation_reasoning_mode="static" (default) keeps
     StaticConversationReasoningAdapter — every hermetic test in this service relies on
     it. "anthropic"/"openai" each wire their own real adapter — same import-lazily/
@@ -221,6 +236,12 @@ def _build_conversation_reasoning_port(settings: Settings) -> ConversationReason
     `_build_quality_judge()` already established in this platform for the anthropic
     SDK; the openai branch mirrors it exactly for this service's own first use of that
     SDK.
+
+    `system_prompt_provider` (Container passes one backed by the active-component-
+    config store) lets a promoted PROMPT_CHANGE improvement replace the built-in
+    system prompt at runtime — the point where the "improvement is evaluation-gated"
+    loop actually changes behaviour. StaticConversationReasoningAdapter ignores it
+    (it does no LLM call).
     """
 
     if settings.conversation_reasoning_mode == "anthropic":
@@ -230,7 +251,7 @@ def _build_conversation_reasoning_port(settings: Settings) -> ConversationReason
             from agentruntime.infrastructure.conversation_reasoning import AnthropicConversationReasoningAdapter
 
             client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=settings.conversation_reasoning_timeout_seconds) if settings.anthropic_api_key else anthropic.Anthropic(timeout=settings.conversation_reasoning_timeout_seconds)
-            return AnthropicConversationReasoningAdapter(client, settings.conversation_reasoning_anthropic_model)
+            return AnthropicConversationReasoningAdapter(client, settings.conversation_reasoning_anthropic_model, system_prompt_provider)
         except Exception:
             logger.warning(
                 "conversation_reasoning_mode=anthropic but the Anthropic client could not be constructed; falling back to the static placeholder",
@@ -245,7 +266,7 @@ def _build_conversation_reasoning_port(settings: Settings) -> ConversationReason
             from agentruntime.infrastructure.conversation_reasoning import OpenAIConversationReasoningAdapter
 
             client = openai.OpenAI(api_key=settings.openai_api_key, timeout=settings.conversation_reasoning_timeout_seconds) if settings.openai_api_key else openai.OpenAI(timeout=settings.conversation_reasoning_timeout_seconds)
-            return OpenAIConversationReasoningAdapter(client, settings.conversation_reasoning_openai_model)
+            return OpenAIConversationReasoningAdapter(client, settings.conversation_reasoning_openai_model, system_prompt_provider)
         except Exception:
             logger.warning(
                 "conversation_reasoning_mode=openai but the OpenAI client could not be constructed; falling back to the static placeholder",
@@ -300,6 +321,7 @@ def _build_postgres_adapters(settings: Settings) -> _PersistenceAdapters:
         command_idempotency_repository=PostgresCommandIdempotencyRepository(session_factory),
         poison_event_repository=PostgresPoisonEventRepository(session_factory),
         audit_record_repository=PostgresAuditRecordRepository(session_factory),
+        active_component_config_repository=PostgresActiveComponentConfigRepository(session_factory),
     )
 
 
@@ -319,6 +341,7 @@ class Container:
         self.command_idempotency_repository = adapters.command_idempotency_repository
         self.poison_event_repository = adapters.poison_event_repository
         self.audit_record_repository = adapters.audit_record_repository
+        self.active_component_config_repository = adapters.active_component_config_repository
 
         self.tool_gateway_port = LoggingToolGatewayPort(self.clock)
         self.ticket_snapshot_port = NoOpTicketSnapshotPort()
@@ -334,7 +357,13 @@ class Container:
             settings.ticket_workflow_base_url, token_provider=self.outbound_service_token_provider,
         )
         self.knowledge_retrieval_client = HttpKnowledgeRetrievalClient(settings.memory_knowledge_base_url)
-        self.conversation_reasoning_port = _build_conversation_reasoning_port(settings)
+
+        def _active_reasoning_system_prompt() -> str | None:
+            config = self.active_component_config_repository.find(REASONING_PROMPT_COMPONENT)
+            value = config.payload.get("system_prompt") if config is not None else None
+            return value if isinstance(value, str) else None
+
+        self.conversation_reasoning_port = _build_conversation_reasoning_port(settings, _active_reasoning_system_prompt)
         self.conversation_deliberation_port = _build_conversation_deliberation_port(
             settings, self.conversation_reasoning_port
         )
@@ -421,6 +450,9 @@ class Container:
             self.processed_event_repository, self.ticket_snapshot_port, self.workflow_definition_catalog_port,
             self.start_workflow_service, self.clock, self.telemetry,
         )
+        self.consume_improvement_service = ConsumeImprovementService(
+            self.processed_event_repository, self.active_component_config_repository, self.clock, self.telemetry,
+        )
         self.recover_workflow_service = RecoverWorkflowService(
             self.workflow_instance_repository, self.checkpoint_repository, self.agent_task_repository, self.clock,
             self.fail_workflow_service, self.telemetry, self.audit_recorder,
@@ -472,6 +504,7 @@ class Container:
         )
         self.runtime_event_consumer_port: RuntimeEventConsumerPort = self.consume_runtime_event_service
         self.ticket_created_consumer_port: TicketCreatedConsumerPort = self.consume_ticket_created_service
+        self.improvement_consumer_port: ImprovementConsumerPort = self.consume_improvement_service
         self.ticket_cycle_consumer_port: TicketCycleConsumerPort = self.consume_ticket_cycle_event_service
         self.recovery_port: RecoveryPort = self.recover_workflow_service
         self.lease_recovery_port: LeaseRecoveryPort = self.recover_expired_lease_tasks_service
@@ -508,6 +541,14 @@ def get_runtime_event_consumer_port() -> RuntimeEventConsumerPort:
 
 def get_ticket_created_consumer_port() -> TicketCreatedConsumerPort:
     return get_container().ticket_created_consumer_port
+
+
+def get_improvement_consumer_port() -> ImprovementConsumerPort:
+    return get_container().improvement_consumer_port
+
+
+def get_active_component_config_repository() -> ActiveComponentConfigRepository:
+    return get_container().active_component_config_repository
 
 
 def get_ticket_cycle_consumer_port() -> TicketCycleConsumerPort:

@@ -15,6 +15,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
+from agentruntime.application.ports_out import ActiveComponentConfigRepository
 from agentruntime.application.ports_in import (
     AuditRecordQueryPort,
     LeaseRecoveryPort,
@@ -26,6 +27,7 @@ from agentruntime.application.ports_in import (
     WorkflowLifecyclePort,
 )
 from agentruntime.container import (
+    get_active_component_config_repository,
     get_audit_record_query_port,
     get_lease_recovery_port,
     get_outbox_dispatch_port,
@@ -375,3 +377,23 @@ def list_audit_events(
 
     audit_logger.info("action=list_audit_events status=completed actor=%s count=%s", actor, len(entries))
     return to_audit_event_list_response(entries)
+
+
+@router.get("/active-config")
+def list_active_component_config(
+    repository: ActiveComponentConfigRepository = Depends(get_active_component_config_repository),
+) -> list[dict[str, object]]:
+    """The components whose active version has been adopted from an
+    `improvement.promoted.v1` event — the agent-runtime side of the
+    "improvement is evaluation-gated" loop, made visible.
+    """
+    return [
+        {
+            "component": c.component,
+            "version": c.version,
+            "sourceCandidateId": c.source_candidate_id,
+            "activatedAt": c.activated_at.isoformat(),
+            "payload": c.payload,
+        }
+        for c in repository.find_all()
+    ]

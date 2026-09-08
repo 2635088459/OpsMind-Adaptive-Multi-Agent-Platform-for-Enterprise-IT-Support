@@ -175,6 +175,36 @@ def test_advance_to_succeeded_then_promote_reaches_promoted(container: Container
     assert promoted.status.value == "PROMOTED"
     assert promoted.promoted_version == "agent-runtime:rc1"
 
+    import json
+
+    records = container.outbox_repository.find_dispatchable(container.clock.now(), 50)
+    promoted_events = [r for r in records if r.event_type == "improvement.promoted.v1"]
+    assert len(promoted_events) == 1
+    envelope = json.loads(promoted_events[0].payload)
+    assert {"eventId", "eventType", "occurredAt", "producer", "correlationId", "candidateId", "payload"} <= envelope.keys()
+    assert envelope["eventType"] == "improvement.promoted.v1"
+    assert envelope["candidateId"] == str(candidate.candidate_id.value)
+    assert envelope["payload"]["target_component"] == "identity-agent-prompt"
+    assert envelope["payload"]["candidate_type"] == "PROMPT_CHANGE"
+    assert envelope["payload"]["promoted_version"] == "agent-runtime:rc1"
+    # the full change travels with the event so agent-runtime can adopt it directly
+    assert envelope["payload"]["proposed_change"] == {"promptDiff": "..."}
+
+
+@pytest.mark.unit
+def test_promote_before_canary_succeeded_publishes_no_promoted_event(container: Container) -> None:
+    candidate = _approved_candidate(container)
+    container.manage_canary_service.start_canary(StartCanaryCommand(
+        candidate_id=candidate.candidate_id, plan_version="v1", stages=(CanaryStageInput(5.0, 30, 0.05, 50),), actor="admin-1",
+        correlation_id="corr-1", idempotency_key=IdempotencyKey("canary-start-promote-noevent"),
+    ))
+    with pytest.raises(ValueError):
+        container.create_improvement_candidate_service.promote(PromoteCandidateCommand(
+            candidate_id=candidate.candidate_id, promoted_version="x", actor="admin-1", correlation_id="corr-1",
+        ))
+    records = container.outbox_repository.find_dispatchable(container.clock.now(), 50)
+    assert [r for r in records if r.event_type == "improvement.promoted.v1"] == []
+
 
 @pytest.mark.unit
 def test_promote_before_canary_succeeded_is_rejected(container: Container) -> None:

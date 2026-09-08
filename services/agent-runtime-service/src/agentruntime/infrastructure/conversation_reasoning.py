@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Callable
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -32,6 +33,12 @@ from pydantic import BaseModel, Field
 from agentruntime.application.records import AttachmentContent, KnowledgeSnippet, ReasoningOutcome
 
 logger = logging.getLogger("agentruntime.infrastructure.conversation_reasoning")
+
+# A no-arg callable the container wires to the active-component-config store:
+# returns a promoted system-prompt override, or None to use the built-in
+# _SYSTEM_PROMPT. This is the point where an evaluation-gated PROMPT_CHANGE
+# improvement actually changes agent-runtime's behaviour.
+SystemPromptProvider = Callable[[], str | None]
 
 # Deliberately small, illustrative keyword sets — not a real intent classifier.
 _ESCALATION_KEYWORDS = ("broken screen", "won't turn on", "hardware", "physical damage", "smoke", "burning smell")
@@ -92,6 +99,22 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _active_system_prompt(provider: SystemPromptProvider | None) -> str:
+    """The promoted override if one is active and non-blank, else the built-in
+    default. Any failure reading the store falls back to the default — an
+    improvement-config outage must not break a chat turn.
+    """
+
+    if provider is None:
+        return _SYSTEM_PROMPT
+    try:
+        override = provider()
+    except Exception:  # noqa: BLE001 - never let a config read break reasoning
+        logger.warning("failed to read the active conversation-reasoning prompt; using the built-in default", exc_info=True)
+        return _SYSTEM_PROMPT
+    return override.strip() if isinstance(override, str) and override.strip() else _SYSTEM_PROMPT
+
+
 class ConversationDecision(BaseModel):
     """The structured-output schema `AnthropicConversationReasoningAdapter` extracts —
     all fields optional (mirrors `ReasoningOutcome` itself) since only a subset applies
@@ -123,9 +146,10 @@ class AnthropicConversationReasoningAdapter:
     `Settings.conversation_reasoning_model`'s own comment).
     """
 
-    def __init__(self, client: object, model: str) -> None:
+    def __init__(self, client: object, model: str, system_prompt_provider: SystemPromptProvider | None = None) -> None:
         self._client = client
         self._model = model
+        self._system_prompt_provider = system_prompt_provider
 
     def decide(
         self, message_text: str, knowledge_snippets: list[KnowledgeSnippet], attachments: list[AttachmentContent] | None = None,
@@ -138,7 +162,7 @@ class AnthropicConversationReasoningAdapter:
                     "source": {"type": "base64", "media_type": image.mime_type, "data": base64.b64encode(image.content).decode("ascii")},
                 })
             response = self._client.messages.parse(
-                model=self._model, max_tokens=1024, system=_SYSTEM_PROMPT,
+                model=self._model, max_tokens=1024, system=_active_system_prompt(self._system_prompt_provider),
                 messages=[{"role": "user", "content": content}],
                 output_format=ConversationDecision,
             )
@@ -173,9 +197,10 @@ class OpenAIConversationReasoningAdapter:
     that adapter, for the same reasons.
     """
 
-    def __init__(self, client: object, model: str) -> None:
+    def __init__(self, client: object, model: str, system_prompt_provider: SystemPromptProvider | None = None) -> None:
         self._client = client
         self._model = model
+        self._system_prompt_provider = system_prompt_provider
 
     def decide(
         self, message_text: str, knowledge_snippets: list[KnowledgeSnippet], attachments: list[AttachmentContent] | None = None,
@@ -188,7 +213,7 @@ class OpenAIConversationReasoningAdapter:
             response = self._client.chat.completions.parse(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "system", "content": _active_system_prompt(self._system_prompt_provider)},
                     {"role": "user", "content": user_content},
                 ],
                 response_format=ConversationDecision,
