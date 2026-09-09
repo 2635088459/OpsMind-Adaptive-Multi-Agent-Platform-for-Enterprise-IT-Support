@@ -137,6 +137,14 @@ class AgentTaskRepository(Protocol):
         """
         ...
 
+    def find_stale_tool_waits(self, updated_before: datetime, limit: int) -> list[AgentTaskRecord]:
+        """Up to `limit` AgentTaskState.WAITING_TOOL rows not touched since
+        `updated_before`, oldest first — a WAITING_TOOL task whose tool.completed/
+        tool.failed delivery never arrived. RecoverStaleToolWaitsService.scan_and_recover()
+        is built on this; same low-frequency batch-scan profile as find_expired_leases().
+        """
+        ...
+
 
 class CheckpointRepository(Protocol):
     """02-business-invariants §"Checkpoint Invariants": "A checkpoint must exist before any
@@ -170,6 +178,14 @@ class ToolRequestRepository(Protocol):
     def save(self, record: ToolRequestRecord) -> ToolRequestRecord: ...
 
     def find_by_id(self, tool_request_id: ToolRequestId) -> ToolRequestRecord | None: ...
+
+    def find_by_agent_task_id(self, agent_task_id: AgentTaskId) -> ToolRequestRecord | None:
+        """The Tool Request an Agent Task is WAITING_TOOL for (at most one — a task
+        dispatches a single tool request before entering that wait). Used by
+        RecoverStaleToolWaitsService to fail the request when its result delivery never
+        arrives, so a late tool.completed/tool.failed is a clean no-op.
+        """
+        ...
 
     def find_pending(self, limit: int) -> list[ToolRequestRecord]:
         """SPEC-ARO-019 08-transaction-and-outbox §"Tool Request Transaction" step 6: the

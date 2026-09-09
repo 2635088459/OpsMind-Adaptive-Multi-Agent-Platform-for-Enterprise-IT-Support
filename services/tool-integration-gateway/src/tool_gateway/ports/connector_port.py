@@ -75,6 +75,21 @@ class ConnectorRegistryPort(Protocol):
         """
         ...
 
+    def has_adapter(self, connector_id: object) -> bool:
+        """True when a runtime ConnectorPort is currently bound for this manifest.
+        The manifest row survives a restart (Postgres); the adapter table does not
+        — container bootstrap re-binds both the built-ins and every persisted
+        admin-registered manifest so a restart never leaves an executable-looking
+        connector with no adapter.
+        """
+        ...
+
+    def bind_adapter(self, connector_id: object, adapter: ConnectorPort) -> None:
+        """Attach a ConnectorPort to an already-persisted manifest without inserting
+        a duplicate manifest row.
+        """
+        ...
+
     def save(self, connector: ToolConnector) -> ToolConnector:
         """Persists a connector health-status transition (degrade/reactivate/
         disable/deprecate).

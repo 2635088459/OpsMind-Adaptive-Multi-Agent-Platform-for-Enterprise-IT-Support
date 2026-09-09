@@ -11,9 +11,12 @@ from memoryknowledge.infrastructure.embedding.openai_embedding_provider import (
 pytestmark = pytest.mark.unit
 
 
-def _provider(handler) -> OpenAIEmbeddingProvider:
+def _provider(handler, *, max_attempts: int = 3) -> OpenAIEmbeddingProvider:
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    return OpenAIEmbeddingProvider("sk-test", model="text-embedding-3-small", http_client=client)
+    return OpenAIEmbeddingProvider(
+        "sk-test", model="text-embedding-3-small", http_client=client,
+        max_attempts=max_attempts, backoff_base_seconds=0.0,
+    )
 
 
 def test_embed_returns_a_ref_and_vector_from_the_openai_response() -> None:
@@ -43,6 +46,48 @@ def test_http_error_becomes_openai_embedding_error() -> None:
 
     with pytest.raises(OpenAIEmbeddingError):
         _provider(handler).embed("x")
+
+
+def test_transient_failures_are_retried_then_succeed() -> None:
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadError("TLS EOF")          # transport hiccup
+        if calls["n"] == 2:
+            return httpx.Response(503, json={"error": {"message": "overloaded"}})
+        return httpx.Response(200, json={"data": [{"embedding": [0.1, 0.2]}]})
+
+    ref, vector = _provider(handler).embed("x")
+
+    assert calls["n"] == 3
+    assert vector == (0.1, 0.2)
+    assert ref.dimensions == 2
+
+
+def test_retry_budget_is_bounded_and_then_raises() -> None:
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503)
+
+    with pytest.raises(OpenAIEmbeddingError, match="after 3 attempts"):
+        _provider(handler, max_attempts=3).embed("x")
+    assert calls["n"] == 3
+
+
+def test_a_401_is_not_retried() -> None:
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(401, json={"error": {"message": "bad key"}})
+
+    with pytest.raises(OpenAIEmbeddingError):
+        _provider(handler, max_attempts=5).embed("x")
+    assert calls["n"] == 1
 
 
 def test_malformed_body_becomes_openai_embedding_error() -> None:

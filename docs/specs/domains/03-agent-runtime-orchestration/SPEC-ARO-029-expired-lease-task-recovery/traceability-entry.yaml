@@ -70,6 +70,34 @@ SPEC-ARO-029:
     New POST /admin/agent-tasks/lease-recovery-scan (manual/ops trigger until a real
     scheduler exists, mirroring /admin/workflows/recovery-scan and /admin/outbox/dispatch).
 
+    Follow-up (found live 2026-09-09): this scan's CLAIMED/RUNNING-with-expired-lease
+    candidate set does not cover a *stuck tool wait*. A WAITING_TOOL Agent Task only
+    leaves that state on a real tool.completed/tool.failed delivery (02-business-
+    invariants §"Tool Gateway Boundary" / consume_tool_result.py); the platform runs no
+    Tool Gateway execution worker as a process, so that delivery never arrives, the
+    owning WAITING_FOR_TOOL Workflow Instance is stuck forever, and SendMessageService's
+    `state is RUNNING` precondition means the conversation returns 409 to every further
+    message. Three conversational_intake instances had sat that way for ~15.5h. Added a
+    sibling recovery mechanism, deliberately parallel in shape to this spec's own:
+    RecoverStaleToolWaitsService (ToolWaitRecoveryPort) + AgentTaskRepository.
+    find_stale_tool_waits(updated_before, limit) + ToolRequestRepository.
+    find_by_agent_task_id() + Settings.tool_wait_timeout_seconds (default 300) + POST
+    /admin/agent-tasks/tool-wait-recovery-scan + a call in infrastructure/docker-compose/
+    dispatch-scheduler.sh's recovery cycle. Zero new domain events: it reuses the existing
+    domain.agent_task.fail_from_tool_result (WAITING_TOOL -> FAILED_FINAL, the same
+    transition consume_tool_result uses for a status-FAILED delivery) and
+    domain.workflow_instance.wake_from_tool_wait (WAITING_FOR_TOOL -> RUNNING). Also fails
+    the stranded Tool Request so a genuinely-late delivery is a clean no-op
+    (consume_tool_result already returns early for a non-PENDING/DISPATCHED request).
+    Checkpoint-free / outbox-free / settlement-free, mirroring this service's own
+    _mark_stale() — settling a long-lived conversational_intake instance on one failed
+    turn would FAIL the whole conversation, the opposite of the goal. 579 unit tests
+    (up from 574): 4 RecoverStaleToolWaitsService tests (stale wait fails the turn +
+    wakes the workflow + fails the tool request; a recent wait is untouched; a workflow
+    that already moved on is not forced back to RUNNING; an already-COMPLETED tool
+    request is not re-failed) + 1 tests/test_app.py HTTP-level test. lint-imports 3/3,
+    ruff F/E9 clean.
+
     Verified with 313 unit tests total (up from 302) — new tests: 4 domain tests
     (retry_after_lease_expiry's successful retry from CLAIMED/RUNNING, parametrized;
     active-claim guard; attempt-budget guard), 5 RecoverExpiredLeaseTasksService tests

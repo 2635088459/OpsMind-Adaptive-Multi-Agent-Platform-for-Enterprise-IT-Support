@@ -56,12 +56,32 @@ def test_execute_case_maps_a_successful_response_and_never_leaks_ground_truth() 
     assert result.classification == "MFA_ENROLLMENT_EXPIRED"
     assert result.cost_tokens == 250
     assert result.workflow_trace_ref == "trace-abc"
+    # this response carried no split -> both default 0 (older single-total contract)
+    assert result.prompt_tokens == 0
+    assert result.completion_tokens == 0
 
     # Deliberately never sends the answer key — see HttpAgentRuntimeEvaluationAdapter's
     # own module docstring.
     assert "groundTruth" not in captured_request["body"]
     assert captured_request["body"]["caseKey"] == "k1"
     assert captured_request["body"]["runGeneration"] == 1
+
+
+@pytest.mark.unit
+def test_execute_case_reads_the_prompt_completion_token_split_when_present() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: ARG001
+        return httpx.Response(200, json={
+            "finalState": "AWAITING_USER_CONFIRMATION", "toolCalls": ["send_password_reset"],
+            "classification": "SELF_SERVICE_ACTION", "costTokens": 1040,
+            "promptTokens": 880, "completionTokens": 160, "latencyMs": 730,
+        })
+
+    adapter = HttpAgentRuntimeEvaluationAdapter(_client(handler), "http://agent-runtime:8000")
+    result = adapter.execute_case(_RUN_ID, "agent-v1.1.0", _test_case(), 1)
+
+    assert result.prompt_tokens == 880
+    assert result.completion_tokens == 160
+    assert result.cost_tokens == 1040
 
 
 @pytest.mark.unit

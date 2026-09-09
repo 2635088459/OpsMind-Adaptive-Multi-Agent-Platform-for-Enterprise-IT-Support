@@ -88,6 +88,7 @@ from evaluationimprovement.interfaces.rest.mapper import (
     to_request_approval_command,
     to_request_canary_rollback_command,
     to_rollback_promoted_candidate_command,
+    to_langsmith_link_response,
     to_run_response,
     to_score_response,
     to_skip_case_command,
@@ -123,6 +124,7 @@ from evaluationimprovement.interfaces.rest.schemas import (
     RequestCandidateApprovalRequest,
     RollbackCandidateRequest,
     RollbackPromotedCandidateRequest,
+    LangSmithLinkResponse,
     RunResponse,
     ScoreResponse,
     SkipCaseRequest,
@@ -289,6 +291,15 @@ def find_stuck_runs(
 @router.get("/runs/{run_id}", response_model=RunResponse)
 def find_run(run_id: UUID, port: RunQueryUseCase = Depends(get_run_query_port)) -> RunResponse:
     return to_run_response(port.find_run(RunId(run_id)))
+
+
+@router.get("/runs/{run_id}/langsmith-link", response_model=LangSmithLinkResponse)
+def find_langsmith_link(run_id: UUID, port: RunQueryUseCase = Depends(get_run_query_port)) -> LangSmithLinkResponse:
+    """SPEC-EI-013: the run's LangSmith Experiment linkage, for a reader that wants
+    to deep-link to it. Open read (same default floor as `GET /runs/{runId}`) — the
+    response carries only an `enabled` flag and an opaque project id, no evidence.
+    """
+    return to_langsmith_link_response(port.find_langsmith_link(RunId(run_id)))
 
 
 @router.get("/runs/{run_id}/scores", response_model=list[ScoreResponse])

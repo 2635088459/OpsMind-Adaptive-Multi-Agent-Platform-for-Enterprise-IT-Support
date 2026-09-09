@@ -29,7 +29,9 @@ export function EvaluationComparisonTable({ runId }: { runId: string }) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-border bg-surface p-4 text-sm text-ink-muted" data-testid="evaluation-empty">
-        No evaluation runs are available for this scope yet.
+        {run
+          ? `This run (${run.status ?? "not finished"}) has no scored dimensions yet — nothing to compare. Pick a completed run.`
+          : "No scores are available for this run yet."}
       </div>
     );
   }

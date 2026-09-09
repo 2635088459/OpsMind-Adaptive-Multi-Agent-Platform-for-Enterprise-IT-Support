@@ -1021,6 +1021,56 @@ def test_admin_lease_recovery_scan_marks_stale_when_attempts_are_exhausted(clien
     assert task_after.json()["state"] == "STALE"
 
 
+def test_admin_tool_wait_recovery_scan_frees_a_conversation_stuck_behind_a_dead_tool_request(client: TestClient) -> None:
+    """A WAITING_TOOL Agent Task whose tool.completed/tool.failed delivery never arrived
+    leaves the WAITING_FOR_TOOL Workflow Instance permanently stuck (SendMessageService's
+    `state is RUNNING` precondition -> 409). The scan fails the abandoned turn and wakes
+    the workflow back to RUNNING. No HTTP path leaves a tool request un-delivered, so the
+    WAITING_TOOL/WAITING_FOR_TOOL/DISPATCHED scenario is seeded directly on the container
+    repos, the same way the lease-recovery scan tests seed theirs.
+    """
+    import datetime as _dt
+
+    from agentruntime.application.records import AgentTaskRecord, ToolRequestRecord
+    from agentruntime.domain.enums import AgentTaskState, ToolRequestStatus
+    from agentruntime.domain.ids import CheckpointId, ToolRequestId
+
+    workflow_instance_id = _start_workflow(client, "start-toolwait-1")
+    client.post(f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/resume", json={"idempotency_key": "resume-toolwait-1"})
+
+    container = get_container()
+    wf_id = WorkflowInstanceId(uuid.UUID(workflow_instance_id))
+    running = container.workflow_instance_repository.find_by_id(wf_id)
+    stale_at = running.updated_at - _dt.timedelta(hours=1)
+    container.workflow_instance_repository.save(dataclasses.replace(
+        running, state=WorkflowState.WAITING_FOR_TOOL, workflow_version=running.workflow_version + 1,
+    ))
+
+    agent_task_id = AgentTaskId.new_id()
+    container.agent_task_repository.save(AgentTaskRecord(
+        id=agent_task_id, workflow_instance_id=wf_id, task_key="message-1", task_type="process_user_message",
+        depends_on_task_keys=frozenset(), state=AgentTaskState.WAITING_TOOL, task_version=1, worker_id=None,
+        lease_token=None, lease_expires_at=None, result_payload=None, failure_reason=None,
+        pause_generation=0, created_at=stale_at, updated_at=stale_at,
+    ))
+    tr_id = ToolRequestId.new_id()
+    container.tool_request_repository.save(ToolRequestRecord(
+        id=tr_id, workflow_instance_id=wf_id, agent_task_id=agent_task_id,
+        preceding_checkpoint_id=CheckpointId(uuid.uuid4()), tool_name="send_password_reset", request_payload="{}",
+        status=ToolRequestStatus.DISPATCHED, created_at=stale_at, updated_at=stale_at,
+    ))
+
+    scanned = client.post(
+        "/internal/agent-runtime/v1/admin/agent-tasks/tool-wait-recovery-scan", headers={"X-Actor-Id": "ops-user-1"}
+    )
+    assert scanned.status_code == 200
+    body = scanned.json()
+    assert body["scanned"] == 1 and body["timed_out"] == 1
+
+    assert client.get(f"/internal/agent-runtime/v1/agent-tasks/{agent_task_id}").json()["state"] == "FAILED_FINAL"
+    assert container.workflow_instance_repository.find_by_id(wf_id).state is WorkflowState.RUNNING
+
+
 def test_admin_complete_workflow_is_idempotent_and_rejects_a_new_key_once_terminal(client: TestClient) -> None:
     workflow_instance_id = _start_workflow(client, "start-complete-1")
 

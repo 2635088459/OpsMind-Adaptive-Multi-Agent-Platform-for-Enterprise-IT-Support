@@ -35,6 +35,7 @@ from evaluationimprovement.application.views import (
     DatasetView,
     FailureClusterView,
     ImprovementCandidateView,
+    LangSmithLinkView,
     OnlineEvaluationSampleView,
     RegressionReportView,
     RunView,
@@ -61,6 +62,7 @@ from evaluationimprovement.interfaces.rest.schemas import (
     EvidenceRefResponse,
     FailureClusterResponse,
     ImprovementCandidateResponse,
+    LangSmithLinkResponse,
     OnlineEvaluationSampleResponse,
     PauseCanaryRequest,
     PromoteCandidateRequest,
@@ -260,6 +262,12 @@ def to_run_response(view: RunView) -> RunResponse:
         run_id=view.run_id.value, run_key=view.run_key, dataset_id=view.dataset_id.value, dataset_version=view.dataset_version,
         target_version=view.target_version, baseline_version=view.baseline_version, status=view.status.value,
         triggered_by=view.triggered_by, started_at=view.started_at, completed_at=view.completed_at,
+    )
+
+
+def to_langsmith_link_response(view: LangSmithLinkView) -> LangSmithLinkResponse:
+    return LangSmithLinkResponse(
+        run_id=view.run_id, enabled=view.enabled, experiment_ref=view.experiment_ref,
     )
 
 

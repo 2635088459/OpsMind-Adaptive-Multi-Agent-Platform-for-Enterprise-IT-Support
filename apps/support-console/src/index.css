@@ -27,7 +27,24 @@
   }
 }
 
+/* The console ran at a 14px root — operators reported it as cramped and hard
+   to scan. 15.5px lifts every Tailwind `text-*` step proportionally without
+   touching a single class. */
+html {
+  font-size: 15.5px;
+}
+
 body {
   background-color: var(--color-surface-muted);
   color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.55;
+}
+
+select,
+input,
+textarea,
+button {
+  font: inherit;
 }

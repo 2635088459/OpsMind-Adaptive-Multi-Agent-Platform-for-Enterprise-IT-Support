@@ -137,7 +137,12 @@ class CaseExecutionResult:
     unauthorized_memory_access_count: int
     cost_tokens: int
     latency_ms: int
-    workflow_trace_ref: str
+    # SPEC-EI-013 follow-up: the real prompt/completion token split from the agent's
+    # LLM call (the real execute-case endpoint fills these; 0 from the simulator's
+    # older single-total path and from the static reasoning placeholder).
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    workflow_trace_ref: str = ""
     # SPEC-EI-009: replaces the earlier `completed: bool` field, which was written on
     # every save but never actually read/branched on anywhere — a real
     # COMPLETED/FAILED/SKIPPED status finalize_scoring() (and score_case()'s own
@@ -200,6 +205,26 @@ class LangSmithLinkRecord:
     run_id: str
     enabled: bool
     experiment_ref: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class LangSmithCaseResult:
+    """One scored test case, flattened for LangSmithPort.push_run_results — the
+    shape the SDK adapter turns into a LangSmith run (with token usage) plus one
+    feedback entry per graded dimension. Application-layer DTO, no infra types.
+    """
+
+    case_key: str
+    scenario: str
+    classification: str
+    final_state: str
+    tool_calls: tuple[str, ...]
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    latency_ms: int
+    # (dimension, score 0..1, passed)
+    dimension_scores: tuple[tuple[str, float, bool], ...]
 
 
 @dataclass(frozen=True, slots=True)

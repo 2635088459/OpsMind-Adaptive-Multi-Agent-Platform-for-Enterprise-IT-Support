@@ -489,3 +489,40 @@ def test_confirm_action_against_an_unknown_action_id_is_a_404(confirmation_clien
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "ACTION_NOT_FOUND"
+
+
+def test_evaluation_execute_case_runs_the_real_reasoning_and_reports_a_token_split(client: TestClient) -> None:
+    """SPEC-EI-013 follow-up: the real counterpart to
+    evaluation-improvement-service's FakeAgentRuntimeEvaluationAdapter. The default
+    container wires the static reasoning placeholder, so this proves the wiring +
+    the ReasoningOutcome->eval-fields derivation; token counts are 0 for the static
+    adapter (only a real LLM call carries a usage split — see
+    tests/infrastructure/test_conversation_reasoning.py).
+    """
+    response = client.post(
+        "/agent-runtime/evaluation/execute-case",
+        json={
+            "runId": "run-eval-1", "runGeneration": 1, "targetVersion": "agent-v1.1.0",
+            "testCaseId": "tc-1", "caseKey": "pw-reset", "scenario": "Employee locked out",
+            "userRequestRedacted": "I need to reset my password", "requiredApproval": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["classification"] == "SELF_SERVICE_ACTION"
+    assert body["finalState"] == "AWAITING_USER_CONFIRMATION"
+    assert body["toolCalls"] == ["send_password_reset"]
+    assert body["promptTokens"] == 0
+    assert body["completionTokens"] == 0
+    assert body["costTokens"] == 0
+    assert body["latencyMs"] >= 0
+
+
+def test_evaluation_execute_case_derives_escalation(client: TestClient) -> None:
+    response = client.post(
+        "/agent-runtime/evaluation/execute-case",
+        json={"runId": "run-eval-2", "scenario": "s", "userRequestRedacted": "my laptop screen is broken and won't turn on"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["classification"] == "ESCALATED_TO_HUMAN"
+    assert response.json()["finalState"] == "ESCALATED"

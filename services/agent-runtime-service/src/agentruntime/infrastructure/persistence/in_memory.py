@@ -140,6 +140,14 @@ class InMemoryAgentTaskRepository:
         matching.sort(key=lambda record: record.lease_expires_at)
         return matching[:limit]
 
+    def find_stale_tool_waits(self, updated_before: datetime, limit: int) -> list[AgentTaskRecord]:
+        matching = [
+            record for record in self._store.values()
+            if record.state is AgentTaskState.WAITING_TOOL and record.updated_at < updated_before
+        ]
+        matching.sort(key=lambda record: record.updated_at)
+        return matching[:limit]
+
 
 class InMemoryCheckpointRepository:
     def __init__(self) -> None:
@@ -180,6 +188,11 @@ class InMemoryToolRequestRepository:
 
     def find_by_id(self, tool_request_id: ToolRequestId) -> ToolRequestRecord | None:
         return self._store.get(tool_request_id)
+
+    def find_by_agent_task_id(self, agent_task_id: AgentTaskId) -> ToolRequestRecord | None:
+        return next(
+            (record for record in self._store.values() if record.agent_task_id == agent_task_id), None
+        )
 
     def find_pending(self, limit: int) -> list[ToolRequestRecord]:
         pending = sorted(

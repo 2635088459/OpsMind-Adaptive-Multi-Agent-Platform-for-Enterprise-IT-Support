@@ -230,6 +230,9 @@ class CaseExecutionResultRow(Base):
     forbidden_tool_call_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     unauthorized_memory_access_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     cost_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # SPEC-EI-013 follow-up: real prompt/completion token split.
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     workflow_trace_ref: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     # SPEC-EI-009: replaces the earlier `completed` boolean — see

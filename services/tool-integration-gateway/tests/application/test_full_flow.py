@@ -91,6 +91,37 @@ def _register_connector(
     ))
 
 
+def test_rehydrate_rebinds_the_default_adapter_for_a_persisted_manifest_after_a_restart(container: Container) -> None:
+    """Found live: agent-runtime -> tool-gateway execute 503'd after a container
+    restart because the admin-registered connector's in-memory adapter binding was
+    lost while its Postgres manifest row (ACTIVE / executable) survived.
+    """
+    _register_connector(container, "identity.user.sendPasswordResetLink", requires_approval=False, is_mutating=True)
+    manifest = container.connector_registry_port.find_by_capability("identity.user.sendPasswordResetLink")
+    assert manifest is not None
+
+    # simulate the restart: the manifest survives, the adapter table does not
+    container.connector_registry_port._adapters.clear()  # noqa: SLF001
+    assert container.connector_registry_port.has_adapter(manifest.connector_id) is False
+
+    container._rehydrate_registered_connector_adapters()  # noqa: SLF001
+    assert container.connector_registry_port.has_adapter(manifest.connector_id) is True
+
+    created = container.create_tool_request_service.create_tool_request(CreateToolRequestCommand(
+        idempotency_key="idem-rehydrate", requested_by_type="AGENT", requested_by_id="agent-1",
+        capability_name="identity.user.sendPasswordResetLink", input_payload={"summary": "reset"},
+        reason="employee-confirmed self-service action", correlation_id=str(uuid.uuid4()),
+    ))
+    evaluated = container.evaluate_tool_request_service.evaluate_tool_request(EvaluateToolRequestCommand(
+        tool_request_id=created.tool_request_id, correlation_id=str(uuid.uuid4()),
+    ))
+    assert evaluated.status == "QUEUED"
+    executed = container.execute_tool_request_service.execute_tool_request(ExecuteToolRequestCommand(
+        tool_request_id=created.tool_request_id, lease_owner="agent-runtime-sync", correlation_id=str(uuid.uuid4()),
+    ))
+    assert executed.status == "COMPLETED"
+
+
 def test_low_risk_capability_auto_executes_to_completed(container: Container) -> None:
     """04-use-cases UC-TG-001 + UC-TG-002 end to end."""
 

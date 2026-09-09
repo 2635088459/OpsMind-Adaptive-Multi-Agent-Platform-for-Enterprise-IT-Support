@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { useQueue } from "@/features/queue/useQueue";
 import { computeSlaDisplay, formatRemaining } from "@/features/queue/slaDisplay";
+import { agentLabel } from "@/features/catalog/catalog";
 import type { QueueFilters } from "@/features/queue/types";
 
 const PRIORITY_CLASS: Record<string, string> = {
@@ -81,7 +82,9 @@ export function QueueTable({ filters }: { filters: QueueFilters }) {
                     {row.priority}
                   </span>
                 </td>
-                <td className="px-4 py-2 text-ink-muted">{row.assignment.unassigned ? "Unassigned" : row.assignment.agentId}</td>
+                <td className="px-4 py-2 text-ink-muted" title={row.assignment.agentId ?? undefined}>
+                  {row.assignment.unassigned ? "Unassigned" : agentLabel(row.assignment.agentId)}
+                </td>
                 <td className={`px-4 py-2 ${SLA_CLASS[sla.state]}`} data-testid="sla-display" data-sla-state={sla.state}>
                   {sla.state === "urgent" || sla.state === "overdue"
                     ? `${sla.state === "overdue" ? "Overdue by " : ""}${sla.remainingMs !== null ? formatRemaining(sla.remainingMs) : ""}`

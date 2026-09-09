@@ -28,7 +28,7 @@ from evaluationimprovement.application.ports_out import (
 )
 from evaluationimprovement.application.records import LangSmithLinkRecord
 from evaluationimprovement.application.services.audit import AuditRecorder
-from evaluationimprovement.application.views import RunView, ScoreView
+from evaluationimprovement.application.views import LangSmithLinkView, RunView, ScoreView
 from evaluationimprovement.domain.enums import DatasetStatus, RunStatus
 from evaluationimprovement.domain.events import EvaluationRunRequested
 from evaluationimprovement.domain.evaluation_run import EvaluationRun
@@ -154,6 +154,14 @@ class CreateRunService:
         if run is None:
             raise RunNotFoundException(run_id)
         return run_to_view(run)
+
+    def find_langsmith_link(self, run_id: RunId) -> LangSmithLinkView:
+        if self._run_repository.find_by_id(run_id) is None:
+            raise RunNotFoundException(run_id)
+        link = self._langsmith_link_repository.find(run_id)
+        if link is None:
+            return LangSmithLinkView(run_id=str(run_id), enabled=False, experiment_ref=None)
+        return LangSmithLinkView(run_id=link.run_id, enabled=link.enabled, experiment_ref=link.experiment_ref)
 
     def find_scores(self, run_id: RunId, actor: str, actor_role: str) -> tuple[ScoreView, ...]:
         """SPEC-EI-034 (evaluation-security-redaction-observability) / 11-security

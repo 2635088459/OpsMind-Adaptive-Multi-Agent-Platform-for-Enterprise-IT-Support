@@ -56,6 +56,10 @@ class RuntimeTelemetry:
         self._task_lease_expired = _meter.create_counter(
             "agent_runtime_task_lease_expired_total", description="Agent Tasks whose lease was found expired by a recovery scan"
         )
+        self._tool_wait_timed_out = _meter.create_counter(
+            "agent_runtime_tool_wait_timed_out_total",
+            description="WAITING_TOOL Agent Tasks failed by a recovery scan because their tool result never arrived",
+        )
         self._task_duration = _meter.create_histogram(
             "agent_runtime_task_duration_seconds", unit="s", description="Agent Task wall-clock duration, creation to terminal"
         )
@@ -121,6 +125,9 @@ class RuntimeTelemetry:
 
     def record_task_lease_expired(self) -> None:
         self._task_lease_expired.add(1)
+
+    def record_tool_wait_timed_out(self) -> None:
+        self._tool_wait_timed_out.add(1)
 
     # Event metrics -----------------------------------------------------------------
     def record_event_consumed(self, event_type: str) -> None:

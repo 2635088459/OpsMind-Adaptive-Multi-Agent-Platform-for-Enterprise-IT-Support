@@ -51,7 +51,15 @@ datasources:
     type: tempo
     access: proxy
     url: http://tempo:3200
+    # SPEC-OP-031 — Tempo runs multitenancy_enabled: true, one tenant per
+    # producing domain, and every read needs an X-Scope-OrgID. Tempo accepts a
+    # pipe-joined list on reads, so this datasource queries ACROSS all tenants —
+    # an operator following an "Open trace in Tempo" deep link from a ticket
+    # doesn't know (or care) which domain's pipeline the trace landed in.
+    secureJsonData:
+      httpHeaderValue1: "user-access-authentication|ticket-workflow|agent-runtime|memory-knowledge|tool-integration|policy-approval-governance|evaluation-improvement|observability-platform|shared"
     jsonData:
+      httpHeaderName1: X-Scope-OrgID
       tracesToLogsV2:
         datasourceUid: loki
         spanStartTimeShift: "-1h"

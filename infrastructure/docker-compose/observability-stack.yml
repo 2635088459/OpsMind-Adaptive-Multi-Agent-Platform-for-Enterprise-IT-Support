@@ -76,8 +76,10 @@ services:
       # SPEC-OP-011 — persistent sending_queue WAL.
       - otel-collector-queue-data:/var/lib/otelcol/file_storage
     ports:
-      - "4317:4317"     # OTLP gRPC  (application ingress)
-      - "4318:4318"     # OTLP HTTP  (application ingress)
+      - "4317:4317"     # OTLP gRPC  (application ingress, TLS + bearer)
+      - "4318:4318"     # OTLP HTTP  (application ingress, TLS + bearer)
+      - "14317:14317"   # OTLP gRPC  (LOCAL-ONLY plaintext ingress — see collector/overlays/local/config.yaml)
+      - "14318:14318"   # OTLP HTTP  (LOCAL-ONLY plaintext ingress — see collector/overlays/local/config.yaml)
       - "13133:13133"   # health_check extension
       - "8888:8888"     # collector's own telemetry
       - "8889:8889"     # prometheus exporter (app metrics)
@@ -273,13 +275,17 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      # SPEC-OP-030 — anonymous Viewer access disabled; real RBAC now gates
-      # this UI (Grafana's own built-in org-role model: Admin/Editor/Viewer).
-      # A real OIDC identity provider is a deliberately deferred follow-up —
-      # no shared, persistent Keycloak exists anywhere in this repo yet
-      # (every domain's own Keycloak usage today is ephemeral/test-scoped
-      # only) — see runbooks/ObservabilityAccessControl.md.
-      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # SPEC-OP-030 disables anonymous access platform-wide and gates this UI
+      # behind Grafana's built-in org roles (a real OIDC IdP is a deferred
+      # follow-up — see runbooks/ObservabilityAccessControl.md). That belongs
+      # in the ci/production overlays. This file is the LOCAL topology (see the
+      # header): a support-console operator following an "Open trace in Tempo"
+      # deep link (SPEC-SC-014 / UC-SC-05) should land on the trace, not a
+      # login wall on their own laptop. Anonymous Viewer is read-only; editing
+      # dashboards / datasources still needs the admin/admin login above.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_ANONYMOUS_ORG_NAME: "Main Org."
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_FEATURE_TOGGLES_ENABLE: traceqlEditor

@@ -95,6 +95,26 @@ services:
       start_period: 60s
       retries: 10
 
+  # Dev mail sink so Keycloak's "send password-reset email" (the real
+  # identity.user.sendPasswordResetLink tool-gateway connector) has somewhere to
+  # deliver. Not a real MTA — SMTP :1025 in, web UI :8025 to read what landed.
+  # opsmind-realm.json's smtpServer block points at this host by name.
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: opsmind-mailpit
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "8025:8025"   # web UI — open http://localhost:8025 to read the reset email
+      - "1025:1025"   # SMTP
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -q -O- http://127.0.0.1:8025/readyz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   agent-runtime-service:
     build:
       context: ../../services/agent-runtime-service
@@ -111,6 +131,14 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       EVENT_PUBLISHER_ADAPTER: rabbitmq
+      # Real distributed tracing → the observability stack's Collector (a separate
+      # Compose project) via its LOCAL plaintext OTLP ingress on the host's
+      # published port. service.namespace drives the Collector's per-tenant Tempo
+      # routing (routing/traces-tenant). See observability-stack.yml +
+      # collector/overlays/local/config.yaml.
+      OTEL_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:14317
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=agent-runtime
       # domain 09/10's own frontends call conversation_router directly from these
       # origins (Settings.cors_allowed_origins's own docstring) — same local-dev
       # ports as user-access-authentication-service's own CORS allow-list.
@@ -127,6 +155,14 @@ services:
       # SPEC-ARO-039's own multimodal follow-up: real attachment bytes for the
       # real gpt-5-mini/Claude vision models, fetched via HttpAttachmentClient.
       ATTACHMENT_SERVICE_BASE_URL: http://attachment-service:8090
+      # phase-05 (tool-gateway-mediation): "http" wires HttpToolGatewayPort so a
+      # confirmed self-service action actually executes against
+      # tool-integration-gateway (create + synchronous execute) and wakes the
+      # WAITING_FOR_TOOL workflow. "logging" (the code default) keeps the old
+      # log-only placeholder. Needs the `identity.user.sendPasswordResetLink`
+      # connector registered — scripts/seed-tool-connectors.sh.
+      TOOL_GATEWAY_MODE: ${TOOL_GATEWAY_MODE:-http}
+      TOOL_GATEWAY_BASE_URL: http://tool-integration-gateway:8020
       # SPEC-ARO-043's own real outbound service identity (triage/approval calls,
       # never the create-ticket call — that one forwards the employee's own
       # token, see HttpTicketWorkflowClient's own docstring). Reuses
@@ -198,6 +234,11 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       EVENT_PUBLISHER_ADAPTER: rabbitmq
+      # Distributed tracing → observability Collector (see agent-runtime-service's
+      # own OTEL_* block for the full rationale).
+      OTEL_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:14317
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=memory-knowledge
       # RAG embedding provider. "deterministic" (safe default, no key needed) is
       # the honest offline hash embedder — retrieval is lexical keyword-only,
       # which is what SearchMemoryService's own scorer delivers. Set
@@ -240,7 +281,27 @@ services:
       # port is 8000 (see its main.py) -- overriding here with the real value
       # rather than silently leaving a stale default in place.
       AGENT_RUNTIME_BASE_URL: http://agent-runtime-service:8000
+      # SPEC-EI-013 follow-up: "http" runs each eval case against agent-runtime's real
+      # /agent-runtime/evaluation/execute-case endpoint (real ConversationReasoningPort
+      # → real prompt/completion token split), not the FakeAgentRuntimeEvaluationAdapter
+      # simulator. When agent-runtime's own CONVERSATION_REASONING_MODE=openai/anthropic,
+      # each eval run makes real LLM calls (a few cents of API spend per run); "fake"
+      # keeps it free/offline.
+      AGENT_RUNTIME_EVALUATION_MODE: ${AGENT_RUNTIME_EVALUATION_MODE:-http}
       POLICY_APPROVAL_BASE_URL: http://policy-approval-governance-service:8086
+      # SPEC-EI-013 LangSmith Experiment Linkage. "noop" (default) keeps the
+      # inert NoOpLangSmithExperimentAdapter. Set LANGSMITH_MODE=sdk + a real
+      # LANGSMITH_API_KEY in the gitignored compose .env to create a real
+      # LangSmith Project per evaluation run (opt-in, same pattern as the LLM
+      # keys). "sdk" with no key / an unimportable SDK degrades back to no-op.
+      LANGSMITH_MODE: ${LANGSMITH_MODE:-noop}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_API_URL: ${LANGSMITH_API_URL:-https://api.smith.langchain.com}
+      # Distributed tracing → observability Collector (see agent-runtime-service's
+      # own OTEL_* block for the full rationale).
+      OTEL_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:14317
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=evaluation-improvement
       # SPEC-SC-015: support-console's own Evaluation Comparison Table.
       CORS_ALLOWED_ORIGINS: ${EVALUATION_CORS_ALLOWED_ORIGINS:-http://localhost:5174}
     ports:
@@ -333,6 +394,15 @@ services:
       # ["host.docker.internal:host-gateway"]` added below, or this
       # property pointed at a real reachable address instead.
       TEMPO_QUERY_BASE_URL: http://host.docker.internal:3200
+      # SPEC-SC-014 reads traces back (above); this WRITES them. Spring Boot's
+      # OTLP tracing exporter (micrometer-tracing-bridge-otel, already on the
+      # classpath) → the observability Collector's LOCAL plaintext HTTP OTLP
+      # ingress. application-local.yml already points management.otlp.tracing at
+      # ${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces. 100% sampling locally so every
+      # request is traceable; service.namespace drives per-tenant Tempo routing.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:14318
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=user-access-authentication
     ports:
       - "8087:8087"
     depends_on:
@@ -360,6 +430,11 @@ services:
       RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+      # Distributed tracing → observability Collector's local plaintext OTLP HTTP
+      # ingress (see user-access-authentication-service's own OTEL_* block).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:14318
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=ticket-workflow
     ports:
       # Moved off host port 8080 (2026-09-02): a real browser login needs
       # "keycloak" to resolve on the host machine (via a /etc/hosts alias to
@@ -434,6 +509,11 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
       SERVER_PORT: "8086"
       KEYCLOAK_ISSUER_URI: http://keycloak:8080/realms/opsmind
+      # Distributed tracing → observability Collector's local plaintext OTLP HTTP
+      # ingress (see user-access-authentication-service's own OTEL_* block).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:14318
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=policy-approval-governance
     ports:
       - "8086:8086"
     depends_on:
@@ -480,6 +560,12 @@ services:
     build:
       context: ../../
       dockerfile: apps/support-console/Dockerfile
+      args:
+        # SPEC-EI-013: set LANGSMITH_ORG_ID (the LangSmith workspace id) in the
+        # gitignored compose .env to turn on the "View in LangSmith" deep link
+        # for runs recorded with linkage enabled. Empty → link stays hidden.
+        VITE_LANGSMITH_BASE_URL: ${LANGSMITH_WEB_URL:-https://smith.langchain.com}
+        VITE_LANGSMITH_ORG_ID: ${LANGSMITH_ORG_ID:-}
     container_name: opsmind-support-console
     restart: unless-stopped
     ports:
@@ -496,3 +582,30 @@ services:
       - policy-approval-governance-service
       - tool-integration-gateway
       - evaluation-improvement-service
+
+  # The "external scheduler" every service's outbox/recovery javadoc/docstring
+  # names ("safe to call from an admin endpoint or an external scheduler once one
+  # exists"). No service runs an in-process @Scheduled drain by design; this
+  # container periodically POSTs each service's admin dispatch/recovery endpoint
+  # over the compose network so events actually propagate without a manual poke.
+  # See ./dispatch-scheduler.sh. Not needed for a bare local bring-up — it only
+  # matters once you want cross-service events to flow on their own.
+  dispatch-scheduler:
+    image: curlimages/curl:8.11.1
+    container_name: opsmind-dispatch-scheduler
+    restart: unless-stopped
+    entrypoint: ["sh", "/dispatch-scheduler.sh"]
+    volumes:
+      - ./dispatch-scheduler.sh:/dispatch-scheduler.sh:ro
+    environment:
+      KC_URL: http://keycloak:8080
+      DISPATCH_INTERVAL_SECONDS: ${DISPATCH_INTERVAL_SECONDS:-10}
+      RECOVERY_EVERY_N: ${RECOVERY_EVERY_N:-6}
+      STARTUP_DELAY_SECONDS: ${DISPATCH_STARTUP_DELAY_SECONDS:-20}
+    depends_on:
+      - keycloak
+      - ticket-workflow-service
+      - policy-approval-governance-service
+      - agent-runtime-service
+      - memory-knowledge-service
+      - tool-integration-gateway

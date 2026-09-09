@@ -8,12 +8,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from tool_gateway.api.schemas import ApprovalDecisionRequest, CancelToolRequestRequest, SubmitToolRequestRequest, ToolRequestResponse
+from tool_gateway.api.schemas import (
+    ApprovalDecisionRequest,
+    CancelToolRequestRequest,
+    ExecuteToolRequestRequest,
+    ExecuteToolRequestResponse,
+    SubmitToolRequestRequest,
+    ToolRequestResponse,
+)
 from tool_gateway.api.security import optional_caller, require_service_caller
 from tool_gateway.application.commands import (
     CancelToolRequestCommand,
     CreateToolRequestCommand,
     EvaluateToolRequestCommand,
+    ExecuteToolRequestCommand,
     RecordApprovalDecisionCommand,
 )
 from tool_gateway.application.ports_in import (
@@ -21,7 +29,9 @@ from tool_gateway.application.ports_in import (
     CancelToolRequestUseCase,
     CreateToolRequestUseCase,
     EvaluateToolRequestUseCase,
+    ExecuteToolRequestUseCase,
     ToolRequestQueryUseCase,
+    ToolResultQueryUseCase,
 )
 from tool_gateway.application.views import ToolRequestView
 from tool_gateway.container import (
@@ -29,7 +39,9 @@ from tool_gateway.container import (
     get_cancel_tool_request_port,
     get_create_tool_request_port,
     get_evaluate_tool_request_port,
+    get_execute_tool_request_port,
     get_tool_request_query_port,
+    get_tool_result_query_port,
 )
 
 router = APIRouter(prefix="/internal/tool-gateway/v1", tags=["tool-requests"])
@@ -105,6 +117,35 @@ def cancel_tool_request(
         tool_request_id=tool_request_id, idempotency_key=request.idempotency_key, requested_by=request.requested_by,
         reason=request.reason, correlation_id=request.correlation_id,
     )))
+
+
+@router.post("/tool-requests/{tool_request_id}/execute", response_model=ExecuteToolRequestResponse)
+def execute_tool_request(
+    tool_request_id: str, request: ExecuteToolRequestRequest,
+    caller: str = Depends(require_service_caller),
+    execute_port: ExecuteToolRequestUseCase = Depends(get_execute_tool_request_port),
+    result_port: ToolResultQueryUseCase = Depends(get_tool_result_query_port),
+) -> ExecuteToolRequestResponse:
+    """phase-05 (tool-gateway-mediation): a synchronous single execution attempt for
+    agent-runtime's HttpToolGatewayPort. This deployment runs no ExecutionWorker
+    process (13-package-and-class-design's ``workers/execution_worker.py`` is invoked
+    by no scheduler here), so the Runtime drives one attempt inline right after
+    submit — the same ``ExecuteToolRequestUseCase`` the worker calls. A QUEUED
+    low-risk request runs its bound connector and resolves; anything else
+    (WAITING_APPROVAL, still retry-backing-off) comes back with its current status and
+    is left for the normal path.
+    """
+    view = execute_port.execute_tool_request(ExecuteToolRequestCommand(
+        tool_request_id=tool_request_id, lease_owner=f"agent-runtime-sync:{caller}",
+        correlation_id=request.correlation_id,
+    ))
+    output: dict | None = None
+    if view.result_envelope_id is not None:
+        output = result_port.find_result(view.result_envelope_id).structured_output
+    return ExecuteToolRequestResponse(
+        tool_request_id=view.tool_request_id, status=view.status,
+        result_envelope_id=view.result_envelope_id, output=output, failure_reason=view.denial_reason,
+    )
 
 
 @router.get("/tool-requests/{tool_request_id}", response_model=ToolRequestResponse)

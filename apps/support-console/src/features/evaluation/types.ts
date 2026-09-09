@@ -6,6 +6,26 @@
  * alias_generator (confirmed by reading it directly) — the wire shape really
  * is `run_id`/`baseline_run_id`/etc., not a transcription choice made here.
  */
+export interface DatasetView {
+  dataset_id: string;
+  name: string;
+  version: string;
+  domain: string;
+  status: string;
+  case_count: number;
+  created_at: string;
+  published_at: string | null;
+}
+
+/** Mirrors evaluation-improvement-service's `LangSmithLinkResponse` (SPEC-EI-013). */
+export interface LangSmithLinkView {
+  run_id: string;
+  /** false = this deployment runs LangSmith linkage in no-op mode — not a failure. */
+  enabled: boolean;
+  /** the LangSmith project id, or null in no-op mode / when the link call failed. */
+  experiment_ref: string | null;
+}
+
 export interface RunView {
   run_id: string;
   run_key: string;

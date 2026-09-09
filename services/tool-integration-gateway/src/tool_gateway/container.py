@@ -26,6 +26,7 @@ from tool_gateway.adapters.connectors.builtin.echo_connector import EchoConnecto
 from tool_gateway.adapters.connectors.builtin.keycloak_admin_connector import (
     CAP_ADD_TO_GROUP,
     CAP_RESET_PASSWORD,
+    CAP_SEND_RESET_LINK,
     CAP_UNLOCK,
     KeycloakAdminConnectorAdapter,
 )
@@ -246,6 +247,21 @@ class Container:
         self.gateway_recovery_port: GatewayRecoveryUseCase = self.gateway_recovery_service
 
         self._register_builtin_connectors(settings)
+        self._rehydrate_registered_connector_adapters()
+
+    def _rehydrate_registered_connector_adapters(self) -> None:
+        """Every connector manifest persisted through the admin ``POST /connectors``
+        surface was bound to ``EchoConnectorAdapter`` in-memory — a binding lost on
+        restart while the Postgres manifest row survives. Without this, a manifest
+        that still reads ACTIVE / executable resolves at capability lookup but then
+        503s at ``get_adapter`` (found live: agent-runtime -> tool-gateway execute
+        after a container restart). Re-bind the default adapter for any persisted
+        manifest the builtin bootstrap above did not already claim.
+        """
+        registry = self.connector_registry_port
+        for manifest in registry.list_all():
+            if not registry.has_adapter(manifest.connector_id):
+                registry.bind_adapter(manifest.connector_id, self.default_connector_adapter)
 
     def _register_builtin_connectors(self, settings: Settings) -> None:
         """Bind the real, outbound-calling built-in connectors that ship with
@@ -274,16 +290,20 @@ class Container:
             # A brute-force unlock is reversible and low-blast-radius — no
             # standing approval gate; policy can still add one.
             ("keycloak-identity-unlock", (CAP_UNLOCK,), RiskLevel.MEDIUM, False),
+            # Sends a real Keycloak password-reset email. Not destructive (single-use
+            # link, user still authenticates) -> MEDIUM, no standing approval gate.
+            ("keycloak-identity-reset-link", (CAP_SEND_RESET_LINK,), RiskLevel.MEDIUM, False),
             # Credential/authorization changes are HIGH risk and approval-gated.
             ("keycloak-identity-credentials", (CAP_RESET_PASSWORD, CAP_ADD_TO_GROUP), RiskLevel.HIGH, True),
         )
         for name, capabilities, risk_level, requires_approval in builtin_manifests:
             existing = registry.find_by_name(name)
-            if existing is not None:
-                registry.bind_adapter(existing.connector_id, keycloak_adapter)
-                continue
+            # Re-register even when the row exists: it keeps a stale manifest
+            # (e.g. one written before manifest_json.sideEffectKind was persisted)
+            # in sync with the code, reusing the same connector_id so it is an
+            # upsert, not a duplicate. Idempotent across restarts.
             manifest = ToolConnector.register(
-                connector_id=ConnectorId.new_id(),
+                connector_id=existing.connector_id if existing is not None else ConnectorId.new_id(),
                 name=name,
                 version="1.0.0",
                 capabilities=tuple(Capability(capability) for capability in capabilities),

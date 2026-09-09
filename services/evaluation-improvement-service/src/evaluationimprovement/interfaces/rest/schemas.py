@@ -125,6 +125,17 @@ class RunResponse(BaseModel):
     completed_at: datetime | None
 
 
+class LangSmithLinkResponse(BaseModel):
+    """SPEC-EI-013: `GET /evaluation/runs/{runId}/langsmith-link`. `enabled=False`
+    means this deployment runs LangSmith linkage in no-op mode (not a failure);
+    `experiment_ref` is the LangSmith project id when a real link exists.
+    """
+
+    run_id: str
+    enabled: bool
+    experiment_ref: str | None
+
+
 class CancelRunRequest(BaseModel):
     reason: str = ""
     correlation_id: str = Field(min_length=1)

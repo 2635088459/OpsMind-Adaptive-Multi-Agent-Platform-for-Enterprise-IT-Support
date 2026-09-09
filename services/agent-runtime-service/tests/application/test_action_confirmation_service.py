@@ -160,12 +160,17 @@ def _decline_command(wiring, action_id: AgentTaskId, idempotency_key: str = "dec
 def test_confirming_a_low_risk_action_dispatches_a_real_tool_request(wiring) -> None:
     action_id = _propose_action(wiring)
 
-    view = wiring["action_service"].confirm_action(_confirm_command(wiring, action_id))
+    view = wiring["action_service"].confirm_action(_confirm_command(wiring, action_id, requester_subject="employee-1"))
 
     assert view.outcome == "still-processing"  # nothing ever completes it in this test's own bounded window
     tool_requests = wiring["tool_request_repository"].find_pending(10)
     assert len(tool_requests) == 1
     assert tool_requests[0].agent_task_id == action_id
+    # the tool gateway's identity connector needs the target user — the confirming
+    # employee's own Keycloak sub is threaded into the request payload.
+    import json as _json
+
+    assert _json.loads(tool_requests[0].request_payload)["userId"] == "employee-1"
 
     task = wiring["agent_task_repository"].find_by_id(action_id)
     assert task.state is AgentTaskState.WAITING_TOOL

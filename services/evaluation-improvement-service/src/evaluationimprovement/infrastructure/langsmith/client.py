@@ -9,6 +9,9 @@ handling §"LangSmith 故障": "对离线 release gate：fail closed" applies on
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
+from evaluationimprovement.application.records import LangSmithCaseResult
 from evaluationimprovement.domain.ids import RunId
 from evaluationimprovement.infrastructure.langsmith.experiment_adapter import NoOpLangSmithExperimentAdapter
 
@@ -20,6 +23,9 @@ class LangSmithClientAdapter:
 
     def link_experiment(self, run_id: RunId, dataset_name: str, dataset_version: str) -> str | None:
         return self._experiment_adapter.link_experiment(str(run_id), dataset_name, dataset_version)
+
+    def push_run_results(self, experiment_ref: str, run_key: str, cases: Sequence[LangSmithCaseResult]) -> int:
+        return self._experiment_adapter.push_run_results(experiment_ref, run_key, cases)
 
     def is_enabled(self) -> bool:
         """False for the default no-op construction (this deployment never attempts a

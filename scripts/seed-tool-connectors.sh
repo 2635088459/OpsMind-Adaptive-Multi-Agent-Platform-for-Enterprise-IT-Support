@@ -32,8 +32,11 @@ try: print(" ".join(c["name"] for c in json.load(sys.stdin)))
 except Exception: print("")')"
 
 # name | version | risk | requires_approval | is_mutating | host | capabilities(csv)
+# NOTE: identity.user.sendPasswordResetLink / .unlock / .resetPassword are NOT seeded
+# here — they are real built-in connectors (KeycloakAdminConnectorAdapter, bound on
+# container boot) that make genuine Keycloak Admin API calls, not the EchoConnector
+# every admin POST /connectors registration binds.
 CONNECTORS="$(cat <<'EOF'
-password-reset-service|1.0.0|LOW|false|true|identity-service|identity.user.sendPasswordResetLink
 housing-portal-api|1.0.0|MEDIUM|false|true|housing-portal|housing.maintenance.createRequest,housing.application.status
 email-admin-service|1.0.0|MEDIUM|true|true|mail-admin|email.mailbox.grantSharedAccess,email.distributionList.addMember
 vpn-access-service|1.0.0|HIGH|true|true|vpn-controller|vpn.access.grant,vpn.mfa.resetEnrollment

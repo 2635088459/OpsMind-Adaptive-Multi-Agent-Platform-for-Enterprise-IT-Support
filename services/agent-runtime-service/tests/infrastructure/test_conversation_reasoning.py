@@ -64,27 +64,38 @@ def test_a_plain_question_with_no_knowledge_snippets_still_answers_with_text() -
     assert outcome.text
 
 
+class _Usage:
+    def __init__(self, *, input_tokens=0, output_tokens=0, prompt_tokens=0, completion_tokens=0) -> None:  # noqa: ANN001
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
 class _FakeParseResponse:
-    def __init__(self, decision: ConversationDecision) -> None:
+    def __init__(self, decision: ConversationDecision, usage: _Usage | None = None) -> None:
         self.parsed_output = decision
+        if usage is not None:
+            self.usage = usage
 
 
 class _FakeMessages:
-    def __init__(self, decision: ConversationDecision | None, raise_error: bool) -> None:
+    def __init__(self, decision: ConversationDecision | None, raise_error: bool, usage: _Usage | None = None) -> None:
         self._decision = decision
         self._raise_error = raise_error
+        self._usage = usage
         self.last_call: dict | None = None
 
     def parse(self, **kwargs):  # noqa: ANN003, ANN201
         self.last_call = kwargs
         if self._raise_error:
             raise RuntimeError("anthropic api unreachable")
-        return _FakeParseResponse(self._decision)
+        return _FakeParseResponse(self._decision, self._usage)
 
 
 class _FakeAnthropicClient:
-    def __init__(self, decision: ConversationDecision | None = None, raise_error: bool = False) -> None:
-        self.messages = _FakeMessages(decision, raise_error)
+    def __init__(self, decision: ConversationDecision | None = None, raise_error: bool = False, usage: _Usage | None = None) -> None:
+        self.messages = _FakeMessages(decision, raise_error, usage)
 
 
 def test_anthropic_adapter_maps_a_text_decision() -> None:
@@ -152,27 +163,30 @@ class _FakeOpenAIChoice:
 
 
 class _FakeOpenAIParseResponse:
-    def __init__(self, decision: ConversationDecision) -> None:
+    def __init__(self, decision: ConversationDecision, usage: _Usage | None = None) -> None:
         self.choices = [_FakeOpenAIChoice(decision)]
+        if usage is not None:
+            self.usage = usage
 
 
 class _FakeChatCompletions:
-    def __init__(self, decision: ConversationDecision | None, raise_error: bool) -> None:
+    def __init__(self, decision: ConversationDecision | None, raise_error: bool, usage: _Usage | None = None) -> None:
         self._decision = decision
         self._raise_error = raise_error
+        self._usage = usage
         self.last_call: dict | None = None
 
     def parse(self, **kwargs):  # noqa: ANN003, ANN201
         self.last_call = kwargs
         if self._raise_error:
             raise RuntimeError("openai api unreachable")
-        return _FakeOpenAIParseResponse(self._decision)
+        return _FakeOpenAIParseResponse(self._decision, self._usage)
 
 
 class _FakeOpenAIClient:
-    def __init__(self, decision: ConversationDecision | None = None, raise_error: bool = False) -> None:
+    def __init__(self, decision: ConversationDecision | None = None, raise_error: bool = False, usage: _Usage | None = None) -> None:
         self.chat = type("_Chat", (), {})()
-        self.chat.completions = _FakeChatCompletions(decision, raise_error)
+        self.chat.completions = _FakeChatCompletions(decision, raise_error, usage)
 
 
 def test_openai_adapter_maps_a_text_decision() -> None:
@@ -325,3 +339,30 @@ def test_anthropic_adapter_uses_a_promoted_system_prompt_override() -> None:
 
 def _raising_provider() -> str | None:
     raise RuntimeError("active-config store unreachable")
+
+
+def test_anthropic_adapter_captures_the_prompt_completion_token_split() -> None:
+    client = _FakeAnthropicClient(
+        decision=ConversationDecision(kind="text", text="ok"),
+        usage=_Usage(input_tokens=1234, output_tokens=210),
+    )
+    outcome = AnthropicConversationReasoningAdapter(client, "claude-sonnet-5").decide("hi", [])
+    assert outcome.prompt_tokens == 1234
+    assert outcome.completion_tokens == 210
+
+
+def test_openai_adapter_captures_the_prompt_completion_token_split() -> None:
+    client = _FakeOpenAIClient(
+        decision=ConversationDecision(kind="proposed_action", action_summary="reset", action_risk_level="LOW"),
+        usage=_Usage(prompt_tokens=900, completion_tokens=88),
+    )
+    outcome = OpenAIConversationReasoningAdapter(client, "gpt-5-mini").decide("reset my password", [])
+    assert outcome.prompt_tokens == 900
+    assert outcome.completion_tokens == 88
+
+
+def test_a_response_with_no_usage_yields_a_zero_token_split() -> None:
+    client = _FakeOpenAIClient(decision=ConversationDecision(kind="text", text="ok"))  # no usage
+    outcome = OpenAIConversationReasoningAdapter(client, "gpt-5-mini").decide("hi", [])
+    assert outcome.prompt_tokens == 0
+    assert outcome.completion_tokens == 0

@@ -24,6 +24,7 @@ from agentruntime.application.ports_in import (
     PoisonEventQueryPort,
     RecoveryPort,
     ToolDispatchPort,
+    ToolWaitRecoveryPort,
     WorkflowLifecyclePort,
 )
 from agentruntime.container import (
@@ -35,6 +36,7 @@ from agentruntime.container import (
     get_poison_event_query_port,
     get_recovery_port,
     get_tool_dispatch_port,
+    get_tool_wait_recovery_port,
     get_workflow_lifecycle_port,
 )
 from agentruntime.interfaces.admin.mapper import (
@@ -53,6 +55,7 @@ from agentruntime.interfaces.admin.mapper import (
     to_response,
     to_retry_task_command,
     to_scan_response,
+    to_tool_wait_recovery_scan_response,
     to_workflow_instance_response,
 )
 from agentruntime.interfaces.admin.schemas import (
@@ -76,6 +79,8 @@ from agentruntime.interfaces.admin.schemas import (
     RecoveryScanReportResponse,
     ReplayDeadLetterRequest,
     RetryAgentTaskRequest,
+    ToolWaitRecoveryScanReportResponse,
+    ToolWaitRecoveryScanRequest,
     WorkflowInstanceResponse,
 )
 
@@ -168,6 +173,30 @@ def scan_and_recover_expired_leases(
         actor, report.scanned, report.retried, report.staled,
     )
     return to_lease_recovery_scan_response(report)
+
+
+@router.post("/agent-tasks/tool-wait-recovery-scan", response_model=ToolWaitRecoveryScanReportResponse)
+def scan_and_recover_stale_tool_waits(
+    request: Request,
+    body: ToolWaitRecoveryScanRequest = ToolWaitRecoveryScanRequest(),
+    port: ToolWaitRecoveryPort = Depends(get_tool_wait_recovery_port),
+) -> ToolWaitRecoveryScanReportResponse:
+    """Fails WAITING_TOOL Agent Tasks whose tool.completed/tool.failed delivery never
+    arrived (past `tool_wait_timeout_seconds`) and wakes their WAITING_FOR_TOOL Workflow
+    Instance back to RUNNING, so a conversation stuck behind a never-executed tool
+    request can send messages again. Manual/ops trigger, mirroring
+    /admin/agent-tasks/lease-recovery-scan.
+    """
+    actor = request.headers.get("X-Actor-Id")
+    audit_logger.info("action=scan_and_recover_stale_tool_waits status=started actor=%s batch_size=%s", actor, body.batch_size)
+
+    report = port.scan_and_recover(body.batch_size)
+
+    audit_logger.info(
+        "action=scan_and_recover_stale_tool_waits status=completed actor=%s scanned=%s timed_out=%s",
+        actor, report.scanned, report.timed_out,
+    )
+    return to_tool_wait_recovery_scan_response(report)
 
 
 @router.post("/agent-tasks/{agent_task_id}/retry", response_model=AgentTaskResponse)

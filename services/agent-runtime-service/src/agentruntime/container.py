@@ -20,6 +20,7 @@ import logging
 from functools import lru_cache
 
 from agentruntime.application.ports_in import (
+    ExecuteEvaluationCasePort,
     AgentTaskCommandPort,
     AgentTaskQueryPort,
     AuditRecordQueryPort,
@@ -35,6 +36,7 @@ from agentruntime.application.ports_in import (
     TicketCreatedConsumerPort,
     TicketCycleConsumerPort,
     ToolDispatchPort,
+    ToolWaitRecoveryPort,
     WorkflowCommandPort,
     WorkflowLifecyclePort,
     WorkflowQueryPort,
@@ -65,6 +67,7 @@ from agentruntime.application.services.complete_agent_task import (
     CompleteAgentTaskService,
 )
 from agentruntime.application.services.complete_workflow import CompleteWorkflowService
+from agentruntime.application.services.execute_evaluation_case import ExecuteEvaluationCaseService
 from agentruntime.application.services.consume_approval import ConsumeApprovalService
 from agentruntime.application.services.consume_improvement import ConsumeImprovementService
 from agentruntime.application.services.consume_runtime_event import (
@@ -103,6 +106,7 @@ from agentruntime.application.services.poison_event_query import PoisonEventQuer
 from agentruntime.application.services.recover_expired_lease_tasks import (
     RecoverExpiredLeaseTasksService,
 )
+from agentruntime.application.services.recover_stale_tool_waits import RecoverStaleToolWaitsService
 from agentruntime.application.services.recover_workflow import RecoverWorkflowService
 from agentruntime.application.services.request_tool import RequestToolService
 from agentruntime.application.services.resume_workflow import ResumeWorkflowService
@@ -166,7 +170,7 @@ from agentruntime.infrastructure.persistence.postgres.session import (
 )
 from agentruntime.infrastructure.ticket_snapshot import NoOpTicketSnapshotPort
 from agentruntime.infrastructure.ticket_workflow_client import HttpTicketWorkflowClient
-from agentruntime.infrastructure.tool_gateway import LoggingToolGatewayPort
+from agentruntime.infrastructure.tool_gateway import HttpToolGatewayPort, LoggingToolGatewayPort
 from agentruntime.infrastructure.workflow_definition_catalog import (
     StaticWorkflowDefinitionCatalogAdapter,
 )
@@ -343,7 +347,12 @@ class Container:
         self.audit_record_repository = adapters.audit_record_repository
         self.active_component_config_repository = adapters.active_component_config_repository
 
-        self.tool_gateway_port = LoggingToolGatewayPort(self.clock)
+        if settings.tool_gateway_mode == "http":
+            self.tool_gateway_port = HttpToolGatewayPort(
+                settings.tool_gateway_base_url, self.clock, settings.tool_gateway_self_service_capability,
+            )
+        else:
+            self.tool_gateway_port = LoggingToolGatewayPort(self.clock)
         self.ticket_snapshot_port = NoOpTicketSnapshotPort()
         # SPEC-ARO-043 (phase-10 Conversational Intake): this service's own outbound
         # service identity — used by outbound calls that are genuinely
@@ -366,6 +375,9 @@ class Container:
         self.conversation_reasoning_port = _build_conversation_reasoning_port(settings, _active_reasoning_system_prompt)
         self.conversation_deliberation_port = _build_conversation_deliberation_port(
             settings, self.conversation_reasoning_port
+        )
+        self.execute_evaluation_case_service: ExecuteEvaluationCasePort = ExecuteEvaluationCaseService(
+            self.conversation_reasoning_port
         )
         # SPEC-ARO-039's own multimodal follow-up. Same outbound service identity as
         # ticket_workflow_client's own triage_ticket() call — see AttachmentClientPort's
@@ -426,13 +438,13 @@ class Container:
             self.command_idempotency_repository, self.clock, self.workflow_instance_repository,
             self.agent_task_repository, self.capability_policy_port, self.audit_recorder,
         )
-        self.dispatch_tool_requests_service = DispatchToolRequestsService(
-            self.tool_request_repository, self.tool_gateway_port, self.clock
-        )
         self.consume_tool_result_service = ConsumeToolResultService(
             self.tool_request_repository, self.agent_task_repository, self.workflow_instance_repository,
             self.checkpoint_repository, self.outbox_repository, self.clock, self.coordinate_agent_tasks_service,
             self.complete_workflow_service, self.fail_workflow_service,
+        )
+        self.dispatch_tool_requests_service = DispatchToolRequestsService(
+            self.tool_request_repository, self.tool_gateway_port, self.clock, self.consume_tool_result_service,
         )
         self.consume_approval_service = ConsumeApprovalService(
             self.workflow_instance_repository, self.checkpoint_repository, self.clock, self.fail_workflow_service,
@@ -459,6 +471,10 @@ class Container:
         )
         self.recover_expired_lease_tasks_service = RecoverExpiredLeaseTasksService(
             self.agent_task_repository, self.workflow_instance_repository, self.clock, self.telemetry, self.audit_recorder,
+        )
+        self.recover_stale_tool_waits_service = RecoverStaleToolWaitsService(
+            self.agent_task_repository, self.workflow_instance_repository, self.tool_request_repository,
+            self.clock, self.telemetry, self.audit_recorder, settings.tool_wait_timeout_seconds,
         )
         self.dispatch_outbox_events_service = DispatchOutboxEventsService(
             self.outbox_repository, self.event_publisher_port, self.clock, self.telemetry,
@@ -508,6 +524,7 @@ class Container:
         self.ticket_cycle_consumer_port: TicketCycleConsumerPort = self.consume_ticket_cycle_event_service
         self.recovery_port: RecoveryPort = self.recover_workflow_service
         self.lease_recovery_port: LeaseRecoveryPort = self.recover_expired_lease_tasks_service
+        self.tool_wait_recovery_port: ToolWaitRecoveryPort = self.recover_stale_tool_waits_service
         self.outbox_dispatch_port: OutboxDispatchPort = self.dispatch_outbox_events_service
         self.tool_dispatch_port: ToolDispatchPort = self.dispatch_tool_requests_service
         self.workflow_lifecycle_port: WorkflowLifecyclePort = WorkflowLifecycleService(
@@ -563,6 +580,10 @@ def get_lease_recovery_port() -> LeaseRecoveryPort:
     return get_container().lease_recovery_port
 
 
+def get_tool_wait_recovery_port() -> ToolWaitRecoveryPort:
+    return get_container().tool_wait_recovery_port
+
+
 def get_outbox_dispatch_port() -> OutboxDispatchPort:
     return get_container().outbox_dispatch_port
 
@@ -601,3 +622,7 @@ def get_conversation_command_port() -> ConversationCommandPort:
 
 def get_conversation_query_port() -> ConversationQueryPort:
     return get_container().conversation_query_port
+
+
+def get_execute_evaluation_case_port() -> ExecuteEvaluationCasePort:
+    return get_container().execute_evaluation_case_service

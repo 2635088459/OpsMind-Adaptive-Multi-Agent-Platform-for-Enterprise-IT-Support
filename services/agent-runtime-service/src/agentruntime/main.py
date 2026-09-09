@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agentruntime.infrastructure.observability import configure_observability
 from agentruntime.interfaces.admin.router import router as admin_router
 from agentruntime.interfaces.conversation.router import router as conversation_router
+from agentruntime.interfaces.evaluation.router import router as evaluation_router
 from agentruntime.interfaces.errors import register_exception_handlers
 from agentruntime.interfaces.event.router import router as event_router
 from agentruntime.interfaces.rest.router import router as workflow_router
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(event_router)
     app.include_router(admin_router)
     app.include_router(conversation_router)
+    app.include_router(evaluation_router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:

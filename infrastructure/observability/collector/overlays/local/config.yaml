@@ -118,3 +118,46 @@ exporters:
       queue_size: 400
     retry_on_failure:
       max_elapsed_time: 60s
+
+# ---------------------------------------------------------------------------
+# LOCAL-ONLY plaintext OTLP ingress (deliberate, documented ADR-0007 exception)
+# ---------------------------------------------------------------------------
+# ADR-0007 mandates TLS + bearer-token auth on the `otlp` receiver in EVERY
+# environment. That is right for ci/production and stays untouched there — this
+# block lives only in the local overlay. The OpsMind platform services
+# (infrastructure/docker-compose/{local,full}-platform.yml) run as a SEPARATE
+# Compose project on the developer's laptop; making each of them mount the
+# ephemeral self-signed dev cert and carry the gateway bearer token just to get
+# a span into Tempo on `localhost` is friction with no security value on a
+# single-user machine. This second receiver has NO tls and NO auth, is bound to
+# high ports that are only reachable from the same host, and feeds the exact
+# same governed pipelines (redaction, tenant routing, tail-sampling) as the
+# secured `otlp` receiver — it is an ingress convenience, not a pipeline change.
+# Producers point OTEL_EXPORTER_OTLP_ENDPOINT at host.docker.internal:14317
+# (gRPC) or :14318 (HTTP).
+receivers:
+  otlp/local-plaintext:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14317
+      http:
+        endpoint: 0.0.0.0:14318
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp, otlp/local-plaintext]
+      # SPEC-OP-010's tail_sampling keeps errors/slow/risky always + a 10%
+      # probabilistic floor for everything else. That floor is correct for a
+      # shared environment but wrong on a laptop: a developer who clicks "Open
+      # trace in Tempo" for a specific ticket needs THAT request's trace, not a
+      # 1-in-10 chance of it. Locally the pipeline therefore runs without
+      # tail_sampling (the processor stays defined, just unused here) so every
+      # trace is retained. base/config.yaml — the floor for ci/production — is
+      # untouched; this is a local-overlay exception, same class as the
+      # plaintext receiver above.
+      processors: [memory_limiter, resourcedetection, resource, transform/resource-contract, transform/baggage-contract, filter/noise, attributes/semconv-compat, transform/trace-priority, transform/governance, batch]
+    metrics:
+      receivers: [otlp, otlp/local-plaintext]
+    logs:
+      receivers: [otlp, otlp/local-plaintext]

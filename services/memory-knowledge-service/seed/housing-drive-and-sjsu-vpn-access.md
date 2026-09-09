@@ -2,7 +2,7 @@
 
 ## Cannot access the Housing public Drive
 
-If you cannot open the Housing public Drive, you are almost always not on the VPN. Connect to the campus VPN at one.sjsu.edu and sign in with your school account, then open the Drive link again. The public Drive is only reachable from the campus network or the VPN, so it will keep failing on a plain home or guest connection until the VPN is connected.
+If you cannot access or open the Housing public Drive, you are almost always not connected to the VPN. To get access to the public Drive, connect to the campus VPN at one.sjsu.edu and sign in with your school account, then open the Drive link again. The public Drive is only reachable from the campus network or the VPN, so drive access will keep failing on a plain home or guest connection until the VPN is connected.
 
 ## VPN shows a permission or access-denied error
 

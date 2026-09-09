@@ -41,6 +41,16 @@ class LeaseRecoveryScanReportResponse(BaseModel):
     scanned_at: datetime
 
 
+class ToolWaitRecoveryScanRequest(BaseModel):
+    batch_size: int = 50
+
+
+class ToolWaitRecoveryScanReportResponse(BaseModel):
+    scanned: int
+    timed_out: int
+    scanned_at: datetime
+
+
 class DispatchOutboxEventsRequest(BaseModel):
     batch_size: int = 50
 

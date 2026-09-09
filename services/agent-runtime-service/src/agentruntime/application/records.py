@@ -223,6 +223,15 @@ class ToolDispatchAcknowledgement:
     tool_request_id: ToolRequestId
     status: ToolRequestStatus
     acknowledged_at: datetime
+    # SPEC-ARO phase-05 (tool-gateway-mediation): when the real HTTP adapter runs the
+    # tool synchronously and the outcome is terminal (COMPLETED / FAILED), it carries
+    # the result back here so DispatchToolRequestsService can apply it inline — this
+    # deployment runs no async `tool.completed.v1` consumer, so the sync round-trip is
+    # how the WAITING_FOR_TOOL workflow gets woken. Both None for a non-terminal ack
+    # (DISPATCHED — still queued at the gateway, or awaiting approval) and for the
+    # logging placeholder adapter.
+    result_payload: str | None = None
+    failure_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,6 +410,11 @@ class ReasoningOutcome:
     action_summary: str | None = None
     action_risk_level: str | None = None
     escalation_reason: str | None = None
+    # SPEC-EI-013 follow-up: the real LLM call's token usage, so the evaluation
+    # execute-case endpoint can report a genuine prompt/completion split (0 for the
+    # static placeholder and for any adapter whose SDK response carried no usage).
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)

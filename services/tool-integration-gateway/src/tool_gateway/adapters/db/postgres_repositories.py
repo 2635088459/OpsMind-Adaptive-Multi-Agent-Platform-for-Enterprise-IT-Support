@@ -392,6 +392,12 @@ def _connector_to_row_values(connector: ToolConnector) -> dict:
         manifest_json={
             "allowedRequesterTypes": [t.name for t in connector.allowed_requester_types],
             "consecutiveHealthCheckFailures": connector.consecutive_health_check_failures,
+            # Persist the real side_effect_kind — the keyword heuristic in
+            # _row_to_connector below only fits capability names that happen to
+            # contain create/update/delete/... and silently mislabels e.g.
+            # identity.user.unlock / .sendPasswordResetLink as READ_ONLY, which
+            # then get a null operationKey and fail every real execution.
+            "sideEffectKind": connector.side_effect_kind.name,
         },
         capabilities_json=[capability.name for capability in connector.capabilities], input_schema=connector.input_schema_ref,
         output_schema=connector.output_schema_ref, risk_level=connector.risk_level.name, requires_approval=connector.requires_approval,
@@ -411,15 +417,16 @@ def _row_to_connector(row: ToolConnectorRow) -> ToolConnector:
         connector_id=ConnectorId(row.id), name=row.name, version=row.version,
         capabilities=tuple(Capability(name) for name in row.capabilities_json), input_schema_ref=row.input_schema,
         output_schema_ref=row.output_schema, risk_level=RiskLevel[row.risk_level], requires_approval=row.requires_approval,
-        # side_effect_kind has no 07-data-model column of its own — derived from
-        # the same MUTATING keyword rule adapters.policy.policy_client uses,
-        # since no current service round-trips this field through Postgres yet
-        # (only the in-memory adapter path exercises it directly at creation
-        # time). Deferred to phase-03 SPEC-TG-011 (connector SDK) if a real
-        # manifest-driven column is needed.
-        side_effect_kind=SideEffectKind.MUTATING if any(
-            keyword in name.lower() for name in row.capabilities_json for keyword in ("restart", "create", "delete", "update", "terminate", "revoke")
-        ) else SideEffectKind.READ_ONLY,
+        # Prefer the persisted value (manifest_json.sideEffectKind); fall back to
+        # the legacy capability-name keyword heuristic for rows written before it
+        # was stored.
+        side_effect_kind=SideEffectKind[row.manifest_json["sideEffectKind"]] if "sideEffectKind" in row.manifest_json
+        else (
+            SideEffectKind.MUTATING if any(
+                keyword in name.lower() for name in row.capabilities_json
+                for keyword in ("restart", "create", "delete", "update", "terminate", "revoke")
+            ) else SideEffectKind.READ_ONLY
+        ),
         secret_requirements=tuple(row.secret_requirements_json),
         network_policy=NetworkPolicy(
             allowed_hosts=tuple(row.network_policy_json.get("allowedHosts", [])), deny_by_default=row.network_policy_json.get("denyByDefault", True),

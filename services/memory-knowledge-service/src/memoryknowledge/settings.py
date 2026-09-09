@@ -76,6 +76,12 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
     openai_base_url: str = "https://api.openai.com/v1"
+    # OpenAIEmbeddingProvider retries transient failures (TLS EOF / reset / read
+    # timeout, and 429 / 5xx) with exponential backoff before giving up. Raise
+    # these on a flaky link so a batch ingest (~5 chunk embeds per document)
+    # does not fail a whole document on the first hiccup.
+    openai_embedding_timeout_seconds: float = 60.0
+    openai_embedding_max_attempts: int = 5
 
     # Browser origins allowed to call this service (support-console's admin
     # knowledge-ingest UI). Comma-separated; empty = no CORS middleware at all.

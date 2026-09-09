@@ -19,6 +19,7 @@ from agentruntime.application.views import (
     PoisonEventView,
     RecoveryReport,
     RecoveryScanReport,
+    ToolWaitRecoveryReport,
     WorkflowInstanceView,
 )
 from agentruntime.domain.ids import AgentTaskId, DefinitionVersion, IdempotencyKey, WorkflowInstanceId
@@ -37,6 +38,7 @@ from agentruntime.interfaces.admin.schemas import (
     RecoverWorkflowRequest,
     RecoveryReportResponse,
     RecoveryScanReportResponse,
+    ToolWaitRecoveryScanReportResponse,
     WorkflowInstanceResponse,
 )
 
@@ -99,6 +101,12 @@ def to_scan_response(report: RecoveryScanReport) -> RecoveryScanReportResponse:
 def to_lease_recovery_scan_response(report: LeaseRecoveryReport) -> LeaseRecoveryScanReportResponse:
     return LeaseRecoveryScanReportResponse(
         scanned=report.scanned, retried=report.retried, staled=report.staled, scanned_at=report.scanned_at,
+    )
+
+
+def to_tool_wait_recovery_scan_response(report: ToolWaitRecoveryReport) -> ToolWaitRecoveryScanReportResponse:
+    return ToolWaitRecoveryScanReportResponse(
+        scanned=report.scanned, timed_out=report.timed_out, scanned_at=report.scanned_at,
     )
 
 

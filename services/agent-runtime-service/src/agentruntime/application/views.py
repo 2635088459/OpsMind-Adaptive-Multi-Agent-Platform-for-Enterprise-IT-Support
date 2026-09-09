@@ -318,6 +318,23 @@ class LeaseRecoveryReport:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolWaitRecoveryReport:
+    """Produced by RecoverStaleToolWaitsService.scan_and_recover(). A Tool Request only
+    ever wakes its WAITING_TOOL Agent Task / WAITING_FOR_TOOL Workflow Instance back up
+    via a real tool.completed/tool.failed delivery (02-business-invariants §"Tool Gateway
+    Boundary"); if that delivery never arrives the conversation is stuck forever with no
+    way to send another message. This scan fails the abandoned turn
+    (WAITING_TOOL -> FAILED_FINAL) and wakes the workflow (WAITING_FOR_TOOL -> RUNNING) so
+    the conversation is usable again — the same tolerant, checkpoint-free batch shape
+    LeaseRecoveryReport already uses for the CLAIMED/RUNNING lease-expiry case.
+    """
+
+    scanned: int
+    timed_out: int
+    scanned_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class DispatchReport:
     """08-transaction-and-outbox §"Outbox Publisher": produced by DispatchOutboxEventsService."""
 
@@ -368,3 +385,19 @@ class PoisonEventView:
             record.id, record.event_id, record.consumer_name, record.event_type, redact_payload(record.payload),
             record.error_message, record.occurred_at, record.recorded_at, record.quarantined_at,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class EvaluationCaseExecutionView:
+    """SPEC-EI-013 follow-up: the outcome of ExecuteEvaluationCasePort.execute_case —
+    the agent's routing decision derived from a real ReasoningOutcome, plus the real
+    token split from the LLM call (both 0 for the static reasoning placeholder).
+    """
+
+    classification: str
+    final_state: str
+    tool_calls: tuple[str, ...]
+    explanation_text: str
+    prompt_tokens: int
+    completion_tokens: int
+    latency_ms: int

@@ -10,9 +10,13 @@ import { TriageForm } from "@/features/triage/TriageForm";
 
 const TRIAGE_URL = `${TICKET_WORKFLOW_BASE_URL}/api/v1/tickets/ticket-1/triage`;
 
+// The real seeded catalog values the pickers now offer (migrations V045/V046).
+const CATEGORY_NETWORK = "11111111-1111-1111-1111-111111111111";
+const QUEUE_NETWORK = "33333333-3333-3333-3333-333333333333";
+
 async function fillRequiredFields(user: ReturnType<typeof userEvent.setup>) {
-  await user.type(screen.getByLabelText("Category ID"), "category-1");
-  await user.type(screen.getByLabelText("Support queue ID"), "queue-1");
+  await user.selectOptions(screen.getByLabelText("Category"), CATEGORY_NETWORK);
+  await user.selectOptions(screen.getByLabelText("Support queue"), QUEUE_NETWORK);
   await user.type(screen.getByLabelText("Reason"), "misfiled ticket");
 }
 
@@ -26,10 +30,10 @@ describe("TriageForm — SPEC-SC-010", () => {
       http.post(TRIAGE_URL, async ({ request }) => {
         expect(request.headers.get("If-Match")).toBe("3");
         const body = (await request.json()) as Record<string, unknown>;
-        expect(body).toMatchObject({ categoryId: "category-1", supportQueueId: "queue-1", priority: "HIGH", reason: "misfiled ticket" });
+        expect(body).toMatchObject({ categoryId: CATEGORY_NETWORK, supportQueueId: QUEUE_NETWORK, priority: "HIGH", reason: "misfiled ticket" });
         return HttpResponse.json({
-          ticketId: "ticket-1", status: "TRIAGED", categoryId: "category-1", subcategoryId: null,
-          priority: "HIGH", supportQueueId: "queue-1", triagedBy: "support.agent", triagedAt: "2026-09-02T00:00:00Z", version: 4,
+          ticketId: "ticket-1", status: "TRIAGED", categoryId: CATEGORY_NETWORK, subcategoryId: null,
+          priority: "HIGH", supportQueueId: QUEUE_NETWORK, triagedBy: "support.agent", triagedAt: "2026-09-02T00:00:00Z", version: 4,
         });
       }),
     );

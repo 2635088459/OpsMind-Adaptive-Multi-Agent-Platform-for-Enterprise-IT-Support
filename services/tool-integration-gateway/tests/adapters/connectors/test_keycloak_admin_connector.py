@@ -17,6 +17,7 @@ from tests.contracts.connector_contract import assert_connector_contract
 from tool_gateway.adapters.connectors.builtin.keycloak_admin_connector import (
     CAP_ADD_TO_GROUP,
     CAP_RESET_PASSWORD,
+    CAP_SEND_RESET_LINK,
     CAP_UNLOCK,
     KeycloakAdminConnectorAdapter,
 )
@@ -90,6 +91,24 @@ def _spec(capability: str, payload: dict) -> ConnectorInvocationSpec:
         connector_id="conn-1", connector_version="1.0.0",
         operation_key=f"req-1:1:conn-1:{capability}", input_payload=payload, timeout_seconds=30,
     )
+
+
+def test_send_reset_link_by_user_id_calls_execute_actions_email() -> None:
+    kc = FakeKeycloak()
+    outcome = _adapter(kc).invoke(_spec(CAP_SEND_RESET_LINK, {"userId": "u-alice"}))
+    assert outcome.status is ResultStatus.SUCCESS
+    assert ("PUT", f"/admin/realms/{REALM}/users/u-alice/execute-actions-email") in kc.calls
+    body = kc.body_of("PUT", "/execute-actions-email")
+    assert body == ["UPDATE_PASSWORD"]
+    # no lookup needed when a real Keycloak sub is supplied
+    assert ("GET", f"/admin/realms/{REALM}/users") not in kc.calls
+
+
+def test_send_reset_link_falls_back_to_a_username_lookup() -> None:
+    kc = FakeKeycloak()
+    outcome = _adapter(kc).invoke(_spec(CAP_SEND_RESET_LINK, {"username": "alice"}))
+    assert outcome.status is ResultStatus.SUCCESS
+    assert ("PUT", f"/admin/realms/{REALM}/users/u-alice/execute-actions-email") in kc.calls
 
 
 def test_unlock_clears_brute_force_and_re_enables_the_account() -> None:

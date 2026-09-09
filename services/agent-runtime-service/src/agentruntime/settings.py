@@ -97,6 +97,19 @@ class Settings(BaseSettings):
     # to 8090 — see full-platform.yml's own attachment-service block).
     attachment_service_base_url: str = "http://localhost:8090"
 
+    # phase-05 (tool-gateway-mediation): "logging" (default, every hermetic test's
+    # fixture) keeps LoggingToolGatewayPort — dispatch is a log line, the tool never
+    # runs. "http" wires HttpToolGatewayPort against tool-integration-gateway's real
+    # Runtime API (create + synchronous execute), so a confirmed self-service action
+    # actually executes and wakes the WAITING_FOR_TOOL workflow.
+    tool_gateway_mode: Literal["logging", "http"] = "logging"
+    tool_gateway_base_url: str = "http://localhost:8020"
+    # The tool-integration-gateway capability the agent's one real self-service action
+    # ("send a password-reset link", ActionConfirmationService._TOOL_NAME
+    # "self_service_action") maps to — the seeded `password-reset-service` connector's
+    # capability (scripts/seed-tool-connectors.sh).
+    tool_gateway_self_service_capability: str = "identity.user.sendPasswordResetLink"
+
     # SPEC-ARO-041 (phase-10): a real categoryId/supportQueueId from 02-ticket-workflow's
     # own reference-data catalog — no seed data for either exists anywhere in this
     # platform yet (confirmed by reading ticket-workflow-service's own migrations
@@ -127,6 +140,14 @@ class Settings(BaseSettings):
     # docstring), so there is nothing to load-test against today.
     confirm_bounded_wait_timeout_seconds: float = 2.0
     confirm_bounded_wait_poll_interval_seconds: float = 0.1
+
+    # How long a WAITING_TOOL Agent Task may sit with no tool.completed/tool.failed
+    # delivery before RecoverStaleToolWaitsService fails the turn and wakes the
+    # WAITING_FOR_TOOL Workflow Instance back to RUNNING (so a stuck conversation
+    # becomes usable again). Not a load-tested figure for the same reason as the
+    # confirm bounded wait above — no real tool executor runs as a process yet;
+    # 5 minutes is generous slack over any realistic gateway round-trip.
+    tool_wait_timeout_seconds: float = 300.0
 
     # domain 09 (employee-portal)'s own frontend calls conversation_router's endpoints
     # directly from a genuinely different browser origin (its own Vite dev server, no

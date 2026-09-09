@@ -1,7 +1,7 @@
 import { EVALUATION_IMPROVEMENT_BASE_URL } from "@/lib/env";
 import { newTraceparent } from "@/lib/trace";
 import { ApiError, parseApiError } from "@/lib/apiError";
-import type { RegressionReportView, RunView, ScoreView } from "@/features/evaluation/types";
+import type { DatasetView, LangSmithLinkView, RegressionReportView, RunView, ScoreView } from "@/features/evaluation/types";
 
 /**
  * SPEC-SC-015: real, already-implemented `GET /evaluation/runs/...` reads
@@ -20,7 +20,17 @@ import type { RegressionReportView, RunView, ScoreView } from "@/features/evalua
 async function get<T>(path: string): Promise<T> {
   const response = await fetch(`${EVALUATION_IMPROVEMENT_BASE_URL}${path}`, {
     method: "GET",
-    headers: { Accept: "application/json", traceparent: newTraceparent() },
+    headers: {
+      Accept: "application/json",
+      traceparent: newTraceparent(),
+      // The service does no bearer-token auth (see the module docstring); its
+      // read endpoints are gated by a caller-asserted actor role. EVALUATION_VIEWER
+      // is the documented read-only floor and is all any read here needs — the
+      // `/runs/{id}` reads accept it implicitly, but `/datasets` and `/runs` (the
+      // list endpoints powering the run picker) require the header to be present.
+      "X-Actor-Id": "support-console",
+      "X-Actor-Role": "EVALUATION_VIEWER",
+    },
   });
   if (!response.ok) {
     throw await parseApiError(response);
@@ -28,8 +38,21 @@ async function get<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+export async function fetchDatasets(): Promise<DatasetView[]> {
+  return get<DatasetView[]>(`/evaluation/datasets?limit=50`);
+}
+
+export async function fetchRuns(datasetId: string): Promise<RunView[]> {
+  return get<RunView[]>(`/evaluation/runs?dataset_id=${encodeURIComponent(datasetId)}&limit=50`);
+}
+
 export async function fetchRun(runId: string): Promise<RunView> {
   return get<RunView>(`/evaluation/runs/${runId}`);
+}
+
+/** SPEC-EI-013: the run's LangSmith Experiment linkage, for the "View in LangSmith" deep link. */
+export async function fetchLangsmithLink(runId: string): Promise<LangSmithLinkView> {
+  return get<LangSmithLinkView>(`/evaluation/runs/${encodeURIComponent(runId)}/langsmith-link`);
 }
 
 export async function fetchScores(runId: string): Promise<ScoreView[]> {

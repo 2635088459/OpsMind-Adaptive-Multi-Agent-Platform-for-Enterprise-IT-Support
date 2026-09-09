@@ -526,3 +526,21 @@ class DeclineActionCommand:
     def __post_init__(self) -> None:
         if not self.requester_subject or not self.requester_subject.strip():
             raise ValueError("requester_subject must not be blank")
+
+
+@dataclass(frozen=True, slots=True)
+class ExecuteEvaluationCaseCommand:
+    """SPEC-EI-013 follow-up: evaluation-improvement-service asks this service to run
+    ONE evaluation test case against the real conversation reasoning path (mock state
+    only — never a real Ticket / Workflow / tool write) and report what the agent
+    decided plus its real prompt/completion token cost. `message` is the case's
+    redacted user request (or its scenario when no request text is provided).
+    """
+
+    run_id: str
+    run_generation: int
+    target_version: str
+    test_case_id: str
+    case_key: str
+    scenario: str
+    message: str

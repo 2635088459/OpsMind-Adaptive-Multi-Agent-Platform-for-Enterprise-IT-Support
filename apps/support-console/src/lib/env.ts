@@ -31,5 +31,13 @@ export const MEMORY_KNOWLEDGE_BASE_URL: string = import.meta.env.VITE_MEMORY_KNO
  */
 export const GRAFANA_BASE_URL: string = import.meta.env.VITE_GRAFANA_BASE_URL ?? "http://localhost:3000";
 
-/** LangSmith host for the "view the full experiment" link-out (UC-SC-06). This console never calls LangSmith itself — it only builds an outbound URL. */
+/** LangSmith web host for the "view the full experiment" link-out (UC-SC-06). This console never calls LangSmith itself — it only builds an outbound URL. */
 export const LANGSMITH_BASE_URL: string = import.meta.env.VITE_LANGSMITH_BASE_URL ?? "https://smith.langchain.com";
+
+/**
+ * LangSmith workspace/org id, needed to build a project deep link
+ * (`{base}/o/{org}/projects/p/{projectId}`). Empty when LangSmith isn't wired
+ * for this environment — the "View in LangSmith" link is then hidden even for a
+ * run that has an experiment ref, since the URL can't be built without it.
+ */
+export const LANGSMITH_ORG_ID: string = import.meta.env.VITE_LANGSMITH_ORG_ID ?? "";

@@ -118,6 +118,14 @@ def test_full_evaluation_and_improvement_walkthrough(client: TestClient) -> None
     final_run = client.get(f"/evaluation/runs/{run_id}")
     assert final_run.json()["status"] == "PASSED"
 
+    # SPEC-EI-013: the run's LangSmith link is readable. The default app runs
+    # linkage in no-op mode, so enabled is False and there is no project ref —
+    # but the row exists (create_run always records one), so this is 200 not 404.
+    link_response = client.get(f"/evaluation/runs/{run_id}/langsmith-link")
+    assert link_response.status_code == 200, link_response.text
+    assert link_response.json() == {"run_id": run_id, "enabled": False, "experiment_ref": None}
+    assert client.get("/evaluation/runs/00000000-0000-0000-0000-0000000000ff/langsmith-link").status_code == 404
+
     # 3. Improvement candidate lifecycle through Canary to promotion.
     candidate_response = client.post(
         "/evaluation/improvement-candidates",

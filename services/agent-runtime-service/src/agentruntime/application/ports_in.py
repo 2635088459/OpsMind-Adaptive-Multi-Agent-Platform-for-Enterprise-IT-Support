@@ -6,6 +6,7 @@ import uuid
 from typing import Protocol
 
 from agentruntime.application.commands import (
+    ExecuteEvaluationCaseCommand,
     CancelWorkflowCommand,
     ClaimAgentTaskCommand,
     ClaimReadyAgentTasksCommand,
@@ -32,6 +33,7 @@ from agentruntime.application.commands import (
 )
 from agentruntime.application.records import AuditRecordEntry
 from agentruntime.application.views import (
+    EvaluationCaseExecutionView,
     ActionOutcomeView,
     AgentTaskView,
     CheckpointView,
@@ -45,6 +47,7 @@ from agentruntime.application.views import (
     RecoveryReport,
     RecoveryScanReport,
     ToolRequestView,
+    ToolWaitRecoveryReport,
     WorkflowInstanceView,
 )
 from agentruntime.domain.ids import AgentTaskId, TicketId, WorkflowInstanceId
@@ -205,6 +208,20 @@ class LeaseRecoveryPort(Protocol):
         ...
 
 
+class ToolWaitRecoveryPort(Protocol):
+    """Input port for stale tool-wait recovery. Implemented directly by
+    RecoverStaleToolWaitsService. A WAITING_TOOL Agent Task only ever leaves that state
+    on a real tool.completed/tool.failed delivery (02-business-invariants §"Tool Gateway
+    Boundary"); if that never arrives, the owning WAITING_FOR_TOOL Workflow Instance is
+    stuck and the conversation can never send another message. This scan bounds that wait:
+    past a configurable timeout it fails the abandoned turn and wakes the workflow back to
+    RUNNING. Kept separate from LeaseRecoveryPort — that one's candidates are
+    CLAIMED/RUNNING with an expired lease, a different aggregate state.
+    """
+
+    def scan_and_recover(self, batch_size: int) -> ToolWaitRecoveryReport: ...
+
+
 class PoisonEventQueryPort(Protocol):
     """Input port for the SPEC-ARO-024 10-failure-handling §"Poison Event" step 4
     visibility surface. Implemented directly by PoisonEventQueryService.
@@ -283,3 +300,14 @@ class ConversationQueryPort(Protocol):
     def find_conversation(self, conversation_id: WorkflowInstanceId, requester_subject: str) -> ConversationDetailView: ...
 
     def find_most_recent_conversation(self, requester_subject: str) -> ConversationDetailView: ...
+
+
+class ExecuteEvaluationCasePort(Protocol):
+    """Input port for the SPEC-EI-013-follow-up evaluation execute-case endpoint —
+    the real counterpart to evaluation-improvement-service's own
+    FakeAgentRuntimeEvaluationAdapter simulator. Runs the real ConversationReasoningPort
+    on the case, never touches Ticket / Workflow / tool state. Implemented by
+    ExecuteEvaluationCaseService.
+    """
+
+    def execute_case(self, command: ExecuteEvaluationCaseCommand) -> EvaluationCaseExecutionView: ...

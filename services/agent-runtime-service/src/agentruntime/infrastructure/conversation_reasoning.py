@@ -167,7 +167,7 @@ class AnthropicConversationReasoningAdapter:
                 output_format=ConversationDecision,
             )
             decision: ConversationDecision = response.parsed_output
-            return _to_outcome(decision)
+            return _to_outcome(decision, _usage_tokens(response))
         except Exception:
             # domain-rules: "a retrieval failure degrades to a plainer answer or an
             # escalation, never a hallucinated citation" — the same fail-open posture
@@ -219,7 +219,7 @@ class OpenAIConversationReasoningAdapter:
                 response_format=ConversationDecision,
             )
             decision: ConversationDecision = response.choices[0].message.parsed
-            return _to_outcome(decision)
+            return _to_outcome(decision, _usage_tokens(response))
         except Exception:
             # Same fail-open reasoning as AnthropicConversationReasoningAdapter's own
             # except clause — never fabricate a decision, never let an LLM outage take
@@ -248,19 +248,42 @@ def _image_attachments(attachments: list[AttachmentContent] | None) -> list[Atta
     return [attachment for attachment in attachments if attachment.mime_type.startswith("image/")]
 
 
-def _to_outcome(decision: ConversationDecision) -> ReasoningOutcome:
+def _usage_tokens(response: object) -> tuple[int, int]:
+    """(prompt, completion) token counts from an LLM SDK response, best-effort. The
+    Anthropic response carries `usage.input_tokens`/`usage.output_tokens`; the OpenAI
+    one `usage.prompt_tokens`/`usage.completion_tokens`. A fake/older response with no
+    usage attribute yields (0, 0) — never raises.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return (0, 0)
+    prompt = getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0)
+    completion = getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0)
+    try:
+        return (int(prompt or 0), int(completion or 0))
+    except (TypeError, ValueError):
+        return (0, 0)
+
+
+def _to_outcome(decision: ConversationDecision, usage: tuple[int, int] = (0, 0)) -> ReasoningOutcome:
+    prompt_tokens, completion_tokens = usage
     if decision.kind == "proposed_action":
         return ReasoningOutcome(
             kind="proposed_action",
             action_summary=decision.action_summary or "Send a password-reset link to your registered email.",
             action_risk_level=decision.action_risk_level or "LOW",
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         )
     if decision.kind == "escalation":
         return ReasoningOutcome(
             kind="escalation",
             escalation_reason=decision.escalation_reason or "The assistant determined this issue needs human assistance.",
+            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
         )
-    return ReasoningOutcome(kind="text", text=decision.text or "Could you tell me a bit more about what you're seeing?")
+    return ReasoningOutcome(
+        kind="text", text=decision.text or "Could you tell me a bit more about what you're seeing?",
+        prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+    )
 
 
 def _build_prompt(message_text: str, knowledge_snippets: list[KnowledgeSnippet]) -> str:

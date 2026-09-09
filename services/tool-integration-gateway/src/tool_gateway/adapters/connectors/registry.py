@@ -29,6 +29,10 @@ class ConnectorRegistry:
             self._adapters[saved.connector_id] = adapter
         return saved
 
+    def has_adapter(self, connector_id: ConnectorId) -> bool:
+        with self._lock:
+            return connector_id in self._adapters
+
     def bind_adapter(self, connector_id: ConnectorId, adapter: ConnectorPort) -> None:
         """Attach a concrete ``ConnectorPort`` to an already-persisted manifest.
         The manifest row survives a restart (Postgres); the in-memory adapter

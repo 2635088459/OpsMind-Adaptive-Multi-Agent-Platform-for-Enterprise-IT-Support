@@ -304,6 +304,24 @@ class PostgresAgentTaskRepository:
             rows = session.execute(stmt).scalars().all()
             return [_to_agent_task_record(row) for row in rows]
 
+    def find_stale_tool_waits(self, updated_before: datetime, limit: int) -> list[AgentTaskRecord]:
+        """A WAITING_TOOL task whose tool.completed/tool.failed delivery never arrived —
+        same low-frequency admin/ops-triggered batch-scan profile as find_expired_leases(),
+        no dedicated index.
+        """
+        with self._session_factory() as session:
+            stmt = (
+                select(AgentTaskRow)
+                .where(
+                    AgentTaskRow.state == AgentTaskState.WAITING_TOOL.name,
+                    AgentTaskRow.updated_at < updated_before,
+                )
+                .order_by(AgentTaskRow.updated_at)
+                .limit(limit)
+            )
+            rows = session.execute(stmt).scalars().all()
+            return [_to_agent_task_record(row) for row in rows]
+
 
 def _to_checkpoint_record(row: CheckpointRow) -> CheckpointRecord:
     return CheckpointRecord(
@@ -414,6 +432,13 @@ class PostgresToolRequestRepository:
     def find_by_id(self, tool_request_id: ToolRequestId) -> ToolRequestRecord | None:
         with self._session_factory() as session:
             row = session.get(ToolRequestRow, tool_request_id.value)
+            return _to_tool_request_record(row) if row is not None else None
+
+    def find_by_agent_task_id(self, agent_task_id: AgentTaskId) -> ToolRequestRecord | None:
+        with self._session_factory() as session:
+            row = session.execute(
+                select(ToolRequestRow).where(ToolRequestRow.agent_task_id == agent_task_id.value).limit(1)
+            ).scalars().first()
             return _to_tool_request_record(row) if row is not None else None
 
     def find_pending(self, limit: int) -> list[ToolRequestRecord]:

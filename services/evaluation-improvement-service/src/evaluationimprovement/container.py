@@ -359,6 +359,7 @@ class Container:
         self.score_run_service = ScoreRunService(
             self.run_repository, self.test_case_repository, self.score_repository, self.case_execution_result_repository,
             self.grader_registry, self.telemetry_artifact_port, self.audit_record_repository, self.clock, self.telemetry,
+            self.langsmith_port, self.langsmith_link_repository,
         )
         self.compare_regression_service = CompareRegressionService(
             self.run_repository, self.test_case_repository, self.score_repository, self.case_execution_result_repository,

@@ -26,7 +26,7 @@ describe("AssignmentForm — SPEC-SC-011", () => {
     renderWithProviders(<AssignmentForm ticketId="ticket-1" initialVersion={2} initiallyAssigned={false} />);
 
     expect(screen.queryByRole("button", { name: "Unassign" })).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText("Assignee ID"), "agent-9");
+    await user.selectOptions(screen.getByLabelText("Assignee"), "e85c3314-64e6-48bb-b494-26d75fee189d");
     await user.type(screen.getByLabelText("Reason"), "picking this up");
     await user.click(screen.getByRole("button", { name: "Assign" }));
 
@@ -44,7 +44,7 @@ describe("AssignmentForm — SPEC-SC-011", () => {
     renderWithProviders(<AssignmentForm ticketId="ticket-1" initialVersion={4} initiallyAssigned={true} />);
 
     expect(screen.getByRole("button", { name: "Reassign" })).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Assignee ID"), "agent-2");
+    await user.selectOptions(screen.getByLabelText("Assignee"), "bb474907-54cb-4080-a8f3-4d00ba83741d");
     await user.type(screen.getByLabelText("Reason"), "rebalancing load");
     await user.click(screen.getByRole("button", { name: "Reassign" }));
 
@@ -75,7 +75,7 @@ describe("AssignmentForm — SPEC-SC-011", () => {
     const user = userEvent.setup();
     renderWithProviders(<AssignmentForm ticketId="ticket-1" initialVersion={2} initiallyAssigned={false} />);
 
-    await user.type(screen.getByLabelText("Assignee ID"), "agent-9");
+    await user.selectOptions(screen.getByLabelText("Assignee"), "e85c3314-64e6-48bb-b494-26d75fee189d");
     await user.type(screen.getByLabelText("Reason"), "picking this up");
     await user.click(screen.getByRole("button", { name: "Assign" }));
 

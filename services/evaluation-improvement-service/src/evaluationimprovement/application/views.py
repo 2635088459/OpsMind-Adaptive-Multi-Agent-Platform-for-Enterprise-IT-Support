@@ -84,6 +84,20 @@ class RunView:
 
 
 @dataclass(frozen=True, slots=True)
+class LangSmithLinkView:
+    """SPEC-EI-013: the LangSmith Experiment (Project) linkage for a run, so a
+    reader (support-console's Observability page) can deep-link to it. `enabled`
+    False = this deployment never attempted a real LangSmith call (no-op mode) —
+    not a failure; `experiment_ref` is the LangSmith project id, or None when
+    enabled-but-the-link-call-failed or when no row exists yet.
+    """
+
+    run_id: str
+    enabled: bool
+    experiment_ref: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class ScoreView:
     """SPEC-EI-034 (evaluation-security-redaction-observability) / 11-security
     §"数据保护": "Report 默认展示聚合分数；case-level evidence 需要更高权限." `evidence_ref`/

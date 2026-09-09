@@ -77,6 +77,15 @@ jobs:
           TW_BASE_URL: http://localhost:18080
           KC_URL: http://localhost:8081
 
+      - name: Cross-service tool-execution loop
+        # The one thing per-service unit suites cannot cover: a confirmed
+        # self-service action really crosses agent-runtime -> tool-integration-
+        # gateway, executes, and wakes the WAITING_FOR_TOOL conversation. Needs
+        # TOOL_GATEWAY_MODE=http (full-platform.yml default) + the password-reset
+        # connector seeded above. Static reasoning keyword-matches "reset my
+        # password" -> proposedAction, so no LLM key is needed here.
+        run: bash scripts/tool-execution-loop-smoke.sh
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.15.0

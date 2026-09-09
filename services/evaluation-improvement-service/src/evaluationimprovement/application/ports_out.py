@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from collections.abc import Sequence
 from typing import Protocol
 
 from evaluationimprovement.application.records import (
@@ -24,6 +25,7 @@ from evaluationimprovement.application.records import (
     GatePolicyConfig,
     GraderResult,
     JudgeBundleStatus,
+    LangSmithCaseResult,
     LangSmithLinkRecord,
     OnlineEvaluationSample,
     OutboxRecord,
@@ -362,6 +364,17 @@ class LangSmithPort(Protocol):
         gate over it). True for the real SDK adapter, whether or not its last
         link_experiment() call actually succeeded — that distinction is exactly what
         `experiment_ref is None` on an `enabled=True` LangSmithLinkRecord captures.
+        """
+        ...
+
+    def push_run_results(self, experiment_ref: str, run_key: str, cases: Sequence[LangSmithCaseResult]) -> int:
+        """SPEC-EI-013 follow-up: push each scored case as a LangSmith run (carrying
+        token usage) plus one feedback entry per graded dimension, into the project
+        `experiment_ref` identifies. Returns how many cases were pushed. Best-effort
+        and fail-open — a LangSmith outage here logs and returns a short count, never
+        raises (same posture as link_experiment; the release gate already tolerates
+        `experiment_ref is None`, and a run's own scores are authoritative in this
+        service's DB regardless of whether the mirror push succeeded).
         """
         ...
 

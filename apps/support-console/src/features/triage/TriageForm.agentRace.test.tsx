@@ -45,8 +45,8 @@ describe("TriageForm — SPEC-SC-016 agent-vs-human triage race", () => {
     const user = userEvent.setup();
     renderWithProviders(<TriageForm ticketId="ticket-1" initialVersion={5} />);
 
-    await user.type(screen.getByLabelText("Category ID"), "category-1");
-    await user.type(screen.getByLabelText("Support queue ID"), "queue-1");
+    await user.selectOptions(screen.getByLabelText("Category"), "11111111-1111-1111-1111-111111111111");
+    await user.selectOptions(screen.getByLabelText("Support queue"), "33333333-3333-3333-3333-333333333333");
     await user.type(screen.getByLabelText("Reason"), "human triage attempt");
     await user.click(screen.getByRole("button", { name: "Submit triage" }));
 

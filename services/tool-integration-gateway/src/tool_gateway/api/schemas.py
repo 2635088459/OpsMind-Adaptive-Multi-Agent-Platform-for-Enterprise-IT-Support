@@ -34,6 +34,22 @@ class SubmitToolRequestRequest(BaseModel):
     )
 
 
+class ExecuteToolRequestRequest(BaseModel):
+    correlation_id: str
+
+
+class ExecuteToolRequestResponse(BaseModel):
+    """phase-05 (tool-gateway-mediation): the synchronous execute agent-runtime's
+    HttpToolGatewayPort drives when this deployment runs no ExecutionWorker process.
+    """
+
+    tool_request_id: str
+    status: str
+    result_envelope_id: str | None = None
+    output: dict | None = None
+    failure_reason: str | None = None
+
+
 class ApprovalDecisionRequest(BaseModel):
     approved: bool
     decided_by: str

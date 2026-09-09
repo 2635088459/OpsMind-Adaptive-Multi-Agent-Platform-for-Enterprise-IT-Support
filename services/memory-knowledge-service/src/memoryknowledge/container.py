@@ -185,6 +185,8 @@ def _build_embedding_provider(settings: Settings):
                 settings.openai_api_key,
                 model=settings.openai_embedding_model,
                 base_url=settings.openai_base_url,
+                timeout_seconds=settings.openai_embedding_timeout_seconds,
+                max_attempts=settings.openai_embedding_max_attempts,
             )
         logging.getLogger("memoryknowledge.container").warning(
             "embedding_provider='openai' but OPENAI_API_KEY is empty; falling back to the deterministic hash provider"

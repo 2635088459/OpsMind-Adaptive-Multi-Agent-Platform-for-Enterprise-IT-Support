@@ -41,10 +41,10 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-border">
+      <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-4">
-            <span className="text-sm font-semibold text-ink">OpsMind Support Console</span>
+          <div className="flex items-center gap-5">
+            <span className="text-base font-semibold text-ink">OpsMind Support Console</span>
             <nav className="flex items-center gap-1">
               <NavLink to="/" end className={linkClass}>
                 Queue

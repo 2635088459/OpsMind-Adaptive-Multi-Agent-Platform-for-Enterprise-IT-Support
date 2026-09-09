@@ -42,7 +42,13 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=settings.cors_allowed_origins_list,
             allow_methods=["GET", "POST", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", "traceparent"],
+            # `X-Actor-Id`/`X-Actor-Role` is this service's own caller-identity
+            # header pair (interfaces/security.py). support-console's run picker
+            # calls `/evaluation/datasets` + `/evaluation/runs`, both of which
+            # require the actor header, so the browser preflight must be allowed
+            # to carry it — without this the whole Observability eval section
+            # 400s at the CORS preflight ("Disallowed CORS headers").
+            allow_headers=["Authorization", "Content-Type", "traceparent", "X-Actor-Id", "X-Actor-Role"],
             allow_credentials=False,
         )
 

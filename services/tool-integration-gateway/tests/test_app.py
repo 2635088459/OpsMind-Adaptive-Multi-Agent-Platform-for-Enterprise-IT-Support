@@ -67,6 +67,48 @@ def test_register_connector_then_submit_and_execute_tool_request(client: TestCli
     assert get_response.json()["status"] == "QUEUED"
 
 
+def test_submit_then_synchronous_execute_resolves_the_request(client: TestClient) -> None:
+    """phase-05 (tool-gateway-mediation): agent-runtime's HttpToolGatewayPort submits
+    then calls POST /tool-requests/{id}/execute — this deployment has no worker
+    process, so the Runtime drives the one attempt inline.
+    """
+    client.post("/internal/tool-gateway/v1/connectors", json={
+        "name": "pw-reset-connector", "version": "1.0.0", "capability_names": ["identity.user.sendPasswordResetLink"],
+        "input_schema_ref": "schema://input/v1", "output_schema_ref": "schema://output/v1", "risk_level": "LOW",
+        "requires_approval": False, "is_mutating": True, "correlation_id": str(uuid.uuid4()),
+    })
+    submit = client.post("/internal/tool-gateway/v1/tool-requests", json={
+        "idempotency_key": f"idem-sync-{uuid.uuid4()}", "requested_by_type": "AGENT", "requested_by_id": "agent-task-1",
+        "capability_name": "identity.user.sendPasswordResetLink", "input_payload": {"summary": "send a reset link"},
+        "reason": "employee-confirmed self-service action", "correlation_id": str(uuid.uuid4()),
+    })
+    assert submit.json()["status"] == "QUEUED"
+    tool_request_id = submit.json()["tool_request_id"]
+
+    executed = client.post(
+        f"/internal/tool-gateway/v1/tool-requests/{tool_request_id}/execute",
+        json={"correlation_id": str(uuid.uuid4())},
+    )
+    assert executed.status_code == 200, executed.text
+    body = executed.json()
+    assert body["status"] == "COMPLETED"
+    assert body["result_envelope_id"] is not None
+    assert body["output"] is not None  # the echo connector reflects the input payload
+
+    # idempotent-ish: re-executing a COMPLETED request is a no-op resolution, not a 5xx
+    again = client.post(
+        f"/internal/tool-gateway/v1/tool-requests/{tool_request_id}/execute",
+        json={"correlation_id": str(uuid.uuid4())},
+    )
+    assert again.status_code in (200, 409)
+
+
+def test_execute_requires_a_service_caller(client: TestClient) -> None:
+    anon = TestClient(create_app())
+    r = anon.post("/internal/tool-gateway/v1/tool-requests/whatever/execute", json={"correlation_id": "c"})
+    assert r.status_code in (400, 401, 403, 422)  # missing X-Caller-* headers -> not a trusted SERVICE caller
+
+
 def test_submit_for_unregistered_capability_is_rejected(client: TestClient) -> None:
     response = client.post("/internal/tool-gateway/v1/tool-requests", json={
         "idempotency_key": "idem-e2e-2", "requested_by_type": "AGENT", "requested_by_id": "agent-1",

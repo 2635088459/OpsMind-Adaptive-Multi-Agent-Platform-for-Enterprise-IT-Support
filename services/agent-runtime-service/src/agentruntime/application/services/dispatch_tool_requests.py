@@ -18,18 +18,29 @@ applies here).
 from __future__ import annotations
 
 import dataclasses
+import json
+import logging
 
 from agentruntime.application.ports_out import ClockPort, ToolGatewayPort, ToolRequestRepository
+from agentruntime.application.services.consume_tool_result import ConsumeToolResultService
 from agentruntime.application.views import DispatchToolRequestsReport
+from agentruntime.domain.enums import ToolRequestStatus
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_BATCH_SIZE = 50
+_TERMINAL = {ToolRequestStatus.COMPLETED, ToolRequestStatus.FAILED}
 
 
 class DispatchToolRequestsService:
-    def __init__(self, tool_request_repository: ToolRequestRepository, tool_gateway_port: ToolGatewayPort, clock: ClockPort) -> None:
+    def __init__(
+        self, tool_request_repository: ToolRequestRepository, tool_gateway_port: ToolGatewayPort, clock: ClockPort,
+        consume_tool_result_service: ConsumeToolResultService,
+    ) -> None:
         self._tool_request_repository = tool_request_repository
         self._tool_gateway_port = tool_gateway_port
         self._clock = clock
+        self._consume_tool_result_service = consume_tool_result_service
 
     def dispatch_pending_requests(self, batch_size: int = _DEFAULT_BATCH_SIZE) -> DispatchToolRequestsReport:
         now = self._clock.now()
@@ -38,8 +49,31 @@ class DispatchToolRequestsService:
         dispatched = 0
         for record in pending:
             acknowledgement = self._tool_gateway_port.dispatch(record)
-            updated = dataclasses.replace(record, status=acknowledgement.status, updated_at=acknowledgement.acknowledged_at)
-            self._tool_request_repository.save(updated)
             dispatched += 1
+
+            if acknowledgement.status not in _TERMINAL:
+                self._tool_request_repository.save(dataclasses.replace(
+                    record, status=acknowledgement.status, updated_at=acknowledgement.acknowledged_at,
+                ))
+                continue
+
+            # phase-05 (tool-gateway-mediation): a real HTTP adapter can run the tool
+            # synchronously and return a terminal outcome. Leave the record DISPATCHED
+            # and let ConsumeToolResultService.apply() drive the terminal transition —
+            # it only acts on a still-waiting request, so pre-saving COMPLETED here
+            # would make apply() treat it as a duplicate and never wake the workflow.
+            self._tool_request_repository.save(dataclasses.replace(
+                record, status=ToolRequestStatus.DISPATCHED, updated_at=acknowledgement.acknowledged_at,
+            ))
+            try:
+                self._consume_tool_result_service.apply(json.dumps({
+                    "toolRequestId": str(record.id),
+                    "status": "COMPLETED" if acknowledgement.status is ToolRequestStatus.COMPLETED else "FAILED",
+                    "resultPayload": acknowledgement.result_payload
+                    if acknowledgement.status is ToolRequestStatus.COMPLETED
+                    else acknowledgement.failure_reason,
+                }))
+            except Exception:  # noqa: BLE001 — applying the result must not abort the batch
+                logger.warning("failed to apply synchronous tool result for tool_request_id=%s", record.id, exc_info=True)
 
         return DispatchToolRequestsReport(scanned=len(pending), dispatched=dispatched, dispatched_at=now)

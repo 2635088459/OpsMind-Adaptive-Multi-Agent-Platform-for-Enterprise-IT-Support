@@ -130,7 +130,7 @@ class ActionConfirmationService:
 
             if risk_level in _HIGH_RISK_LEVELS:
                 return self._await_approval(workflow, task, risk_level, now)
-            return self._dispatch_tool(workflow, task, proposal, now)
+            return self._dispatch_tool(workflow, task, proposal, now, command.requester_subject)
 
     def _decline(self, command: DeclineActionCommand) -> ActionOutcomeView:
         _workflow, task = self._load_and_authorize(command.conversation_id, command.action_id, command.requester_subject)
@@ -146,7 +146,10 @@ class ActionConfirmationService:
         logger.info("action=decline_action status=declined agent_task_id=%s", task.id)
         return ActionOutcomeView("declined")
 
-    def _dispatch_tool(self, workflow: WorkflowInstanceRecord, task: AgentTaskRecord, proposal: dict, now: datetime) -> ActionOutcomeView:
+    def _dispatch_tool(
+        self, workflow: WorkflowInstanceRecord, task: AgentTaskRecord, proposal: dict, now: datetime,
+        requester_subject: str | None = None,
+    ) -> ActionOutcomeView:
         checkpoint_event = checkpoint.record(
             CheckpointId.new_id(), workflow.id, CheckpointType.PRE_TOOL_CALL, _CHECKPOINT_SCHEMA_VERSION,
             json.dumps({"actionSummary": proposal.get("actionSummary")}), now, workflow_version=workflow.workflow_version,
@@ -159,9 +162,16 @@ class ActionConfirmationService:
         ))
 
         tool_request_id = ToolRequestId.new_id()
+        # The tool gateway's identity connector resolves the target user from `userId`
+        # (the Keycloak sub the browser JWT carried) — without it the real
+        # sendPasswordResetLink / unlock capabilities have nobody to act on.
+        request_payload: dict[str, object] = {"summary": proposal.get("actionSummary")}
+        subject = requester_subject or workflow.requester_subject
+        if subject:
+            request_payload["userId"] = subject
         tool_requested_event = tool_request.create(
             tool_request_id, workflow.id, task.id, checkpoint_event.checkpoint_id, _TOOL_NAME,
-            json.dumps({"summary": proposal.get("actionSummary")}), now,
+            json.dumps(request_payload), now,
         )
         self._tool_request_repository.save(ToolRequestRecord(
             id=tool_requested_event.tool_request_id, workflow_instance_id=tool_requested_event.workflow_instance_id,

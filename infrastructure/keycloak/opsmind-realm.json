@@ -2,6 +2,17 @@
   "realm": "opsmind",
   "enabled": true,
   "sslRequired": "none",
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 3600,
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "it-support@opsmind.dev",
+    "fromDisplayName": "OpsMind IT Support",
+    "ssl": "false",
+    "starttls": "false",
+    "auth": "false"
+  },
   "clientScopes": [
     {
       "name": "basic",

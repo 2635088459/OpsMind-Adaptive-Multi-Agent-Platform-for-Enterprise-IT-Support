@@ -25,10 +25,13 @@ from evaluationimprovement.application.ports_out import (
     ClockPort,
     EvaluationRunRepository,
     GraderRegistryPort,
+    LangSmithLinkRepository,
+    LangSmithPort,
     ScoreRepository,
     TelemetryArtifactPort,
     TestCaseRepository,
 )
+from evaluationimprovement.application.records import LangSmithCaseResult
 from evaluationimprovement.application.services.audit import AuditRecorder
 from evaluationimprovement.application.services.create_run import run_to_view, score_to_view
 from evaluationimprovement.application.telemetry import EvaluationTelemetry
@@ -47,7 +50,7 @@ class ScoreRunService:
         self, run_repository: EvaluationRunRepository, test_case_repository: TestCaseRepository, score_repository: ScoreRepository,
         case_execution_result_repository: CaseExecutionResultRepository, grader_registry: GraderRegistryPort,
         telemetry_artifact_port: TelemetryArtifactPort, audit_record_repository: AuditRecordRepository, clock: ClockPort,
-        telemetry: EvaluationTelemetry,
+        telemetry: EvaluationTelemetry, langsmith_port: LangSmithPort, langsmith_link_repository: LangSmithLinkRepository,
     ) -> None:
         self._run_repository = run_repository
         self._test_case_repository = test_case_repository
@@ -57,6 +60,8 @@ class ScoreRunService:
         self._telemetry_artifact_port = telemetry_artifact_port
         self._clock = clock
         self._telemetry = telemetry
+        self._langsmith_port = langsmith_port
+        self._langsmith_link_repository = langsmith_link_repository
         self._audit_recorder = AuditRecorder(audit_record_repository, clock)
 
     def score_case(self, command: ScoreCaseCommand) -> tuple[ScoreView, ...]:
@@ -207,4 +212,49 @@ class ScoreRunService:
             action="finalize_run_scoring", resource_type="EVALUATION_RUN", resource_id=str(saved.run_id),
             actor=command.actor, outcome="SUCCESS", correlation_id=command.correlation_id, detail=outcome_detail,
         )
+        if not unscoreable_case_ids:
+            self._maybe_push_langsmith(saved, expected_cases, execution_results)
         return run_to_view(saved)
+
+    def _maybe_push_langsmith(self, run: object, expected_cases: list, execution_results: list) -> None:
+        """SPEC-EI-013 follow-up: mirror the finished score set into the run's linked
+        LangSmith project (per-case run + token usage + one feedback per dimension).
+        Fully best-effort — a LangSmith outage must never turn a successfully-finalized
+        run into a 500. The run's scores in this service's own DB stay authoritative.
+        """
+        link = self._langsmith_link_repository.find(run.run_id)
+        if link is None or not link.enabled or not link.experiment_ref:
+            return
+        try:
+            cases_by_id = {str(c.test_case_id): c for c in expected_cases}
+            results_by_id = {str(r.test_case_id): r for r in execution_results}
+            scores = self._score_repository.find_active_by_run(run.run_id)
+            dims_by_id: dict[str, list[tuple[str, float, bool]]] = {}
+            for s in scores:
+                dims_by_id.setdefault(str(s.test_case_id), []).append(
+                    (s.dimension.value if hasattr(s.dimension, "value") else str(s.dimension), s.score, s.passed)
+                )
+            cases: list[LangSmithCaseResult] = []
+            for case_id, dims in dims_by_id.items():
+                case = cases_by_id.get(case_id)
+                result = results_by_id.get(case_id)
+                if case is None:
+                    continue
+                cases.append(LangSmithCaseResult(
+                    case_key=case.case_key,
+                    scenario=case.scenario,
+                    classification=result.classification if result else "",
+                    final_state=result.final_state if result else "",
+                    tool_calls=tuple(result.tool_calls) if result else (),
+                    total_tokens=result.cost_tokens if result else 0,
+                    prompt_tokens=result.prompt_tokens if result else 0,
+                    completion_tokens=result.completion_tokens if result else 0,
+                    latency_ms=result.latency_ms if result else 0,
+                    dimension_scores=tuple(dims),
+                ))
+            if not cases:
+                return
+            pushed = self._langsmith_port.push_run_results(link.experiment_ref, run.run_key, cases)
+            logger.info("action=langsmith_push run_id=%s project=%s cases_pushed=%d", run.run_id, link.experiment_ref, pushed)
+        except Exception:
+            logger.warning("action=langsmith_push run_id=%s status=failed", run.run_id, exc_info=True)

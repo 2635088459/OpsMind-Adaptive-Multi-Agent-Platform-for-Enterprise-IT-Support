@@ -55,6 +55,7 @@ from evaluationimprovement.application.views import (
     FailureClusterView,
     GraderDescriptor,
     ImprovementCandidateView,
+    LangSmithLinkView,
     OnlineEvaluationSampleView,
     OnlineSampleScoringReport,
     RegressionReportView,
@@ -146,6 +147,12 @@ class RunQueryUseCase(Protocol):
     """
 
     def find_run(self, run_id: RunId) -> RunView: ...
+
+    def find_langsmith_link(self, run_id: RunId) -> LangSmithLinkView:
+        """SPEC-EI-013: the run's LangSmith Experiment linkage (a no-op-mode
+        deployment still returns a view, with `enabled=False`).
+        """
+        ...
 
     def find_scores(self, run_id: RunId, actor: str, actor_role: str) -> tuple[ScoreView, ...]:
         """SPEC-EI-034 (evaluation-security-redaction-observability): `actor`/
