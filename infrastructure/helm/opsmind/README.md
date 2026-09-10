@@ -7,26 +7,43 @@ two frontends from one values-driven template set
 It is the Kubernetes counterpart to
 `infrastructure/docker-compose/full-platform.yml`.
 
-## What this chart does NOT include
+## Stateful dependencies — PostgreSQL, RabbitMQ, Keycloak, MinIO
 
-The stateful dependencies — **PostgreSQL, RabbitMQ, Keycloak, MinIO** — are
-expected to already exist in the target namespace. Point `.Values.config.*` at
-them. In a real cluster these are a managed database + a managed broker + a
-Keycloak release; bundling them as subcharts here would tie the manifests to a
-specific local topology. For a quick spin-up, install the community charts
-first:
+**Production:** leave `deps.enabled=false` (the default). The four servers must
+already resolve in the namespace at the Service names `config.*` points at
+(`postgres`, `rabbitmq`, `keycloak`, `minio`); in a real cluster those are a
+managed database + a managed broker + a Keycloak release, not this chart's job.
+Point `config.*` at them and supply the passwords via the secrets file below.
+
+**Demo / kind:** set `deps.enabled=true` and the chart also runs a single-replica
+copy of each — the same images as `docker-compose/local+full-platform.yml`, wired
+to those exact Service names. One command brings up a working stack:
 
 ```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm install postgres bitnami/postgresql -n opsmind --create-namespace \
-  --set auth.username=ticket_workflow --set auth.database=ticket_workflow
-helm install rabbitmq bitnami/rabbitmq  -n opsmind
-helm install keycloak bitnami/keycloak  -n opsmind --set auth.adminUser=admin
-helm install minio    bitnami/minio     -n opsmind
+helm install opsmind infrastructure/helm/opsmind \
+  -n opsmind --create-namespace \
+  --set deps.enabled=true \
+  --set-file deps.keycloak.realmJson=infrastructure/keycloak/opsmind-realm.json \
+  -f infrastructure/helm/opsmind/values-secrets.yaml     # for the OAuth client secrets
 ```
 
-(Use the pgvector image for Postgres — `memory.embeddings` needs the extension:
-`--set image.repository=pgvector/pgvector --set image.tag=pg18`.)
+- `--set-file deps.keycloak.realmJson=…` keeps one canonical realm file (no copy
+  into the chart). Omit it and Keycloak starts with no realm — every service's
+  token validation then 404s.
+- The three infra passwords (`DB_PASSWORD`, `RABBITMQ_PASSWORD`,
+  `ATTACHMENT_STORAGE_SECRET_KEY`) default to a demo value when `deps.enabled` and
+  left blank, so `-f values-secrets.yaml` is only needed for the Keycloak/OAuth
+  client secrets, which must match the realm.
+- First boot is slow: Keycloak re-runs Quarkus augmentation (~1–3 min) on every
+  start, RabbitMQ ~1 min. `startupProbe`s absorb that; the app pods restart-loop
+  until the deps are ready, which is expected. `kubectl -n opsmind get pods -w`.
+- `deps.persistence.enabled=true` swaps the `emptyDir`s for a PVC per stateful
+  dep (default `2Gi`, `deps.persistence.storageClass` / `.size`).
+- Not production-grade: single replica, no backups, no HA, `start-dev` Keycloak.
+
+`.github/workflows/deploy-ci.yml` runs a real `helm install --set deps.enabled=true`
+into kind on every chart change and asserts each dep is actually usable (pgvector
+present, AMQP serving, realm imported, MinIO healthy).
 
 ## Secrets
 

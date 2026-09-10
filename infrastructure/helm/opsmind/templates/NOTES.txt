@@ -9,11 +9,25 @@ Shared config:  ConfigMap/opsmind-shared-config
 Shared secrets: Secret/{{ .Values.externalSecrets.secretName }}
   {{- if .Values.externalSecrets.enabled }}(you provide this — externalSecrets.enabled=true){{ else }}(rendered by this chart from .Values.secrets){{ end }}
 
-Prerequisites this chart does NOT create — they must already resolve in the namespace:
+{{- if .Values.deps.enabled }}
+Bundled dependencies (deps.enabled=true — demo/kind only, NOT production):
+  {{ if .Values.deps.postgres.enabled }}✔{{ else }}✗{{ end }} PostgreSQL  Deployment/postgres  ({{ .Values.deps.postgres.image }})
+  {{ if .Values.deps.rabbitmq.enabled }}✔{{ else }}✗{{ end }} RabbitMQ    Deployment/rabbitmq  ({{ .Values.deps.rabbitmq.image }})
+  {{ if .Values.deps.keycloak.enabled }}✔{{ else }}✗{{ end }} Keycloak    Deployment/keycloak  {{ if not .Values.deps.keycloak.realmJson }}⚠ no realm — pass --set-file deps.keycloak.realmJson=infrastructure/keycloak/opsmind-realm.json{{ end }}
+  {{ if .Values.deps.minio.enabled }}✔{{ else }}✗{{ end }} MinIO       Deployment/minio     ({{ .Values.deps.minio.image }})
+
+  First boot is slow — Keycloak re-runs Quarkus augmentation (~1-3 min) and RabbitMQ
+  ~1 min. `kubectl -n {{ .Release.Namespace }} get pods -w` until postgres/rabbitmq/
+  keycloak/minio are 1/1. The app pods restart-loop until then, which is expected.
+  The Keycloak/OAuth client secrets still need a real -f secrets file to match the realm.
+{{- else }}
+Prerequisites this chart does NOT create — they must already resolve in the namespace
+(or set deps.enabled=true to have the chart run demo copies):
   PostgreSQL   at {{ .Values.config.DB_HOST }}:{{ .Values.config.DB_PORT }}
   RabbitMQ     at {{ .Values.config.RABBITMQ_HOST }}:{{ .Values.config.RABBITMQ_PORT }}
   Keycloak     at {{ .Values.config.KEYCLOAK_ISSUER_URI }}
   MinIO / S3   at {{ .Values.config.ATTACHMENT_STORAGE_ENDPOINT }}
+{{- end }}
 
 {{- if .Values.ingress.enabled }}
 

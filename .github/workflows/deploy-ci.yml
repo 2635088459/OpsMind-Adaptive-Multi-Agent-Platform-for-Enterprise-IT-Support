@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "infrastructure/helm/**"
+      - "infrastructure/keycloak/opsmind-realm.json"
       - "apps/*/Dockerfile"
       - "apps/*/nginx.conf"
       - ".github/workflows/deploy-ci.yml"
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - "infrastructure/helm/**"
+      - "infrastructure/keycloak/opsmind-realm.json"
       - ".github/workflows/deploy-ci.yml"
 
 jobs:
@@ -46,6 +48,76 @@ jobs:
           kubeconform -strict -summary -kubernetes-version 1.30.0 \
             -schema-location default \
             /tmp/default.yaml /tmp/full.yaml
+
+  # A real `helm install` into a kind cluster with the bundled stateful
+  # dependencies (values.yaml `deps`). `helm template` can't catch a wrong
+  # probe, a volume-permission crash, or a realm that won't import — this can.
+  kind-deps-e2e:
+    name: kind install (deps.enabled=true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Create a kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: opsmind
+          wait: 120s
+
+      - name: helm install with bundled deps
+        run: |
+          helm install opsmind infrastructure/helm/opsmind \
+            -n opsmind --create-namespace \
+            --set deps.enabled=true \
+            --set-file deps.keycloak.realmJson=infrastructure/keycloak/opsmind-realm.json
+
+      - name: Wait for the bundled deps to be Available
+        run: |
+          set -x
+          # postgres/minio come up fast; rabbitmq ~1min; keycloak re-augments (~3min).
+          kubectl -n opsmind rollout status deploy/postgres --timeout=180s
+          kubectl -n opsmind rollout status deploy/minio    --timeout=180s
+          kubectl -n opsmind rollout status deploy/rabbitmq --timeout=300s
+          kubectl -n opsmind rollout status deploy/keycloak --timeout=600s
+
+      - name: Assert each dep is actually usable
+        run: |
+          set -euo pipefail
+          # 1. postgres has the pgvector extension available
+          kubectl -n opsmind exec deploy/postgres -- \
+            psql -U ticket_workflow -d ticket_workflow -tAc \
+            "CREATE EXTENSION IF NOT EXISTS vector; SELECT extname FROM pg_extension WHERE extname='vector';" | grep -qx vector
+          echo "✔ postgres: pgvector present"
+
+          # 2. rabbitmq is serving AMQP + the guest user exists
+          kubectl -n opsmind exec deploy/rabbitmq -- rabbitmq-diagnostics -q check_running
+          kubectl -n opsmind exec deploy/rabbitmq -- rabbitmqctl -q list_users | grep -q '^guest'
+          echo "✔ rabbitmq: running, guest user present"
+
+          # 3. keycloak imported the opsmind realm (discovery doc for it resolves)
+          kubectl -n opsmind run kc-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
+            curl -sf http://keycloak:8080/realms/opsmind/.well-known/openid-configuration \
+            | grep -q '"issuer":"http://keycloak:8080/realms/opsmind"'
+          echo "✔ keycloak: opsmind realm imported"
+
+          # 4. minio is up and its health endpoint is green
+          kubectl -n opsmind run minio-probe --rm -i --restart=Never --image=curlimages/curl:8.10.1 --command -- \
+            curl -sf http://minio:9000/minio/health/ready
+          echo "✔ minio: ready"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n opsmind get pods -o wide || true
+          kubectl -n opsmind describe pods -l app.kubernetes.io/managed-by=Helm || true
+          for d in postgres rabbitmq keycloak minio; do
+            echo "===== $d ====="; kubectl -n opsmind logs deploy/$d --tail=80 || true
+          done
 
   frontend-images:
     name: build frontend images

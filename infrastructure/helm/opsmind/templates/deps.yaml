@@ -1,0 +1,465 @@
+{{- /*
+Bundled stateful dependencies (values.yaml `deps`). OFF unless deps.enabled=true.
+Single replica, same images as docker-compose, wired to the Service names
+config.* already points at. NOT production-grade — a demo / kind convenience.
+
+The official postgres/rabbitmq/keycloak/minio images each run as their own
+non-root user baked into the image; they are NOT subject to `defaults.*
+SecurityContext` (uid 65532) which only applies to the OpsMind service images.
+*/ -}}
+{{- if .Values.deps.enabled }}
+{{- $root := . }}
+{{- $p := .Values.deps.persistence }}
+
+{{- /* ---------- PVCs (only when persistence.enabled) ---------- */}}
+{{- if $p.enabled }}
+{{- range $name := (list "postgres" "rabbitmq" "minio") }}
+{{- if (index $root.Values.deps $name).enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if $p.storageClass }}
+  storageClassName: {{ $p.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $p.size }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* ---------- PostgreSQL (pgvector) ---------- */}}
+{{- if .Values.deps.postgres.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: postgres
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      # The official postgres image runs as uid/gid 999; fsGroup lets it write the
+      # mounted data dir (an emptyDir or PVC is root-owned otherwise).
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: {{ .Values.deps.postgres.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.config.DB_NAME | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.config.DB_USERNAME | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.secretName }}
+                  key: DB_PASSWORD
+          ports:
+            - name: postgres
+              containerPort: 5432
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.config.DB_USERNAME | quote }}, "-d", {{ .Values.config.DB_NAME | quote }}]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.config.DB_USERNAME | quote }}, "-d", {{ .Values.config.DB_NAME | quote }}]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.config.DB_USERNAME | quote }}, "-d", {{ .Values.config.DB_NAME | quote }}]
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            # pg18 images keep data in a major-version subdir of this path; mounting
+            # at .../data instead makes the entrypoint refuse to start.
+            - name: data
+              mountPath: /var/lib/postgresql
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+      volumes:
+        - name: data
+          {{- if $p.enabled }}
+          persistentVolumeClaim:
+            claimName: postgres-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: postgres
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}
+
+{{- /* ---------- RabbitMQ ---------- */}}
+{{- if .Values.deps.rabbitmq.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: rabbitmq
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: rabbitmq
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      # rabbitmq image runs as uid/gid 999; fsGroup lets it write .erlang.cookie
+      # into the mounted /var/lib/rabbitmq (otherwise: "eacces" crash on boot).
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: rabbitmq
+          image: {{ .Values.deps.rabbitmq.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: RABBITMQ_DEFAULT_USER
+              value: {{ .Values.config.RABBITMQ_USERNAME | quote }}
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.secretName }}
+                  key: RABBITMQ_PASSWORD
+            {{- with .Values.deps.rabbitmq.erlangCookie }}
+            - name: RABBITMQ_ERLANG_COOKIE
+              value: {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: amqp
+              containerPort: 5672
+            - name: management
+              containerPort: 15672
+          # `rabbitmq-diagnostics` boots a whole BEAM VM per call — it routinely
+          # takes >1s (the probe default), so every timeout is generous and a
+          # startupProbe carries the ~60s first boot before liveness can kill it.
+          startupProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 15
+            timeoutSeconds: 15
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+            periodSeconds: 15
+            timeoutSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rabbitmq
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+      volumes:
+        - name: data
+          {{- if $p.enabled }}
+          persistentVolumeClaim:
+            claimName: rabbitmq-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: rabbitmq
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: rabbitmq
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: amqp
+    - name: management
+      port: 15672
+      targetPort: management
+{{- end }}
+
+{{- /* ---------- Keycloak ---------- */}}
+{{- if .Values.deps.keycloak.enabled }}
+{{- if .Values.deps.keycloak.realmJson }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: keycloak
+data:
+  opsmind-realm.json: |-
+    {{- .Values.deps.keycloak.realmJson | nindent 4 }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: keycloak
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: keycloak
+          image: {{ .Values.deps.keycloak.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - start-dev
+            {{- if .Values.deps.keycloak.realmJson }}
+            - --import-realm
+            {{- end }}
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: {{ .Values.deps.keycloak.adminUser | quote }}
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: {{ .Values.deps.keycloak.adminPassword | quote }}
+            # Must match every service's KEYCLOAK_ISSUER_URI host:port exactly so a
+            # token's `iss` claim validates (see config.KEYCLOAK_ISSUER_URI).
+            - name: KC_HOSTNAME
+              value: http://keycloak:8080
+            - name: KC_HOSTNAME_STRICT
+              value: "false"
+            - name: KC_HTTP_ENABLED
+              value: "true"
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9000
+          # `start-dev --import-realm` re-runs Quarkus augmentation on every boot
+          # (~60s, longer on a loaded node) before :9000 even listens. A wide
+          # startupProbe absorbs that; liveness/readiness only start after it passes.
+          startupProbe:
+            httpGet:
+              path: /health/started
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- if .Values.deps.keycloak.realmJson }}
+          volumeMounts:
+            - name: realm
+              mountPath: /opt/keycloak/data/import
+              readOnly: true
+          {{- end }}
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+      {{- if .Values.deps.keycloak.realmJson }}
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: keycloak
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: keycloak
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+{{- end }}
+
+{{- /* ---------- MinIO ---------- */}}
+{{- if .Values.deps.minio.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: minio
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: minio
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.deps.minio.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: {{ .Values.config.ATTACHMENT_STORAGE_ACCESS_KEY | quote }}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.secretName }}
+                  key: ATTACHMENT_STORAGE_SECRET_KEY
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+      volumes:
+        - name: data
+          {{- if $p.enabled }}
+          persistentVolumeClaim:
+            claimName: minio-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  labels:
+    {{- include "opsmind.labels" $root | nindent 4 }}
+    app.kubernetes.io/name: minio
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: minio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+    - name: console
+      port: 9001
+      targetPort: console
+{{- end }}
+
+{{- end }}

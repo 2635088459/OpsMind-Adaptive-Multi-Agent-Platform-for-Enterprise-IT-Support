@@ -103,6 +103,49 @@ defaults:
       drop: ["ALL"]
 
 # -----------------------------------------------------------------------------
+# Bundled stateful dependencies — OFF by default.
+#
+# `deps.enabled=true` renders a single-replica PostgreSQL (pgvector), RabbitMQ,
+# Keycloak and MinIO into this same release, wired to the exact Service names
+# `config.*` above already point at (postgres / rabbitmq / keycloak / minio).
+# They are the same images `infrastructure/docker-compose/local+full-platform.yml`
+# use — good enough for a demo / kind cluster, NOT for production (no HA, no
+# backups, `emptyDir` unless `persistence.enabled`). In a real cluster leave this
+# off and point `config.*` at a managed database + broker + a Keycloak release.
+#
+# Keycloak needs the realm; pass it at install time (keeps one canonical file):
+#   helm install ... --set deps.enabled=true \
+#     --set-file deps.keycloak.realmJson=infrastructure/keycloak/opsmind-realm.json
+# -----------------------------------------------------------------------------
+deps:
+  enabled: false
+  persistence:
+    enabled: false          # true -> a PVC per stateful dep instead of emptyDir
+    storageClass: ""         # "" = cluster default
+    size: 2Gi
+  postgres:
+    enabled: true
+    image: pgvector/pgvector:pg18
+  rabbitmq:
+    enabled: true
+    image: rabbitmq:4.3.4-management
+    # A fixed Erlang cookie so the image never generates+persists one into the
+    # mounted volume — that generation path races fsGroup and crashes the first
+    # boot with ".erlang.cookie: eacces" (it self-heals on restart, but noisily).
+    erlangCookie: opsmind-demo-erlang-cookie
+  keycloak:
+    enabled: true
+    image: quay.io/keycloak/keycloak:25.0.6
+    adminUser: admin
+    adminPassword: admin
+    # Filled by `--set-file` (see the comment above). Empty -> Keycloak still
+    # starts but imports no realm and every service's token validation 404s.
+    realmJson: ""
+  minio:
+    enabled: true
+    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
+
+# -----------------------------------------------------------------------------
 # The workloads. `runtime` only picks health-probe defaults (java -> Spring
 # actuator, python -> FastAPI /health, static -> nginx /). `env` is a plain
 # list of extra container env on top of the shared ConfigMap + Secret.

@@ -353,6 +353,14 @@ The relay was log-only and its DLQ had no watcher. Now:
   process is down or wedged) and `EventRelayBrokerUnreachable`
   (`event_relay:broker_errors:rate5m > 0` for 5m, warning — the process is up and
   retrying but cannot reach RabbitMQ).
+- **Dashboard** `infrastructure/observability/dashboards/event-relay.json` ("Event
+  Relay", uid `opsmind-event-relay`) — a Liveness row of three stat panels mapped
+  one-to-one to the three alerts (poll rate / broker errors / DLQ rate), then
+  settlement-by-outcome, consume-by-event-type, delivery-by-target-&-outcome, delivery
+  ack ratio, and DLQ-by-reason + cumulative-DLQ panels. Links out to the relay's
+  traces in Tempo (`service.name=event-relay`) and the runbook. `validate-dashboards.py`
+  + `validate-rule-catalog.py` (the runbook↔alert↔dashboard cross-check) both gate it
+  in `observability-platform-ci.yml`.
 - **Liveness during a broker outage.** The container healthcheck / k8s exec probe reads
   the mtime of `RELAY_HEARTBEAT_FILE`. Originally only `_connect()`/`_pump()` touched it,
   so a relay that was *correctly* sitting in its reconnect loop (RabbitMQ down) went
@@ -422,7 +430,8 @@ services/event-relay/src/event_relay/metrics.py               (event_relay_{mess
 services/event-relay/tests/test_observability.py              (traceparent inject + span outcome/status + full AMQP->relay->HTTP trace continuation, 5 tests)
 infrastructure/observability/rules/recording/event-relay.yml  (6 recording rules)
 infrastructure/observability/rules/alerting/event-relay.yml   (EventRelayDeadLettering / EventRelayStalled / EventRelayBrokerUnreachable)
-infrastructure/observability/runbooks/EventRelay.md
+infrastructure/observability/runbooks/EventRelay.md           (8-section catalog structure; covers all 3 alerts)
+infrastructure/observability/dashboards/event-relay.json      ("Event Relay" Grafana dashboard, uid opsmind-event-relay)
 ```
 
 Modified (§5b):

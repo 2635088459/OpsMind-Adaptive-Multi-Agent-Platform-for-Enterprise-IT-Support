@@ -3,11 +3,11 @@ name: opsmind
 description: >-
   OpsMind platform — the eight application services plus the two frontends,
   rendered from one values-driven template set. Stateful dependencies
-  (PostgreSQL, RabbitMQ, Keycloak, MinIO) are expected to already exist in the
-  namespace (see values.yaml `config.*` and README.md); this chart does not
-  bundle them so the same manifests target a managed database in a real cluster.
+  (PostgreSQL, RabbitMQ, Keycloak, MinIO) are external by default so the same
+  manifests target a managed database in a real cluster; set `deps.enabled=true`
+  to have the chart also run single-replica demo copies (kind / local only).
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"
 maintainers:
   - name: OpsMind platform

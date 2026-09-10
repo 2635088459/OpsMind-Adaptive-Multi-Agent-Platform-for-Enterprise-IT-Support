@@ -1,0 +1,108 @@
+{
+  "__opsmind_meta": {
+    "owner": "platform-observability",
+    "version": "1.0.0",
+    "spec": "SPEC-XREL-001",
+    "access_policy": "viewer: all-engineering; edit: platform-observability",
+    "retention": "n/a (view only)",
+    "runbook": "runbooks/EventRelay.md",
+    "rollback": "git revert <sha>; re-run grafana provisioning (recreate grafana)",
+    "audit_ref": "docs/specs/cross-cutting/SPEC-XREL-001-python-event-relay-and-approval-wait-recovery.md"
+  },
+  "uid": "opsmind-event-relay",
+  "title": "Event Relay",
+  "tags": ["opsmind", "owner:platform-observability", "v:1.0.0", "spec:SPEC-XREL-001"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "links": [
+    { "title": "Runbook: EventRelay.md", "type": "link", "icon": "doc",
+      "url": "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/EventRelay.md",
+      "targetBlank": true },
+    { "title": "Traces (Tempo, service.name=event-relay)", "type": "link", "icon": "external link",
+      "url": "/explore?left=%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22queryType%22:%22traceqlSearch%22,%22filters%22:%5B%7B%22id%22:%22svc%22,%22tag%22:%22service.name%22,%22operator%22:%22%3D%22,%22value%22:%5B%22event-relay%22%5D,%22scope%22:%22resource%22%7D%5D%7D%5D%7D",
+      "targetBlank": true }
+  ],
+  "panels": [
+    { "id": 1, "type": "row", "title": "Liveness — is the relay running and connected? (SPEC-XREL-001 §Observability)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 } },
+
+    { "id": 2, "type": "stat", "title": "Pump-loop poll rate", "gridPos": { "h": 7, "w": 8, "x": 0, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "event_relay:poll:rate5m — the consume + reconnect loops tick this every ~5s regardless of traffic. Flat 0 for 5m fires EventRelayStalled (the process is down or wedged).",
+      "targets": [{ "refId": "A", "expr": "event_relay:poll:rate5m", "legendFormat": "poll/s" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "thresholds": { "mode": "absolute",
+        "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 0.001 } ] } } },
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } } },
+
+    { "id": 3, "type": "stat", "title": "Broker error rate", "gridPos": { "h": 7, "w": 8, "x": 8, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "event_relay:broker_errors:rate5m — the relay is up but its AMQP connection keeps failing. > 0 for 5m fires EventRelayBrokerUnreachable (warning). The poll rate stays non-zero in this state — that is how EventRelayStalled and EventRelayBrokerUnreachable are told apart.",
+      "targets": [{ "refId": "A", "expr": "event_relay:broker_errors:rate5m", "legendFormat": "errors/s" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "thresholds": { "mode": "absolute",
+        "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.001 } ] } } },
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } } },
+
+    { "id": 4, "type": "stat", "title": "DLQ rate (all reasons)", "gridPos": { "h": 7, "w": 8, "x": 16, "y": 1 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "event_relay:dlq:rate5m — messages the relay dead-lettered to opsmind.dlx. Any non-zero value is a relay transform bug or a genuinely broken downstream contract, never normal. > 0 for 10m fires EventRelayDeadLettering (critical).",
+      "targets": [{ "refId": "A", "expr": "event_relay:dlq:rate5m", "legendFormat": "dlq/s" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "thresholds": { "mode": "absolute",
+        "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 0.0001 } ] } } },
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } } },
+
+    { "id": 5, "type": "row", "title": "Messages consumed from opsmind.events",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 8 } },
+
+    { "id": 6, "type": "timeseries", "title": "Settlement rate by outcome", "gridPos": { "h": 7, "w": 12, "x": 0, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "event_relay:messages_by_outcome:rate5m. outcome ∈ ack | retry | dlq | no_delivery | poison. Steady 'ack' with occasional 'no_delivery' (an event with no linkage id — expected) is healthy; sustained 'retry' means a downstream service is unhealthy.",
+      "targets": [{ "refId": "A", "expr": "event_relay:messages_by_outcome:rate5m", "legendFormat": "{{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "drawStyle": "line", "stacking": { "mode": "normal" } } } } },
+
+    { "id": 7, "type": "timeseries", "title": "Consume rate by event type", "gridPos": { "h": 7, "w": 12, "x": 12, "y": 9 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "sum by (event_type) rate(event_relay_messages_total). The 8 bridged routing keys: approval.{granted,denied,expired}.v1, improvement.promoted.v1, ticket.{resolved,closed}.v1, workflow.{completed,failed}.v1.",
+      "targets": [{ "refId": "A", "expr": "sum by (event_type) (rate(event_relay_messages_total[5m]))", "legendFormat": "{{event_type}}" }],
+      "fieldConfig": { "defaults": { "unit": "ops" } } },
+
+    { "id": 8, "type": "row", "title": "Fan-out to the Python HTTP event seams",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 } },
+
+    { "id": 9, "type": "timeseries", "title": "Delivery rate by target & outcome", "gridPos": { "h": 7, "w": 12, "x": 0, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "event_relay:deliveries_by_target_outcome:rate5m — one HTTP POST per delivery. target ∈ agent-runtime | tool-gateway | memory-knowledge. A 404/409/410 from a target that already moved on classifies as 'ack' (not an error).",
+      "targets": [{ "refId": "A", "expr": "event_relay:deliveries_by_target_outcome:rate5m", "legendFormat": "{{target}} / {{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "ops" } } },
+
+    { "id": 10, "type": "timeseries", "title": "Delivery ack ratio by target", "gridPos": { "h": 7, "w": 12, "x": 12, "y": 17 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "Fraction of deliveries to each target that settled as ack over the last 5m. A sustained dip means that downstream service is returning 5xx / timing out and the relay is retrying.",
+      "targets": [{ "refId": "A",
+        "expr": "sum by (target) (rate(event_relay_deliveries_total{outcome=\"ack\"}[5m])) / sum by (target) (rate(event_relay_deliveries_total[5m]))",
+        "legendFormat": "{{target}}" }],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } } },
+
+    { "id": 11, "type": "row", "title": "Dead-lettering (never normal — see runbook)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 24 } },
+
+    { "id": 12, "type": "timeseries", "title": "DLQ rate by reason", "gridPos": { "h": 7, "w": 12, "x": 0, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "sum by (reason) rate(event_relay_dlq_total). reason ∈ poison_envelope (an unparseable message on opsmind.events) | delivery_rejected (a downstream returned 400 / a permanent 4xx to a transformed body — a relay bug). Backs EventRelayDeadLettering.",
+      "targets": [{ "refId": "A", "expr": "sum by (reason) (rate(event_relay_dlq_total[5m]))", "legendFormat": "{{reason}}" }],
+      "fieldConfig": { "defaults": { "unit": "ops" } } },
+
+    { "id": 13, "type": "stat", "title": "DLQ messages (cumulative, since relay start)", "gridPos": { "h": 7, "w": 12, "x": 12, "y": 25 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "sum(event_relay_dlq_total) by reason. Anything above 0 means at least one message has been dropped to opsmind.dlx — inspect event-relay.python-fanout.dlq.v1 (runbook).",
+      "targets": [{ "refId": "A", "expr": "sum by (reason) (event_relay_dlq_total)", "legendFormat": "{{reason}}", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute",
+        "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+      "options": { "colorMode": "background", "reduceOptions": { "calcs": ["lastNotNull"] } } }
+  ]
+}
