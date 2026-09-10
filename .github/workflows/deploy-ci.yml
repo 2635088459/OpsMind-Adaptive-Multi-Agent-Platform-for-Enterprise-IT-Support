@@ -14,6 +14,11 @@ on:
       - "infrastructure/helm/**"
       - "infrastructure/keycloak/opsmind-realm.json"
       - ".github/workflows/deploy-ci.yml"
+  # The full-stack e2e job builds all 11 images + boots the whole platform on
+  # kind (~30 min) — too heavy for every PR. It runs nightly and on demand.
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
 
 jobs:
   helm:
@@ -129,3 +134,128 @@ jobs:
       - uses: actions/checkout@v4
       - name: docker build (no push)
         run: docker build -f apps/${{ matrix.app }}/Dockerfile -t ${{ matrix.app }}:ci .
+
+  # ---------------------------------------------------------------------------
+  # Full-stack e2e: build every image, boot the WHOLE platform on kind with the
+  # bundled deps, and drive one real cross-service flow. Nightly / on-demand only
+  # (see `on:` — this does not gate PRs; `kind-deps-e2e` above is the PR gate).
+  # ---------------------------------------------------------------------------
+  build-images:
+    name: build ${{ matrix.name }} image
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ticket-workflow-service,            context: services/ticket-workflow-service }
+          - { name: user-access-authentication-service, context: services/user-access-authentication-service }
+          - { name: policy-approval-governance-service, context: services/policy-approval-governance-service }
+          - { name: attachment-service,                 context: services/attachment-service }
+          - { name: agent-runtime-service,              context: services/agent-runtime-service }
+          - { name: memory-knowledge-service,           context: services/memory-knowledge-service }
+          - { name: tool-integration-gateway,           context: services/tool-integration-gateway }
+          - { name: evaluation-improvement-service,     context: services/evaluation-improvement-service }
+          - { name: event-relay,                        context: services/event-relay }
+          - { name: employee-portal,   context: ".", dockerfile: apps/employee-portal/Dockerfile }
+          - { name: support-console,   context: ".", dockerfile: apps/support-console/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile || format('{0}/Dockerfile', matrix.context) }}
+          tags: ghcr.io/opsmind/${{ matrix.name }}:e2e
+          load: true
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,scope=${{ matrix.name }},mode=max
+      - name: Save image to a tarball
+        run: |
+          mkdir -p /tmp/img
+          docker save "ghcr.io/opsmind/${{ matrix.name }}:e2e" | gzip > "/tmp/img/${{ matrix.name }}.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: img-${{ matrix.name }}
+          path: /tmp/img/${{ matrix.name }}.tar.gz
+          retention-days: 1
+
+  full-stack-k8s-e2e:
+    name: full-stack e2e on kind
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: build-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+
+      - name: Download all image tarballs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: img-*
+          path: /tmp/img
+          merge-multiple: true
+
+      - name: Create a kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: opsmind
+          wait: 120s
+
+      - name: Load every image into kind
+        run: |
+          set -euo pipefail
+          for tgz in /tmp/img/*.tar.gz; do
+            echo "--- loading $tgz"
+            docker load < "$tgz"
+          done
+          for name in ticket-workflow-service user-access-authentication-service \
+                      policy-approval-governance-service attachment-service \
+                      agent-runtime-service memory-knowledge-service tool-integration-gateway \
+                      evaluation-improvement-service event-relay employee-portal support-console; do
+            kind load docker-image "ghcr.io/opsmind/$name:e2e" --name opsmind
+          done
+
+      - name: helm install the whole platform (deps bundled, loaded images)
+        run: |
+          helm install opsmind infrastructure/helm/opsmind \
+            -n opsmind --create-namespace \
+            --set image.tag=e2e --set image.pullPolicy=Never \
+            --set deps.enabled=true \
+            --set-file deps.keycloak.realmJson=infrastructure/keycloak/opsmind-realm.json \
+            --set secrets.KEYCLOAK_CLIENT_SECRET=user-access-secret \
+            --set secrets.SUPPORT_CONSOLE_CLIENT_SECRET=support-console-secret \
+            --set secrets.AGENT_RUNTIME_SERVICE_CLIENT_SECRET=integration-test-secret
+
+      - name: Wait for the bundled deps
+        run: |
+          kubectl -n opsmind rollout status deploy/postgres --timeout=240s
+          kubectl -n opsmind rollout status deploy/minio    --timeout=240s
+          kubectl -n opsmind rollout status deploy/rabbitmq --timeout=300s
+          kubectl -n opsmind rollout status deploy/keycloak --timeout=600s
+
+      - name: Wait for every application Deployment
+        run: |
+          # Java (Spring Boot + Flyway on the shared Postgres) is the slow part.
+          kubectl -n opsmind wait --for=condition=Available deployment --all \
+            --timeout=1200s
+
+      - name: Full-stack cross-service smoke
+        run: NS=opsmind bash scripts/k8s-fullstack-smoke.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n opsmind get pods -o wide || true
+          kubectl -n opsmind get events --sort-by=.lastTimestamp | tail -50 || true
+          for d in $(kubectl -n opsmind get deploy -o name); do
+            echo "===== $d ====="
+            kubectl -n opsmind describe "$d" | sed -n '/Conditions:/,/Events:/p' || true
+            kubectl -n opsmind logs "$d" --tail=60 --all-containers || true
+          done

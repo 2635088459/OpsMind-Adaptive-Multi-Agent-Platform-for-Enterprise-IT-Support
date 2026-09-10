@@ -85,6 +85,17 @@ already has a `Dockerfile`; the two frontends now do too
 (`apps/*/Dockerfile`, repo-root build context). `.github/workflows/deploy-ci.yml`
 lints and template-validates this chart on every change.
 
+## CI coverage
+
+| job | trigger | what it does |
+|---|---|---|
+| `helm` | every chart PR | `helm lint` + `helm template` + `kubeconform -strict` |
+| `kind-deps-e2e` | every chart PR | real `helm install --set deps.enabled=true` into kind; asserts the 4 bundled deps are usable (pgvector, AMQP, realm imported, MinIO health) |
+| `build-images` + `full-stack-k8s-e2e` | **nightly + `workflow_dispatch`** | builds all 11 images, loads them into kind, `helm install` the whole platform with bundled deps, waits for every Deployment `Available`, then runs `scripts/k8s-fullstack-smoke.sh` — a real employee JWT → conversation → escalation → ticket read back from ticket-workflow. This is the "it actually runs in a cluster" gate; too heavy (~30 min) for PRs. |
+
+To run the full-stack smoke by hand against any cluster that already has the
+platform installed: `NS=<namespace> scripts/k8s-fullstack-smoke.sh`.
+
 ## Verified against a real cluster (2026-09-10)
 
 `deploy-ci.yml` only lints + `helm template` + `kubeconform`. A one-off
