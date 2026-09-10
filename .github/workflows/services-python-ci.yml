@@ -18,6 +18,9 @@ on:
       - "services/evaluation-improvement-service/**"
       - "services/event-relay/**"
       - "packages/**"
+      # Shared cross-service wire fixtures — every Python service's tests/contracts/
+      # suite loads these; a fixture edit must re-run the consumer/producer sides.
+      - "contracts/**"
       - ".github/workflows/services-python-ci.yml"
   push:
     branches: [main]
@@ -28,6 +31,7 @@ on:
       - "services/evaluation-improvement-service/**"
       - "services/event-relay/**"
       - "packages/**"
+      - "contracts/**"
       - ".github/workflows/services-python-ci.yml"
 
 concurrency:
@@ -123,3 +127,18 @@ jobs:
           code=$?
           if [ "$code" -eq 5 ]; then echo "no integration tests — ok"; exit 0; fi
           exit "$code"
+
+  # One rollup so branch protection can require a single check for the whole
+  # Python backend instead of enumerating every matrix leg (and so a matrix that
+  # is skipped by a path filter still reports a green required check).
+  python-services-ci:
+    name: python services CI
+    runs-on: ubuntu-latest
+    needs: [unit, integration]
+    if: always()
+    steps:
+      - name: Fail if any matrix leg failed
+        run: |
+          echo "unit=${{ needs.unit.result }} integration=${{ needs.integration.result }}"
+          [ "${{ needs.unit.result }}" != "failure" ] || exit 1
+          [ "${{ needs.integration.result }}" != "failure" ] || exit 1

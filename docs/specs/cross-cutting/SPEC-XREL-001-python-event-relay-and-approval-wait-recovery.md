@@ -330,6 +330,16 @@ The relay was log-only and its DLQ had no watcher. Now:
   per HTTP POST, with `inject()` putting `traceparent` onto the request headers so the
   downstream FastAPI service (instrumented in SPEC-XOBS-001) continues the same trace —
   a delivery failure now shows in Tempo as one `event-relay → target` trace.
+- **Trace id on the logs.** `action=relay_consumed` / `relay_settled` /
+  `relay_no_delivery` / `relay_poison_envelope` (consumer.py) and `action=relay_delivery`
+  / `relay_delivery_error` (delivery.py) all print `trace_id=<32-hex>` — the consume
+  span's id, i.e. the producer's when a `traceparent` was stamped. So "which trace is
+  this delivery part of" is answerable from `docker logs` alone, without Tempo.
+  `test_observability.py::test_inbound_amqp_traceparent_is_continued_through_to_the_downstream_http_post`
+  pins the whole hop (in-memory span exporter + `httpx.MockTransport`, no broker);
+  `scripts/approval-loop-smoke.sh` step 1 asserts it live — it publishes with a known
+  `traceparent` AMQP header and greps the same `trace_id` back off both the
+  `relay_consumed` and `relay_delivery` log lines.
 - **Metrics** (vendor-neutral API in `metrics.py`; reach Prometheus via the
   otel-collector's prometheus exporter): `event_relay_messages_total{event_type,
   outcome}` (`outcome` ∈ ack|retry|dlq|no_delivery|poison), `event_relay_deliveries_total
@@ -409,7 +419,7 @@ New (§5b Observability, 2026-09-10):
 ```
 services/event-relay/src/event_relay/observability.py         (configure_observability — OTel SDK wiring)
 services/event-relay/src/event_relay/metrics.py               (event_relay_{messages,deliveries,dlq,poll,broker_errors}_total)
-services/event-relay/tests/test_observability.py              (traceparent inject + span outcome/status, 4 tests)
+services/event-relay/tests/test_observability.py              (traceparent inject + span outcome/status + full AMQP->relay->HTTP trace continuation, 5 tests)
 infrastructure/observability/rules/recording/event-relay.yml  (6 recording rules)
 infrastructure/observability/rules/alerting/event-relay.yml   (EventRelayDeadLettering / EventRelayStalled / EventRelayBrokerUnreachable)
 infrastructure/observability/runbooks/EventRelay.md
@@ -421,9 +431,12 @@ Modified (§5b):
 services/event-relay/pyproject.toml + uv.lock          (+ opentelemetry-{api,sdk,exporter-otlp-proto-grpc})
 services/event-relay/src/event_relay/settings.py       (+ otel_exporter, otel_exporter_otlp_endpoint, otel_service_name)
 services/event-relay/src/event_relay/__main__.py       (configure_observability before RelayConsumer)
-services/event-relay/src/event_relay/consumer.py       (extract() traceparent; event_relay.consume span; metrics; heartbeat during broker retry)
-services/event-relay/src/event_relay/delivery.py       (event_relay.deliver span; inject() traceparent into the HTTP POST; delivery metrics)
+services/event-relay/src/event_relay/consumer.py       (extract() traceparent; event_relay.consume span; metrics; heartbeat during broker retry; trace_id on the settlement log lines)
+services/event-relay/src/event_relay/delivery.py       (event_relay.deliver span; inject() traceparent into the HTTP POST; delivery metrics; trace_id on the delivery log lines)
 services/event-relay/Dockerfile                        (+ the 3 opentelemetry packages; numeric USER 65532)
+scripts/approval-loop-smoke.sh                         (publish() takes a traceparent AMQP header; step 1 asserts the relay continues it through to the downstream POST)
+.github/workflows/services-python-ci.yml               (+ contracts/** trigger path; + python-services-ci rollup check)
+.github/workflows/services-java-ci.yml                 (+ java-services-ci rollup check)
 infrastructure/docker-compose/full-platform.yml        (event-relay: OTEL_EXPORTER=otlp + :14317 + service.namespace=shared)
 infrastructure/helm/opsmind/values.yaml                (event-relay OTEL_RESOURCE_ATTRIBUTES; podSecurityContext runAsUser/Group/fsGroup 65532)
 infrastructure/helm/opsmind/README.md                  (+ "Verified against a real cluster" — the runAsNonRoot + heartbeat findings)

@@ -64,6 +64,12 @@ def deliver(
         kind=trace.SpanKind.CLIENT,
         attributes={"http.method": "POST", "http.route": delivery.path, "relay.target": delivery.target},
     ) as span:
+        # The trace this delivery belongs to — same id as the consume span, and (when
+        # the producer stamped a `traceparent` on the AMQP message) the same id the
+        # producer and the downstream FastAPI service log. Printed on every delivery
+        # line so the AMQP -> relay -> HTTP hop is traceable straight from the logs.
+        trace_id = trace.format_trace_id(span.get_span_context().trace_id)
+
         headers = {"Content-Type": "application/json"}
         if delivery.correlation_id:
             headers["X-Correlation-Id"] = delivery.correlation_id
@@ -77,16 +83,16 @@ def deliver(
                 response = client.post(url, json=delivery.json_body, headers=headers)
             except httpx.RequestError as exc:
                 logger.warning(
-                    "action=relay_delivery_error event_id=%s target=%s path=%s attempt=%s error=%s",
-                    event_id, delivery.target, delivery.path, attempt, type(exc).__name__,
+                    "action=relay_delivery_error event_id=%s trace_id=%s target=%s path=%s attempt=%s error=%s",
+                    event_id, trace_id, delivery.target, delivery.path, attempt, type(exc).__name__,
                 )
                 outcome = Outcome.RETRY
             else:
                 outcome = classify(response.status_code)
                 span.set_attribute("http.status_code", response.status_code)
                 logger.info(
-                    "action=relay_delivery event_id=%s target=%s path=%s attempt=%s status=%s outcome=%s body=%s",
-                    event_id, delivery.target, delivery.path, attempt, response.status_code, outcome.value,
+                    "action=relay_delivery event_id=%s trace_id=%s target=%s path=%s attempt=%s status=%s outcome=%s body=%s",
+                    event_id, trace_id, delivery.target, delivery.path, attempt, response.status_code, outcome.value,
                     _snippet(response.text),
                 )
 

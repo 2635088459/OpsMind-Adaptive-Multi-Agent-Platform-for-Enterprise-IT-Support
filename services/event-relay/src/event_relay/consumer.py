@@ -135,15 +135,23 @@ class RelayConsumer:
                     "messaging.operation": "process",
                 },
             ) as span:
-                self._handle(channel, method, body, span)
+                # The trace id — the producer's if it stamped a `traceparent`, else this
+                # span's fresh one — on every settlement log line, so "which trace does
+                # this delivery belong to" is answerable straight from the relay logs
+                # (and matches delivery.py's own `action=relay_delivery trace_id=...`).
+                trace_id = trace.format_trace_id(span.get_span_context().trace_id)
+                self._handle(channel, method, body, span, trace_id)
         finally:
             otel_context.detach(token)
 
-    def _handle(self, channel, method, body: bytes, span) -> None:
+    def _handle(self, channel, method, body: bytes, span, trace_id: str) -> None:
         try:
             envelope = parse_envelope(body, routing_key=getattr(method, "routing_key", None))
         except EnvelopeParseError as exc:
-            logger.error("action=relay_poison_envelope raw_len=%s error=%s", len(body or b""), exc)
+            logger.error(
+                "action=relay_poison_envelope raw_len=%s trace_id=%s error=%s",
+                len(body or b""), trace_id, exc,
+            )
             span.set_attribute("relay.outcome", "poison")
             span.set_status(trace.Status(trace.StatusCode.ERROR, "poison envelope"))
             metrics.record_message("unparseable", "poison")
@@ -158,8 +166,8 @@ class RelayConsumer:
         deliveries = plan_deliveries(envelope)
         if not deliveries:
             logger.info(
-                "action=relay_no_delivery event_id=%s event_type=%s reason=%s",
-                envelope.event_id, envelope.event_type,
+                "action=relay_no_delivery event_id=%s event_type=%s trace_id=%s reason=%s",
+                envelope.event_id, envelope.event_type, trace_id,
                 "no workflowInstanceId/toolRequestId in payload or unbridged event type",
             )
             span.set_attribute("relay.outcome", "no_delivery")
@@ -168,8 +176,8 @@ class RelayConsumer:
             return
 
         logger.info(
-            "action=relay_consumed event_id=%s event_type=%s producer=%s deliveries=%s",
-            envelope.event_id, envelope.event_type, envelope.producer, len(deliveries),
+            "action=relay_consumed event_id=%s event_type=%s producer=%s trace_id=%s deliveries=%s",
+            envelope.event_id, envelope.event_type, envelope.producer, trace_id, len(deliveries),
         )
         span.set_attribute("relay.deliveries", len(deliveries))
         outcomes = [
@@ -183,8 +191,8 @@ class RelayConsumer:
         ]
         settled = combine(outcomes)
         logger.info(
-            "action=relay_settled event_id=%s outcome=%s deliveries=%s acked=%s retried=%s dlq=%s",
-            envelope.event_id, settled.value, len(outcomes),
+            "action=relay_settled event_id=%s trace_id=%s outcome=%s deliveries=%s acked=%s retried=%s dlq=%s",
+            envelope.event_id, trace_id, settled.value, len(outcomes),
             sum(o is Outcome.ACK for o in outcomes),
             sum(o is Outcome.RETRY for o in outcomes),
             sum(o is Outcome.DLQ for o in outcomes),

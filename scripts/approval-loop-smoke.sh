@@ -32,11 +32,13 @@ STATUS="$(docker inspect -f '{{.State.Status}}' "$RELAY_CTR" 2>/dev/null || echo
 ok "$RELAY_CTR is running"
 
 # Publish a shared-envelope message onto opsmind.events from inside the relay
-# container (it has pika + network reach to rabbitmq). $1 = routing key, $2 = JSON body.
+# container (it has pika + network reach to rabbitmq). $1 = routing key, $2 = JSON
+# body, $3 = optional W3C traceparent to stamp as an AMQP header (so we can assert
+# the relay continues it through to the downstream HTTP POST).
 publish() {
-  docker exec -i "$RELAY_CTR" python - "$1" "$2" <<'PY'
+  docker exec -i "$RELAY_CTR" python - "$1" "$2" "${3:-}" <<'PY'
 import os, sys, pika
-routing_key, body = sys.argv[1], sys.argv[2]
+routing_key, body, traceparent = sys.argv[1], sys.argv[2], sys.argv[3]
 params = pika.ConnectionParameters(
     host=os.environ.get("RABBITMQ_HOST", "rabbitmq"),
     port=int(os.environ.get("RABBITMQ_PORT", "5672")),
@@ -48,17 +50,23 @@ params = pika.ConnectionParameters(
 conn = pika.BlockingConnection(params)
 ch = conn.channel()
 ch.exchange_declare(exchange="opsmind.events", exchange_type="topic", durable=True)
+headers = {"traceparent": traceparent} if traceparent else None
 ch.basic_publish(exchange="opsmind.events", routing_key=routing_key, body=body.encode(),
-                 properties=pika.BasicProperties(content_type="application/json", delivery_mode=2))
+                 properties=pika.BasicProperties(content_type="application/json", delivery_mode=2, headers=headers))
 conn.close()
-print("published", routing_key)
+print("published", routing_key, "traceparent=" + (traceparent or "(none)"))
 PY
 }
+
+# A fresh W3C trace id (32 hex) for this run; a fixed parent span id is fine.
+TRACE_ID="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+TRACEPARENT="00-${TRACE_ID}-b7ad6b7169203331-01"
 
 relay_logs_since() { docker logs --since "$1" "$RELAY_CTR" 2>&1; }
 
 EVT1="xrel-smoke-$(date +%s)-1"
-say "1. publish approval.granted.v1 for an unknown workflow -> relay POSTs, agent-runtime 404s, relay ACKs"
+say "1. publish approval.granted.v1 (with a W3C traceparent) -> relay POSTs, agent-runtime 404s, relay ACKs"
+echo "   traceparent trace-id: $TRACE_ID"
 T0="$(date -u +%FT%TZ)"
 publish "approval.granted.v1" "$(cat <<JSON
 {"eventId":"$EVT1","eventType":"approval.granted.v1","producer":"policy-approval-governance-service",
@@ -66,14 +74,22 @@ publish "approval.granted.v1" "$(cat <<JSON
  "occurredAt":"$T0","payload":{"approvalRequestId":"ar-smoke-1","sourceDomain":"agent-runtime",
  "workflowInstanceId":"$(uuidgen)","toolRequestId":null,"decidedBy":"ops.smoke","reason":"smoke"}}
 JSON
-)"
+)" "$TRACEPARENT"
 sleep 6
 LOGS="$(relay_logs_since "$T0")"
 echo "$LOGS" | grep -q "action=relay_consumed .*event_id=$EVT1" || { echo "$LOGS" | tail -20; die "relay never logged consuming $EVT1"; }
 echo "$LOGS" | grep -q "action=relay_delivery .*event_id=$EVT1 .*target=agent-runtime .*status=404 .*outcome=ack" \
   || { echo "$LOGS" | grep "$EVT1" || true; die "expected agent-runtime 404 -> outcome=ack for $EVT1"; }
-echo "$LOGS" | grep -q "action=relay_settled .*event_id=$EVT1 outcome=ack" || die "expected the message to settle as ack"
+echo "$LOGS" | grep -q "action=relay_settled .*event_id=$EVT1 .*outcome=ack" || die "expected the message to settle as ack"
 ok "approval.granted.v1 transformed + POSTed; 404 correctly classified as ack (no poison loop)"
+
+# The relay must have CONTINUED the inbound traceparent, not rooted a new trace:
+# the consume line and the downstream-delivery line both carry the same trace-id.
+echo "$LOGS" | grep -q "action=relay_consumed .*event_id=$EVT1 .*trace_id=$TRACE_ID" \
+  || { echo "$LOGS" | grep "$EVT1" | grep relay_consumed || true; die "relay did not continue the inbound traceparent on consume ($TRACE_ID)"; }
+echo "$LOGS" | grep -q "action=relay_delivery .*event_id=$EVT1 .*trace_id=$TRACE_ID .*target=agent-runtime" \
+  || { echo "$LOGS" | grep "$EVT1" | grep relay_delivery || true; die "the downstream POST did not carry the inbound trace-id ($TRACE_ID)"; }
+ok "trace context propagated: AMQP traceparent -> relay consume span -> downstream HTTP POST, all trace_id=$TRACE_ID"
 
 EVT2="xrel-smoke-$(date +%s)-2"
 say "2. publish improvement.promoted.v1 -> relay forwards the raw envelope to /events/improvement-promoted"
@@ -89,7 +105,7 @@ sleep 6
 LOGS="$(relay_logs_since "$T1")"
 echo "$LOGS" | grep -q "action=relay_delivery .*event_id=$EVT2 .*path=/internal/agent-runtime/v1/events/improvement-promoted" \
   || { echo "$LOGS" | grep "$EVT2" || true; die "relay did not POST $EVT2 to the improvement-promoted seam"; }
-echo "$LOGS" | grep -q "action=relay_settled .*event_id=$EVT2 outcome=\(ack\|dlq\)" \
+echo "$LOGS" | grep -q "action=relay_settled .*event_id=$EVT2 .*outcome=\(ack\|dlq\)" \
   || die "improvement.promoted message never settled"
 ok "improvement.promoted.v1 forwarded to the agent-runtime seam"
 
@@ -101,4 +117,4 @@ echo "     event-relay.python-fanout.v1 messages_ready=${READY:-?}"
 [ "${READY:-0}" = "0" ] || die "relay queue still has ${READY} ready message(s) — a message is stuck"
 ok "relay queue drained"
 
-printf '\n\033[1;32mPASS\033[0m — opsmind.events -> event-relay -> agent-runtime HTTP seam, transform + settle verified.\n'
+printf '\n\033[1;32mPASS\033[0m — opsmind.events -> event-relay -> agent-runtime HTTP seam: transform + settle + W3C trace propagation verified.\n'

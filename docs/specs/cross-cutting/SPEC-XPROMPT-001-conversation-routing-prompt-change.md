@@ -192,14 +192,33 @@ to. Class balance: 10 escalation / 6 how-to / 6 password-self-service.
   `second-monitor-request-imperative` ("can you get one set up for me") →
   `ESCALATED_TO_HUMAN`. The v2 prompt is expected to get both right; the nightly
   real-model run against `…-0004` is what confirms it (and any drift) over time.
-- **Roll this out properly for a real deployment**: instead of editing the default,
-  create a `PROMPT_CHANGE` improvement candidate carrying the v2 text →
-  `POST /evaluation/improvement-candidates` → `/benchmark` against `10000000-…-0003`
-  → if it clears `mvp-release-gate-v1`, `/approve` → `/start-canary` → `/promote`. The
-  promotion emits `improvement.promoted.v1`, the event-relay (SPEC-XREL-001) delivers
-  it to agent-runtime's `/events/improvement-promoted`, and agent-runtime swaps the
-  active prompt **live, with no redeploy** — and with an auditable eval record behind
-  the change.
+- **Proper rollout — DONE (2026-09-10), `scripts/promote-prompt-change.sh`.** The v2
+  prompt is no longer only a raw edited default: it has been driven through the real
+  evaluation-gated improvement pipeline end to end against the live stack, so it now
+  carries an auditable benchmark + approval + canary + promotion record.
+
+  | step | call | result |
+  |---|---|---|
+  | benchmark | `evaluation-ci-gate` vs `…-0004` + `mvp-release-gate-v1` | run `1fda560d-…`, **PASSED 33/33** |
+  | candidate | `POST /evaluation/improvement-candidates` | `PROMPT_CHANGE`, `target_component=conversation_reasoning_prompt`, `proposed_change={"system_prompt": <v2 text>}`, `risk_level=LOW` → `DRAFT` |
+  | bind | `POST /{id}/benchmark` | `benchmark_passed=true` (derived from the run's own gate status — SPEC-EI-025, never a caller claim) |
+  | approval | `POST /{id}/request-approval` | `PENDING_APPROVAL` + `approval_request_id` (FakePolicyApprovalAdapter — `POLICY_APPROVAL_MODE` is `fake` in compose) |
+  | approve | `POST /{id}/approve` (by `release-approver`, ≠ creator) | `APPROVED` |
+  | canary | `POST /{id}/start-canary` then `advance-canary` ×2 | `PLANNED→ACTIVE→EXPANDING→SUCCEEDED` |
+  | promote | `POST /{id}/promote` | `PROMOTED`; appends `improvement.promoted.v1` to the outbox |
+  | dispatch | `POST /evaluation/outbox/dispatch` | `RabbitMqEventPublisherAdapter` → `opsmind.events` |
+  | relay | event-relay consumes it | `POST agent-runtime /internal/agent-runtime/v1/events/improvement-promoted` → `200 {"applied":true}` |
+  | hot-swap | agent-runtime `ConsumeImprovementService.consume_promoted` | `active_component_configs` row `conversation_reasoning_prompt @ v2-2026-09-10`; `_active_reasoning_system_prompt()` now returns the 2527-char promoted text (verified live in-container — the reasoning adapter reads it per turn, **no redeploy**) |
+
+  Audit trail in `evaluation.evaluation_audit_records` for the candidate:
+  `create_candidate → record_candidate_benchmark(PASSED) → request_candidate_approval
+  → approve_candidate → start_canary → advance_canary ×2 → promote_candidate`, all
+  `SUCCESS`. Behaviour is unchanged because the promoted text **is** the current
+  built-in `_SYSTEM_PROMPT` — this run formalises the baseline; a future genuine v3
+  goes through the same one script. Roll back with
+  `POST /evaluation/improvement-candidates/{id}/rollback-promoted` →
+  `improvement.rollback.requested.v1` → the relay clears the active row → the built-in
+  default resumes.
 
 ## 7. Results
 
@@ -209,7 +228,8 @@ to. Class balance: 10 escalation / 6 how-to / 6 password-self-service.
 | original | v0 | 18-case | 1.00 | 1.00 | PASSED | one clean run |
 | prompt-fix v1 | v1 | 22-case | **0.864** | 0.864 | PASSED | 4 explicit-ticket cases fixed; **3 how-to/self-service regressed** |
 | prompt-fix **v2** | **v2** | 22-case | **0.955** (21/22) | 0.955 | PASSED | regressions fixed; only `second-monitor-request` wrong (bad ground truth — see §6) |
-| prompt-fix v2 | v2 | 33-case (`…-0004`) | see SPEC-XEVAL-001 §7 | — | — | `second-monitor` split into howto + imperative; nightly real-model target |
+| prompt-fix v2 | v2 | 33-case (`…-0004`) | **1.00 (33/33)** ×2 runs | 1.00 | PASSED | `second-monitor` split into howto + imperative; nightly real-model target; runs `1fda560d-…` / `8178bd23-…` |
+| **v2 promoted** | v2 (via pipeline) | 33-case (`…-0004`) | 1.00 (33/33), run `1fda560d-…` | 1.00 | PASSED | benchmark for the `PROMPT_CHANGE` candidate `5171828a-…` → `PROMOTED` → hot-swapped live (§6) |
 
 Every run pushed to LangSmith (`opsmind-eval-OpsMind IT Support Routing (extended)-v1-<runId>`,
 and `…(v2)-v1-<runId>` for the 33-case set) with per-case `llm` runs, per-dimension
@@ -234,6 +254,12 @@ services/evaluation-improvement-service/migrations/versions/d4b8e1f6a230_seed_ro
     dataset 10000000-…-0004 "OpsMind IT Support Routing (v2)", 33 cases. Resolves the
     `second-monitor-request` residual (§6) by splitting it; widens breadth to 9 how-to /
     8 password / 8 hardware / 8 "do it for me". Now the agent-accuracy-nightly.yml target.
+scripts/promote-prompt-change.sh
+    Drives the conversation-routing prompt through the real evaluation-gated
+    improvement pipeline (§6): benchmark → PROMPT_CHANGE candidate → bind → approve
+    (distinct actor) → canary (start + advance ×2) → promote → outbox dispatch →
+    event-relay → agent-runtime hot-swap. Reads the live `_SYSTEM_PROMPT` by default;
+    `PROMPT_FILE=` promotes a different one. Reruns take a fresh `SOURCE_FAILURE_CLUSTER_ID`.
 ```
 
 New:
