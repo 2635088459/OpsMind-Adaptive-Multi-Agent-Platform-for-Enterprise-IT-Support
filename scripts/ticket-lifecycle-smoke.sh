@@ -36,6 +36,7 @@ ok()  { printf '   \033[32mok\033[0m %s\n' "$*"; }
 die() { printf '   \033[31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 uuid() { python3 -c 'import uuid;print(uuid.uuid4())'; }
 jget() { printf '%s' "$1" | python3 -c "import sys,json;print(json.load(sys.stdin)$2)"; }
+jpipe() { python3 -c "import sys,json;print(json.load(sys.stdin)$1)"; }  # reads stdin
 
 command -v python3 >/dev/null || die "python3 required"
 kc() { docker exec "$KC_CONTAINER" /opt/keycloak/bin/kcadm.sh "$@"; }
@@ -52,10 +53,10 @@ ok "enabled (will restore on exit)"
 say "1. tokens"
 EMP_TOKEN="$(curl -sS -X POST "$KC/realms/$REALM/protocol/openid-connect/token" \
   -d grant_type=password -d client_id=employee-test-client -d username=test.agent -d password=test-password \
-  | jget "['access_token']")"
+  | jpipe "['access_token']")"
 SUP_TOKEN="$(curl -sS -X POST "$KC/realms/$REALM/protocol/openid-connect/token" \
   -d grant_type=password -d client_id=$SUPPORT_CLIENT -d "client_secret=$SUPPORT_SECRET" \
-  -d username=support.agent -d password=test-password | jget "['access_token']")"
+  -d username=support.agent -d password=test-password | jpipe "['access_token']")"
 [ -n "$EMP_TOKEN" ] && [ "$EMP_TOKEN" != "None" ] || die "no employee token"
 [ -n "$SUP_TOKEN" ] && [ "$SUP_TOKEN" != "None" ] || die "no support token"
 ok "employee + support tokens"
@@ -135,7 +136,7 @@ ok "dispatched: ${RESP:0:100}"
 
 say "12. DB: the ticket row is CLOSED and a ticket.resolved outbox row was published"
 DB_STATUS="$(docker exec "$PG_CONTAINER" psql -U ticket_workflow -d ticket_workflow -tAc \
-  "select status from ticket.tickets where id='$TID';" 2>/dev/null | tr -d '[:space:]' || echo '?')"
+  "select status from ticket.tickets where ticket_id='$TID';" 2>/dev/null | tr -d '[:space:]' || echo '?')"
 [ "$DB_STATUS" = "CLOSED" ] || die "ticket.tickets.status = '$DB_STATUS' (expected CLOSED)"
 ok "ticket.tickets.status = CLOSED"
 PUB="$(docker exec "$PG_CONTAINER" psql -U ticket_workflow -d ticket_workflow -tAc \

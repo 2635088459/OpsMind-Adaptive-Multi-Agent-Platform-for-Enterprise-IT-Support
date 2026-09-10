@@ -4,6 +4,10 @@ name: Python Services CI
 # shape: one matrix leg per service, unit + static analysis on every relevant
 # change, integration (Testcontainers) as its own job so a fast unit failure
 # is not blocked behind image pulls.
+#
+# event-relay is a small pika sidecar (SPEC-XREL-001), not a hexagonal service:
+# no import-linter contracts, ruff instead of pyflakes. The static steps below
+# guard on "is this configured for this service?" so the one matrix covers both.
 
 on:
   pull_request:
@@ -12,6 +16,7 @@ on:
       - "services/memory-knowledge-service/**"
       - "services/tool-integration-gateway/**"
       - "services/evaluation-improvement-service/**"
+      - "services/event-relay/**"
       - "packages/**"
       - ".github/workflows/services-python-ci.yml"
   push:
@@ -21,6 +26,7 @@ on:
       - "services/memory-knowledge-service/**"
       - "services/tool-integration-gateway/**"
       - "services/evaluation-improvement-service/**"
+      - "services/event-relay/**"
       - "packages/**"
       - ".github/workflows/services-python-ci.yml"
 
@@ -40,6 +46,7 @@ jobs:
           - memory-knowledge-service
           - tool-integration-gateway
           - evaluation-improvement-service
+          - event-relay
     defaults:
       run:
         working-directory: services/${{ matrix.service }}
@@ -58,8 +65,21 @@ jobs:
       - name: Unit tests
         run: uv run pytest -q -m "not integration"
 
-      - name: import-linter contracts
-        run: uv run lint-imports
+      - name: import-linter contracts (if configured)
+        run: |
+          if grep -q "tool.importlinter" pyproject.toml; then
+            uv run lint-imports
+          else
+            echo "no import-linter contracts for this service — skipping"
+          fi
+
+      - name: ruff (if configured)
+        run: |
+          if grep -q '"ruff' pyproject.toml || grep -q "tool.ruff" pyproject.toml; then
+            uv run ruff check src tests
+          else
+            echo "ruff not in this service's dev deps — skipping"
+          fi
 
       - name: pyflakes (if configured)
         run: |

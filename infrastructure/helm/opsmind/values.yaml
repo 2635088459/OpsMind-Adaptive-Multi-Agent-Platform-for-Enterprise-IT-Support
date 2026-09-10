@@ -38,9 +38,15 @@ config:
   POLICY_APPROVAL_GOVERNANCE_BASE_URL: http://policy-approval-governance-service:8086
   ATTACHMENT_SERVICE_BASE_URL: http://attachment-service:8090
   AGENT_RUNTIME_BASE_URL: http://agent-runtime-service:8000
+  # agent-runtime -> tool-gateway (self-service action execution) and the
+  # event-relay -> tool-gateway fan-out both read this.
+  TOOL_GATEWAY_BASE_URL: http://tool-integration-gateway:8020
   EVENT_PUBLISHER_ADAPTER: rabbitmq
   OTEL_EXPORTER: otlp
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  # Spring (Micrometer) tracing sample rate for the Java services; the Python
+  # services sample everything by default when OTEL_EXPORTER=otlp.
+  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
 
 # -----------------------------------------------------------------------------
 # Shared SECRETS. DO NOT COMMIT REAL VALUES HERE.
@@ -101,6 +107,7 @@ services:
     runtime: java
     env:
       - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=ticket-workflow" }
 
   user-access-authentication-service:
     image: user-access-authentication-service
@@ -109,6 +116,7 @@ services:
     env:
       - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
       - { name: SERVER_PORT, value: "8087" }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=user-access-authentication" }
 
   policy-approval-governance-service:
     image: policy-approval-governance-service
@@ -118,6 +126,11 @@ services:
       - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
       - { name: SERVER_PORT, value: "8086" }
       - { name: PORTAL_CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=policy-approval-governance" }
+      # SPEC-XOBS-001 Part A: real approval emails. "noop" (the safe default —
+      # this chart assumes no in-cluster SMTP relay). Set "smtp" + MAIL_HOST /
+      # MAIL_PORT when you have one.
+      - { name: GOVERNANCE_NOTIFICATIONS_MODE, value: noop }
 
   attachment-service:
     image: attachment-service
@@ -127,6 +140,7 @@ services:
       - { name: SPRING_PROFILES_ACTIVE, value: kubernetes }
       - { name: SERVER_PORT, value: "8090" }
       - { name: ATTACHMENT_CORS_ALLOWED_ORIGINS, value: "https://employee-portal.opsmind.local,https://support-console.opsmind.local" }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=shared" }
 
   agent-runtime-service:
     image: agent-runtime-service
@@ -136,6 +150,9 @@ services:
       - { name: CONVERSATION_REASONING_MODE, value: static }
       - { name: CONVERSATION_DELIBERATION_MODE, value: langgraph }
       - { name: CORS_ALLOWED_ORIGINS, value: "https://employee-portal.opsmind.local,https://support-console.opsmind.local" }
+      # phase-05: actually execute a confirmed self-service action against tool-gateway.
+      - { name: TOOL_GATEWAY_MODE, value: http }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=agent-runtime" }
 
   memory-knowledge-service:
     image: memory-knowledge-service
@@ -144,6 +161,7 @@ services:
     env:
       - { name: EMBEDDING_PROVIDER, value: openai }
       - { name: CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=memory-knowledge" }
 
   tool-integration-gateway:
     image: tool-integration-gateway
@@ -155,6 +173,7 @@ services:
       - { name: KEYCLOAK_REALM, value: opsmind }
       - { name: CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
       - { name: CORS_ALLOW_WRITES, value: "true" }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=tool-integration" }
 
   evaluation-improvement-service:
     image: evaluation-improvement-service
@@ -162,6 +181,18 @@ services:
     runtime: python
     env:
       - { name: CORS_ALLOWED_ORIGINS, value: "https://support-console.opsmind.local" }
+      - { name: AGENT_RUNTIME_EVALUATION_MODE, value: http }
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=evaluation-improvement" }
+
+  # SPEC-XREL-001: the pika sidecar that consumes opsmind.events and fans the
+  # cross-domain events out to the Python services' HTTP event seams (agent-runtime,
+  # tool-integration-gateway, memory-knowledge). No HTTP server -> runtime "worker"
+  # (exec heartbeat probe, no Service). All config comes from the shared ConfigMap
+  # (RABBITMQ_*, AGENT_RUNTIME_BASE_URL, TOOL_GATEWAY_BASE_URL, MEMORY_KNOWLEDGE_BASE_URL).
+  event-relay:
+    image: event-relay
+    runtime: worker
+    env: []
 
   employee-portal:
     image: employee-portal

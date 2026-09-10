@@ -1,8 +1,10 @@
 # OpsMind Helm chart
 
-Deploys the eight application services and the two frontends from one
-values-driven template set (`templates/deployment.yaml` / `service.yaml` loop
-over `.Values.services`). It is the Kubernetes counterpart to
+Deploys the eight application services, the `event-relay` sidecar
+(SPEC-XREL-001 — `runtime: worker`, no Service, exec heartbeat probe), and the
+two frontends from one values-driven template set
+(`templates/deployment.yaml` / `service.yaml` loop over `.Values.services`).
+It is the Kubernetes counterpart to
 `infrastructure/docker-compose/full-platform.yml`.
 
 ## What this chart does NOT include

@@ -31,9 +31,11 @@ spec:
           imagePullPolicy: {{ $root.Values.image.pullPolicy }}
           securityContext:
             {{- toYaml $defaults.containerSecurityContext | nindent 12 }}
+          {{- if $svc.port }}
           ports:
             - name: http
               containerPort: {{ $svc.port }}
+          {{- end }}
           {{- if ne $svc.runtime "static" }}
           envFrom:
             - configMapRef:
@@ -45,6 +47,23 @@ spec:
           env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if eq $svc.runtime "worker" }}
+          # A pika consumer with no HTTP server (SPEC-XREL-001 event-relay). Liveness
+          # is the heartbeat file the consumer rewrites every ~5s — the same check the
+          # image's own Dockerfile HEALTHCHECK uses.
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import os,time,sys; p=os.environ.get('RELAY_HEARTBEAT_FILE','/tmp/relay-alive'); sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 30 else 1)"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 4
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import os,time,sys; p=os.environ.get('RELAY_HEARTBEAT_FILE','/tmp/relay-alive'); sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 60 else 1)"]
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
+          {{- else }}
           readinessProbe:
             httpGet:
               path: {{ include "opsmind.healthPath" $svc.runtime }}
@@ -59,6 +78,7 @@ spec:
             initialDelaySeconds: {{ if eq $svc.runtime "java" }}60{{ else }}15{{ end }}
             periodSeconds: 20
             failureThreshold: 6
+          {{- end }}
           resources:
             {{- toYaml ($svc.resources | default $defaults.resources) | nindent 12 }}
           {{- if eq $svc.runtime "java" }}
