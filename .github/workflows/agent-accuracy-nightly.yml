@@ -1,0 +1,118 @@
+name: Agent Accuracy (real LLM)
+
+# SPEC-XEVAL-001. Nightly measurement of the agent's routing accuracy against the
+# REAL LLM (CONVERSATION_REASONING_MODE=openai), pushed to LangSmith so the number
+# accumulates a trend over time. This is a *measurement*, not a merge gate — the
+# real-model score is a distribution (a slow model call can leave a run PARTIAL), so
+# the job never fails on a low score; the deterministic CI gate lives in
+# frontend-e2e.yml on static reasoning.
+#
+# Requires two repo secrets:
+#   OPENAI_API_KEY     — the model the agent reasons with
+#   LANGSMITH_API_KEY  — where per-case scores + token splits are pushed
+# Without OPENAI_API_KEY the run is skipped (nothing to measure).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_id:
+        description: "evaluation dataset UUID"
+        default: "10000000-0000-0000-0000-000000000003" # OpsMind IT Support Routing (extended), 18 cases
+      iterations:
+        description: "how many times to run the benchmark (results all land in LangSmith)"
+        default: "2"
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC nightly (after frontend-e2e's 03:00)
+
+concurrency:
+  group: agent-accuracy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  accuracy:
+    name: real-LLM accuracy -> LangSmith
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      COMPOSE: docker compose -f infrastructure/docker-compose/local-platform.yml -f infrastructure/docker-compose/full-platform.yml
+      DATASET_ID: ${{ github.event.inputs.dataset_id || '10000000-0000-0000-0000-000000000003' }}
+      ITERATIONS: ${{ github.event.inputs.iterations || '2' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for the model key
+        id: gate
+        run: |
+          if [ -z "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::OPENAI_API_KEY is not set — skipping the real-LLM accuracy run."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Free up disk space
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          docker system prune -af || true
+
+      - name: Resolve keycloak hostname
+        if: steps.gate.outputs.run == 'true'
+        run: echo "127.0.0.1 keycloak" | sudo tee -a /etc/hosts
+
+      - name: Configure real-LLM reasoning + LangSmith
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          cat > infrastructure/docker-compose/.env <<EOF
+          CONVERSATION_REASONING_MODE=openai
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          EMBEDDING_PROVIDER=deterministic
+          AGENT_RUNTIME_EVALUATION_MODE=http
+          LANGSMITH_MODE=sdk
+          LANGSMITH_API_KEY=${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_API_URL=https://api.smith.langchain.com
+          EOF
+
+      - name: Build + start the full platform
+        if: steps.gate.outputs.run == 'true'
+        run: $COMPOSE up -d --build --wait --wait-timeout 600
+
+      - name: Seed the knowledge base (the agent's answers use RAG)
+        if: steps.gate.outputs.run == 'true'
+        run: scripts/seed-knowledge-base.sh
+        env:
+          MK_BASE_URL: http://localhost:8010
+
+      - name: Run the accuracy benchmark (x N, all pushed to LangSmith)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          mkdir -p /tmp/accuracy
+          for i in $(seq 1 "${ITERATIONS}"); do
+            echo "::group::iteration $i / ${ITERATIONS}"
+            REPORT_ONLY=1 EVAL_DATASET_ID="${DATASET_ID}" \
+              EVAL_TARGET_VERSION="agent-runtime@${GITHUB_SHA::7}" \
+              scripts/agent-accuracy-eval.sh | tee "/tmp/accuracy/run-$i.txt"
+            cp /tmp/agent-eval-scores.json "/tmp/accuracy/scores-$i.json" 2>/dev/null || true
+            echo "::endgroup::"
+          done
+          echo "## Agent accuracy — real LLM ($ITERATIONS run(s))" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -hE "dimension|CLASSIFICATION_ACCURACY|RESOLUTION_SUCCESS|TOOL_SELECTION|POLICY_COMPLIANCE|got wrong|^     |gateDecision|langsmith" /tmp/accuracy/run-*.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the raw scores
+        if: steps.gate.outputs.run == 'true' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-accuracy-scores
+          path: /tmp/accuracy/**
+          if-no-files-found: warn
+
+      - name: Dump platform logs on failure
+        if: steps.gate.outputs.run == 'true' && failure()
+        run: $COMPOSE logs --tail 200 agent-runtime-service evaluation-improvement-service || true
+
+      - name: Tear down
+        if: steps.gate.outputs.run == 'true' && always()
+        run: $COMPOSE down -v || true

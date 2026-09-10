@@ -114,6 +114,17 @@ jobs:
         # end to end. Under static reasoning it still exercises steps 1-4.
         run: bash scripts/conversation-multimodal-smoke.sh
 
+      - name: Agent accuracy evaluation (SPEC-XEVAL-001)
+        # Runs the evaluation-improvement benchmark against the live agent (static
+        # reasoning here -> deterministic) and prints CLASSIFICATION_ACCURACY /
+        # RESOLUTION_SUCCESS / TOOL_SELECTION per dimension + which cases the agent
+        # got wrong + the mvp-release-gate-v1 decision + the LangSmith link.
+        # REPORT_ONLY=1: never fails the build on a low score (routing quality is a
+        # trend to watch, not a merge blocker); flip it off to make the gate binding.
+        env:
+          REPORT_ONLY: "1"
+        run: bash scripts/agent-accuracy-eval.sh
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.15.0
