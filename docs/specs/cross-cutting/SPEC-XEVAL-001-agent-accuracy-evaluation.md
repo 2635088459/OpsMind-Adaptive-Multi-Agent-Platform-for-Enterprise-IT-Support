@@ -8,14 +8,25 @@ Related: domain 07 (evaluation-improvement, SPEC-EI-001~036 — all built), [[la
 
 `evaluation-improvement-service` runs a **published dataset** of test cases through the
 **live agent** and scores each case with deterministic graders against that case's
-`ground_truth`. Two datasets exist in the local stack:
+`ground_truth`. Three datasets exist in the local stack:
 
 | dataset id | name | cases | use |
 |---|---|---|---|
-| `10000000-…-0002` | OpsMind IT Support Routing | 6 | fast deterministic CI gate (static reasoning) |
-| `10000000-…-0003` | OpsMind IT Support Routing **(extended)** | 18 (6 per class) | nightly real-LLM measurement (one miss = ±5.5%, not ±16.7%) |
+| `10000000-…-0002` | OpsMind IT Support Routing | 6 | fast deterministic CI gate (static reasoning) — `agent-accuracy-eval.sh` default |
+| `10000000-…-0003` | OpsMind IT Support Routing **(extended)** | 22 | v1 of the breadth set; superseded by `…-0004`, kept as its lineage parent |
+| `10000000-…-0004` | OpsMind IT Support Routing **(v2)** | 33 (9 how-to / 8 password / 8 hardware / 8 "do it for me") | **nightly real-LLM measurement** (`agent-accuracy-nightly.yml`); one miss = ±3% |
 
-Both carry the same shape of `ground_truth` (migrations `b5e1c8f37a20` / `c9f4a1b7e230`):
+`…-0004` (migration `d4b8e1f6a230`) also **resolves the `second-monitor-request`
+residual** from the SPEC-XPROMPT-001 v2 prompt change: that case was phrased as a
+question ("…how do I get one?") but ground-truthed `ESCALATED_TO_HUMAN`, which the v2
+prompt (correctly) will not do for a how-to question. `…-0004` splits it —
+`second-monitor-howto` ("…how do I get one?") → `INFORMATION_PROVIDED`, and
+`second-monitor-request-imperative` ("can you get one set up for me") →
+`ESCALATED_TO_HUMAN` — so both sides of the boundary the v2 prompt draws are tested
+explicitly.
+
+All three carry the same shape of `ground_truth` (migrations `b5e1c8f37a20` /
+`c9f4a1b7e230` / `d4b8e1f6a230`):
 
 | case | user request | ground truth |
 |---|---|---|
@@ -138,8 +149,9 @@ Two jobs, deliberately different:
   Writes a real `.env` (`CONVERSATION_REASONING_MODE=openai`, `LANGSMITH_MODE=sdk`, keys
   from repo secrets `OPENAI_API_KEY` / `LANGSMITH_API_KEY`), brings the stack up, seeds
   the knowledge base, and runs `scripts/agent-accuracy-eval.sh` **N times** (default 2,
-  `workflow_dispatch` input) against the **18-case extended** set. Every run is pushed to
-  its own LangSmith project (`opsmind-eval-OpsMind IT Support Routing (extended)-v1-<runId>`)
+  `workflow_dispatch` input) against the **33-case v2** set (`…-0004`). Every run is
+  pushed to its own LangSmith project
+  (`opsmind-eval-OpsMind IT Support Routing (v2)-v1-<runId>`)
   with per-case `llm` runs + per-dimension feedback + prompt/completion token counts —
   so the *real* accuracy accumulates a trend there. The job **never fails on a low
   score** (the real-model number is a distribution); it uploads the raw scores JSON as
@@ -158,7 +170,8 @@ New:
 docs/specs/cross-cutting/SPEC-XEVAL-001-agent-accuracy-evaluation.md   (this doc)
 scripts/agent-accuracy-eval.sh
 .github/workflows/agent-accuracy-nightly.yml
-services/evaluation-improvement-service/migrations/versions/c9f4a1b7e230_seed_extended_routing_eval_dataset.py
+services/evaluation-improvement-service/migrations/versions/c9f4a1b7e230_seed_extended_routing_eval_dataset.py   (22-case v1 breadth set)
+services/evaluation-improvement-service/migrations/versions/d4b8e1f6a230_seed_routing_eval_dataset_v2.py         (33-case v2 breadth set — nightly default)
 ```
 
 Modified:
@@ -179,12 +192,18 @@ Real OpenAI-backed agent:
   recurring miss is `printer-not-printing-howto` (agent over-escalates it,
   ESCALATED_TO_HUMAN vs ground-truth INFORMATION_PROVIDED), and a slow model call
   occasionally leaves a run `PARTIAL`.
-- **18-case extended set, one run** — CLASSIFICATION_ACCURACY 1.00 (18/18),
-  RESOLUTION_SUCCESS 1.00, TOOL_SELECTION 1.00, POLICY_COMPLIANCE 1.00; gate **PASSED**.
-  Pushed to LangSmith: 18 per-case `llm` runs, feedback averages
-  `{classification_accuracy: 1.0, resolution_success: 1.0, tool_selection: 1.0,
-  policy_compliance: 1.0, handoff_completeness: 0.0}`, total tokens prompt 10,545 /
-  completion 10,835.
+- **22-case extended set, one run** — CLASSIFICATION_ACCURACY 1.00 (18/18 on the
+  original cases); the v2 prompt change (SPEC-XPROMPT-001) later scored 0.955 (21/22),
+  the one miss being `second-monitor-request`'s bad ground truth.
+- **33-case v2 set (`…-0004`), two consecutive runs (2026-09-10)** —
+  CLASSIFICATION_ACCURACY **1.00 (33/33)** both times, RESOLUTION_SUCCESS 1.00,
+  POLICY_COMPLIANCE 1.00, TOOL_SELECTION 1.00 (8/8); gate **PASSED**
+  (`runId 1fda560d-…`, `runId 8178bd23-…`). Both halves of the resolved
+  `second-monitor` split route correctly, and all 9 new breadth cases pass. Each run
+  pushed to its own LangSmith project
+  (`opsmind-eval-OpsMind IT Support Routing (v2)-v1-<runId>`, `experiment_ref 1daa6454-…`
+  for the first). No recurring miss on this set — a change from the 6-case set's
+  `printer-not-printing-howto` wobble.
 
 The real-model number is a distribution, not a point — the deterministic CI gate runs
 on `static`, and the real number's trend lives in LangSmith.

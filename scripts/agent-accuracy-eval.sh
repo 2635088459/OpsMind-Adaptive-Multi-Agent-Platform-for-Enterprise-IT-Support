@@ -27,6 +27,14 @@
 # Requires the full platform up. Exits non-zero iff the release gate fails.
 #
 #   scripts/agent-accuracy-eval.sh [dataset-id]
+#
+# Datasets (SPEC-XEVAL-001):
+#   ...-0002  "OpsMind IT Support Routing"       6 cases  — the default here; the
+#             fast deterministic CI sanity check (frontend-e2e.yml, static reasoning).
+#   ...-0004  "OpsMind IT Support Routing (v2)"  33 cases — the real-model breadth
+#             run (agent-accuracy-nightly.yml, CONVERSATION_REASONING_MODE=openai).
+#             Pass it explicitly:  EVAL_DATASET_ID=10000000-0000-0000-0000-000000000004
+#   (...-0003, 22 cases, is v2's parent — kept for lineage, superseded by ...-0004.)
 set -euo pipefail
 
 EVAL_CTR="${EVAL_CONTAINER:-opsmind-evaluation-improvement-service}"

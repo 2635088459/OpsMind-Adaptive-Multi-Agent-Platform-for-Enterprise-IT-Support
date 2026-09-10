@@ -5,17 +5,19 @@
 # so a plain pip install is enough (no uv/lock machinery like the full services).
 FROM python:3.13-slim AS runtime
 
-RUN groupadd --system opsmind \
-    && useradd --system --gid opsmind --home-dir /app --no-create-home opsmind
+RUN groupadd --system --gid 65532 opsmind \
+    && useradd --system --uid 65532 --gid opsmind --home-dir /app --no-create-home opsmind
 
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ src/
 
 RUN pip install --no-cache-dir "pika>=1.3" "httpx>=0.28" "pydantic-settings>=2.5" \
+      "opentelemetry-api>=1.27" "opentelemetry-sdk>=1.27" "opentelemetry-exporter-otlp-proto-grpc>=1.27" \
     && pip install --no-cache-dir --no-deps .
 
-USER opsmind
+# numeric UID so k8s `runAsNonRoot` can verify non-root without inspecting the image
+USER 65532
 
 # No listening port. Liveness = the heartbeat file the consumer rewrites on a
 # ~5s cadence (see consumer._touch_heartbeat); stale by >30s ⇒ unhealthy.

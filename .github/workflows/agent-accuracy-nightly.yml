@@ -17,7 +17,7 @@ on:
     inputs:
       dataset_id:
         description: "evaluation dataset UUID"
-        default: "10000000-0000-0000-0000-000000000003" # OpsMind IT Support Routing (extended), 18 cases
+        default: "10000000-0000-0000-0000-000000000004" # OpsMind IT Support Routing (v2), 33 cases
       iterations:
         description: "how many times to run the benchmark (results all land in LangSmith)"
         default: "2"
@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 60
     env:
       COMPOSE: docker compose -f infrastructure/docker-compose/local-platform.yml -f infrastructure/docker-compose/full-platform.yml
-      DATASET_ID: ${{ github.event.inputs.dataset_id || '10000000-0000-0000-0000-000000000003' }}
+      DATASET_ID: ${{ github.event.inputs.dataset_id || '10000000-0000-0000-0000-000000000004' }}
       ITERATIONS: ${{ github.event.inputs.iterations || '2' }}
     steps:
       - uses: actions/checkout@v4

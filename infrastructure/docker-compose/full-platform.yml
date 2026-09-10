@@ -665,6 +665,13 @@ services:
       TOOL_GATEWAY_BASE_URL: http://tool-integration-gateway:8020
       MEMORY_KNOWLEDGE_BASE_URL: http://memory-knowledge-service:8010
       LOG_LEVEL: ${EVENT_RELAY_LOG_LEVEL:-INFO}
+      # SPEC-XREL-001 §Observability: per-message CONSUMER span + a CLIENT span per
+      # HTTP fan-out (traceparent injected downstream) + event_relay_{messages,
+      # deliveries,dlq}_total counters. No dedicated Tempo tenant -> service.namespace
+      # routes to "shared".
+      OTEL_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:14317
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=shared
     depends_on:
       rabbitmq:
         condition: service_healthy

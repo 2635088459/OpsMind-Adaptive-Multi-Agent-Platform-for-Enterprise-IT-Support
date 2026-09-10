@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     relay_heartbeat_file: str = "/tmp/relay-alive"
     relay_connect_retry_seconds: float = 5.0
 
+    # SPEC-XREL-001 §Observability. "console" (default) exports spans/metrics to stdout
+    # — functional offline / under pytest. "otlp" ships to a real collector.
+    otel_exporter: str = "console"
+    otel_exporter_otlp_endpoint: str = "localhost:4317"
+    otel_service_name: str = "event-relay"
+
     log_level: str = "INFO"
 
     @property

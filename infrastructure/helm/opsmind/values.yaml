@@ -88,6 +88,13 @@ defaults:
       memory: 768Mi
   podSecurityContext:
     runAsNonRoot: true
+    # Every service Dockerfile pins its user to uid/gid 65532 (the distroless
+    # "nonroot" convention). k8s `runAsNonRoot` cannot verify a *named* user is
+    # non-root at admission ("image has non-numeric user") — so the numeric id
+    # must be asserted here too, or every pod fails CreateContainerConfigError.
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
     seccompProfile:
       type: RuntimeDefault
   containerSecurityContext:
@@ -192,7 +199,9 @@ services:
   event-relay:
     image: event-relay
     runtime: worker
-    env: []
+    env:
+      # SPEC-XREL-001 §Observability — no dedicated Tempo tenant, routes to "shared".
+      - { name: OTEL_RESOURCE_ATTRIBUTES, value: "service.namespace=shared" }
 
   employee-portal:
     image: employee-portal

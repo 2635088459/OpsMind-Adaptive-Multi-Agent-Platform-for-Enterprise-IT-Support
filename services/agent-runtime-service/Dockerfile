@@ -19,14 +19,15 @@ RUN uv sync --frozen --no-dev
 
 FROM python:3.13-slim AS runtime
 
-RUN groupadd --system opsmind \
-    && useradd --system --gid opsmind --home-dir /app --no-create-home opsmind
+RUN groupadd --system --gid 65532 opsmind \
+    && useradd --system --uid 65532 --gid opsmind --home-dir /app --no-create-home opsmind
 
 WORKDIR /app
 COPY --from=build /app /app
 
 ENV PATH="/app/.venv/bin:$PATH"
-USER opsmind
+# numeric UID so k8s `runAsNonRoot` can verify non-root without inspecting the image
+USER 65532
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

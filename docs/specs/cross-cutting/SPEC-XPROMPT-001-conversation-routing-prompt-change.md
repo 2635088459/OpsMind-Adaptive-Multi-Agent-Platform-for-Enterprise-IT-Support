@@ -183,11 +183,15 @@ to. Class balance: 10 escalation / 6 how-to / 6 password-self-service.
 
 ## 6. Residual + recommendation
 
-- **`second-monitor-request`** stays wrong under v2. Two clean options:
-  1. reword the case to match its intent — `"please request a second monitor for my
-     home office"` (imperative → unambiguously `escalation`); or
-  2. accept it as a genuine ~5% edge and let the LangSmith trend show whether it's
-     stable noise. Either way the release gate (0.955 ≥ 0.90) is not at risk.
+- **`second-monitor-request` — RESOLVED** in the v2 dataset `10000000-…-0004`
+  (migration `d4b8e1f6a230`, SPEC-XEVAL-001). The case was phrased as a *question*
+  ("…how do I get one?") but ground-truthed `ESCALATED_TO_HUMAN` — which the v2 prompt
+  deliberately does **not** do for a how-to question. So the ground truth was wrong,
+  not the agent. `…-0004` splits it into the two cases it was conflating:
+  `second-monitor-howto` ("…how do I get one?") → `INFORMATION_PROVIDED`, and
+  `second-monitor-request-imperative` ("can you get one set up for me") →
+  `ESCALATED_TO_HUMAN`. The v2 prompt is expected to get both right; the nightly
+  real-model run against `…-0004` is what confirms it (and any drift) over time.
 - **Roll this out properly for a real deployment**: instead of editing the default,
   create a `PROMPT_CHANGE` improvement candidate carrying the v2 text →
   `POST /evaluation/improvement-candidates` → `/benchmark` against `10000000-…-0003`
@@ -204,10 +208,12 @@ to. Class balance: 10 escalation / 6 how-to / 6 password-self-service.
 | original | v0 | 6-case | 0.83 – 1.00 (varies) | same | PASSED | recurring miss `printer-not-printing-howto` (over-escalates) |
 | original | v0 | 18-case | 1.00 | 1.00 | PASSED | one clean run |
 | prompt-fix v1 | v1 | 22-case | **0.864** | 0.864 | PASSED | 4 explicit-ticket cases fixed; **3 how-to/self-service regressed** |
-| prompt-fix **v2** | **v2** | 22-case | **0.955** (21/22) | 0.955 | PASSED | regressions fixed; only `second-monitor-request` wrong |
+| prompt-fix **v2** | **v2** | 22-case | **0.955** (21/22) | 0.955 | PASSED | regressions fixed; only `second-monitor-request` wrong (bad ground truth — see §6) |
+| prompt-fix v2 | v2 | 33-case (`…-0004`) | see SPEC-XEVAL-001 §7 | — | — | `second-monitor` split into howto + imperative; nightly real-model target |
 
-Every run pushed to LangSmith (`opsmind-eval-OpsMind IT Support Routing (extended)-v1-<runId>`)
-with per-case `llm` runs, per-dimension feedback, and prompt/completion token counts.
+Every run pushed to LangSmith (`opsmind-eval-OpsMind IT Support Routing (extended)-v1-<runId>`,
+and `…(v2)-v1-<runId>` for the 33-case set) with per-case `llm` runs, per-dimension
+feedback, and prompt/completion token counts.
 
 ## 8. Files
 
@@ -219,6 +225,15 @@ services/agent-runtime-service/src/agentruntime/infrastructure/conversation_reas
     asserts `system_msg["content"] == _SYSTEM_PROMPT` by reference, not literal text.
 services/evaluation-improvement-service/migrations/versions/c9f4a1b7e230_seed_extended_routing_eval_dataset.py
     18 -> 22 cases (+ the 4 explicit-ticket escalation cases; case_count 22).
+```
+
+New:
+
+```
+services/evaluation-improvement-service/migrations/versions/d4b8e1f6a230_seed_routing_eval_dataset_v2.py
+    dataset 10000000-…-0004 "OpsMind IT Support Routing (v2)", 33 cases. Resolves the
+    `second-monitor-request` residual (§6) by splitting it; widens breadth to 9 how-to /
+    8 password / 8 hardware / 8 "do it for me". Now the agent-accuracy-nightly.yml target.
 ```
 
 New:

@@ -1,0 +1,59 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-XREL-001
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: audit
+# meta.runbook: runbooks/EventRelay.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/specs/cross-cutting/SPEC-XREL-001-python-event-relay-and-approval-wait-recovery.md
+#
+# SPEC-XREL-001 §Observability — the event-relay sidecar has no HTTP surface and was
+# previously log-only; the DLQ (opsmind.dlx / event-relay.python-fanout.dlq.v1) had
+# no watcher at all. Two alerts:
+#   EventRelayDeadLettering — the relay is dropping cross-domain events to the DLQ
+#                             (a transform bug or a broken downstream contract).
+#   EventRelayStalled       — the consumer's pump loop stopped ticking: the relay is
+#                             down or wedged and nothing on opsmind.events is being
+#                             bridged to agent-runtime / tool-gateway / memory-knowledge.
+groups:
+  - name: event-relay-alerting
+    rules:
+      - alert: EventRelayDeadLettering
+        expr: event_relay:dlq:rate5m > 0
+        for: 10m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "event-relay is dead-lettering events at {{ $value | humanize }}/s"
+          description: "event_relay_dlq_total has been increasing for 10+ minutes — approval / improvement / ticket-resolved / workflow-outcome events are being dropped to opsmind.dlx instead of reaching the Python services' HTTP seams. Inspect event-relay.python-fanout.dlq.v1 and the relay logs (action=relay_poison_envelope / relay_settled outcome=dlq)."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/EventRelay.md"
+          dashboard: "Event Relay"
+      - alert: EventRelayStalled
+        # rate over the ~5s tick (pump loop AND the reconnect loop tick it): 0 for 5m
+        # means the process itself is not running or is wedged. A relay that is merely
+        # waiting on RabbitMQ keeps ticking — that is EventRelayBrokerUnreachable below.
+        expr: (sum(rate(event_relay_poll_total[5m])) or vector(0)) == 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "event-relay is not running (poll loop flat for 5+ minutes)"
+          description: "event_relay_poll_total is flat — the relay process is down or wedged. Nothing on opsmind.events is being fanned out to the Python services. Check the opsmind-event-relay container."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/EventRelay.md"
+          dashboard: "Event Relay"
+      - alert: EventRelayBrokerUnreachable
+        expr: event_relay:broker_errors:rate5m > 0
+        for: 5m
+        labels:
+          severity: warning
+          owner: platform-observability
+          namespace: observability
+        annotations:
+          summary: "event-relay cannot reach RabbitMQ (retrying for 5+ minutes)"
+          description: "event_relay_broker_errors_total is increasing — the relay is up but its AMQP connection keeps failing, so nothing on opsmind.events is being consumed. Check RabbitMQ health and the relay's RABBITMQ_* settings."
+          runbook_url: "https://github.com/opsmind/observability/blob/main/infrastructure/observability/runbooks/EventRelay.md"
+          dashboard: "Event Relay"

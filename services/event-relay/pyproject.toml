@@ -9,6 +9,11 @@ dependencies = [
     "pika>=1.3",
     "httpx>=0.28",
     "pydantic-settings>=2.5",
+    # SPEC-XREL-001 §Observability: per-message spans, W3C traceparent propagation
+    # into the HTTP fan-out, and relay-owned metrics (consumed / delivered / dlq).
+    "opentelemetry-api>=1.27",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.27",
 ]
 
 [dependency-groups]

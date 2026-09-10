@@ -19,10 +19,14 @@ import logging
 import time
 
 import httpx
+from opentelemetry import trace
+from opentelemetry.propagate import inject
 
+from event_relay import metrics
 from event_relay.routing import Delivery
 
 logger = logging.getLogger("event_relay.delivery")
+tracer = trace.get_tracer("event_relay")
 
 _ACK_STATUSES = frozenset({403, 404, 409, 410, 422})
 _RETRY_STATUSES = frozenset({408, 425, 429})
@@ -54,33 +58,48 @@ def deliver(
     backoff_seconds: float,
 ) -> Outcome:
     url = base_urls[delivery.target].rstrip("/") + delivery.path
-    headers = {"Content-Type": "application/json"}
-    if delivery.correlation_id:
-        headers["X-Correlation-Id"] = delivery.correlation_id
 
-    for attempt in range(1, max_attempts + 1):
-        try:
-            response = client.post(url, json=delivery.json_body, headers=headers)
-        except httpx.RequestError as exc:
-            logger.warning(
-                "action=relay_delivery_error event_id=%s target=%s path=%s attempt=%s error=%s",
-                event_id, delivery.target, delivery.path, attempt, type(exc).__name__,
-            )
-            outcome = Outcome.RETRY
-        else:
-            outcome = classify(response.status_code)
-            logger.info(
-                "action=relay_delivery event_id=%s target=%s path=%s attempt=%s status=%s outcome=%s body=%s",
-                event_id, delivery.target, delivery.path, attempt, response.status_code, outcome.value,
-                _snippet(response.text),
-            )
+    with tracer.start_as_current_span(
+        f"event_relay.deliver {delivery.target}",
+        kind=trace.SpanKind.CLIENT,
+        attributes={"http.method": "POST", "http.route": delivery.path, "relay.target": delivery.target},
+    ) as span:
+        headers = {"Content-Type": "application/json"}
+        if delivery.correlation_id:
+            headers["X-Correlation-Id"] = delivery.correlation_id
+        # W3C traceparent (+ baggage) so the downstream FastAPI service continues this
+        # trace instead of starting a detached one.
+        inject(headers)
 
-        if outcome is not Outcome.RETRY:
-            return outcome
-        if attempt < max_attempts:
-            time.sleep(backoff_seconds * attempt)
+        outcome = Outcome.RETRY
+        for attempt in range(1, max_attempts + 1):
+            try:
+                response = client.post(url, json=delivery.json_body, headers=headers)
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "action=relay_delivery_error event_id=%s target=%s path=%s attempt=%s error=%s",
+                    event_id, delivery.target, delivery.path, attempt, type(exc).__name__,
+                )
+                outcome = Outcome.RETRY
+            else:
+                outcome = classify(response.status_code)
+                span.set_attribute("http.status_code", response.status_code)
+                logger.info(
+                    "action=relay_delivery event_id=%s target=%s path=%s attempt=%s status=%s outcome=%s body=%s",
+                    event_id, delivery.target, delivery.path, attempt, response.status_code, outcome.value,
+                    _snippet(response.text),
+                )
 
-    return Outcome.RETRY
+            if outcome is not Outcome.RETRY:
+                break
+            if attempt < max_attempts:
+                time.sleep(backoff_seconds * attempt)
+
+        span.set_attribute("relay.delivery_outcome", outcome.value)
+        if outcome is Outcome.DLQ:
+            span.set_status(trace.Status(trace.StatusCode.ERROR))
+        metrics.record_delivery(delivery.target, outcome.value)
+        return outcome
 
 
 def combine(outcomes: list[Outcome]) -> Outcome:

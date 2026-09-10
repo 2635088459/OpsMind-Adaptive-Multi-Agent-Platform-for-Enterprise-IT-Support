@@ -67,3 +67,38 @@ The chart expects `<image.registry>/<service>:<image.tag>` for each service
 already has a `Dockerfile`; the two frontends now do too
 (`apps/*/Dockerfile`, repo-root build context). `.github/workflows/deploy-ci.yml`
 lints and template-validates this chart on every change.
+
+## Verified against a real cluster (2026-09-10)
+
+`deploy-ci.yml` only lints + `helm template` + `kubeconform`. A one-off
+`helm install` into a local **kind** cluster (`kind create cluster`, k8s v1.31)
+surfaced two things that template validation cannot catch — both now fixed:
+
+1. **`runAsNonRoot` vs a named image user.**
+   `defaults.podSecurityContext.runAsNonRoot: true` made **every** pod fail
+   admission with
+   `container has runAsNonRoot and image has non-numeric user (opsmind), cannot
+   verify user is non-root` → `CreateContainerConfigError`. All nine service
+   Dockerfiles ended on `USER opsmind` (a name); the kubelet resolves the name
+   only by reading the image at runtime, which admission will not do. Fix: the
+   Dockerfiles now pin the account to a numeric id
+   (`useradd --uid 65532 --gid 65532 … && USER 65532`, the distroless "nonroot"
+   convention) and `values.yaml` asserts the same id under
+   `defaults.podSecurityContext` (`runAsUser`/`runAsGroup`/`fsGroup: 65532`) so
+   admission can verify non-root without the image. `helm template` never sees
+   this because the `USER` line lives in the image, not the manifest.
+
+2. **`event-relay` liveness must survive an unreachable broker.**
+   The relay's exec probe checks the mtime of a heartbeat file that the pika
+   pump loop touches every ~5 s. When RabbitMQ is unreachable the pump never
+   runs — `_connect()` throws — so a relay that is *correctly* sitting in its
+   reconnect loop would go stale and k8s would CrashLoop-kill it. Fix: the
+   `run_forever` reconnect branch now also touches the heartbeat (and records
+   `event_relay_broker_errors_total` + a poll tick) on every retry, so a relay
+   waiting on the broker stays `Ready`. Verified: with no broker in the cluster
+   the relay pod held `1/1 Running`, `Restart Count: 0` for 3+ minutes, logging
+   `action=relay_broker_error … reconnecting_in=5.0s`. `EventRelayBrokerUnreachable`
+   (warning) is the alert that fires for this state instead.
+
+The stateful deps still have to pre-exist (see above); this run used only the
+relay image loaded via `kind load docker-image` to exercise the two fixes.

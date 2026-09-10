@@ -313,6 +313,49 @@ through the same `FailWorkflowService`; the two idempotency keys
 scan) are distinct but the second `fail()` on an already-terminal workflow is a
 caught no-op, so a race between them is harmless.
 
+## 5b. Observability (added 2026-09-10)
+
+The relay was log-only and its DLQ had no watcher. Now:
+
+- **OpenTelemetry SDK** wired in `observability.configure_observability` (mirrors every
+  other Python service — `otel_exporter` `console` default / `otlp`,
+  `otel_exporter_otlp_endpoint`, `otel_service_name`). `full-platform.yml` sets
+  `OTEL_EXPORTER=otlp` + `:14317` + `service.namespace=shared`; the Helm `event-relay`
+  entry sets `OTEL_RESOURCE_ATTRIBUTES=service.namespace=shared` (shared config already
+  carries the endpoint).
+- **Spans.** `event_relay.consume` (CONSUMER) per message — it `extract()`s a W3C
+  `traceparent` off the AMQP `properties.headers` (no producer stamps one *today*, so
+  this usually roots a fresh trace, but it is ready for when one does), attributes
+  `event.{id,type,producer}` + `relay.outcome`. `event_relay.deliver <target>` (CLIENT)
+  per HTTP POST, with `inject()` putting `traceparent` onto the request headers so the
+  downstream FastAPI service (instrumented in SPEC-XOBS-001) continues the same trace —
+  a delivery failure now shows in Tempo as one `event-relay → target` trace.
+- **Metrics** (vendor-neutral API in `metrics.py`; reach Prometheus via the
+  otel-collector's prometheus exporter): `event_relay_messages_total{event_type,
+  outcome}` (`outcome` ∈ ack|retry|dlq|no_delivery|poison), `event_relay_deliveries_total
+  {target, outcome}`, `event_relay_dlq_total{reason}` (`poison_envelope` |
+  `delivery_rejected`), `event_relay_poll_total` (pump-loop tick, traffic-independent
+  liveness).
+- **Alerts** (`infrastructure/observability/rules/{recording,alerting}/event-relay.yml`,
+  runbook `runbooks/EventRelay.md`, in the `observability-platform-ci.yml` promtool
+  list): `EventRelayDeadLettering` (`event_relay:dlq:rate5m > 0` for 10m, critical),
+  `EventRelayStalled` (`rate(event_relay_poll_total[5m]) == 0` for 5m, critical — the
+  process is down or wedged) and `EventRelayBrokerUnreachable`
+  (`event_relay:broker_errors:rate5m > 0` for 5m, warning — the process is up and
+  retrying but cannot reach RabbitMQ).
+- **Liveness during a broker outage.** The container healthcheck / k8s exec probe reads
+  the mtime of `RELAY_HEARTBEAT_FILE`. Originally only `_connect()`/`_pump()` touched it,
+  so a relay that was *correctly* sitting in its reconnect loop (RabbitMQ down) went
+  stale and would be CrashLoop-killed. `run_forever`'s reconnect branch now also touches
+  the heartbeat and records `event_relay_broker_errors_total` + a `poll` tick on every
+  retry. `EventRelayStalled` still distinguishes "process gone" (no poll ticks at all)
+  from `EventRelayBrokerUnreachable` (poll ticks continue, broker-error counter climbs).
+  Verified on a real kind cluster with no broker present: the relay pod held
+  `1/1 Running`, `Restart Count: 0` for 3+ minutes.
+  (`consumer.py`'s `_touch_heartbeat` is a `RelayConsumer` method — an earlier refactor
+  briefly left it dangling after a module-level function; the exec probe's
+  `AttributeError` CrashLoop caught it.)
+
 ## 6. Test plan
 
 - **relay unit** (`services/event-relay/tests/`, no broker):
@@ -359,6 +402,33 @@ services/evaluation-improvement-service/tests/infrastructure/test_rabbitmq_event
 services/agent-runtime-service/src/agentruntime/application/services/recover_stale_approval_waits.py
 services/agent-runtime-service/tests/application/test_recover_stale_approval_waits_service.py
 scripts/approval-loop-smoke.sh
+```
+
+New (§5b Observability, 2026-09-10):
+
+```
+services/event-relay/src/event_relay/observability.py         (configure_observability — OTel SDK wiring)
+services/event-relay/src/event_relay/metrics.py               (event_relay_{messages,deliveries,dlq,poll,broker_errors}_total)
+services/event-relay/tests/test_observability.py              (traceparent inject + span outcome/status, 4 tests)
+infrastructure/observability/rules/recording/event-relay.yml  (6 recording rules)
+infrastructure/observability/rules/alerting/event-relay.yml   (EventRelayDeadLettering / EventRelayStalled / EventRelayBrokerUnreachable)
+infrastructure/observability/runbooks/EventRelay.md
+```
+
+Modified (§5b):
+
+```
+services/event-relay/pyproject.toml + uv.lock          (+ opentelemetry-{api,sdk,exporter-otlp-proto-grpc})
+services/event-relay/src/event_relay/settings.py       (+ otel_exporter, otel_exporter_otlp_endpoint, otel_service_name)
+services/event-relay/src/event_relay/__main__.py       (configure_observability before RelayConsumer)
+services/event-relay/src/event_relay/consumer.py       (extract() traceparent; event_relay.consume span; metrics; heartbeat during broker retry)
+services/event-relay/src/event_relay/delivery.py       (event_relay.deliver span; inject() traceparent into the HTTP POST; delivery metrics)
+services/event-relay/Dockerfile                        (+ the 3 opentelemetry packages; numeric USER 65532)
+infrastructure/docker-compose/full-platform.yml        (event-relay: OTEL_EXPORTER=otlp + :14317 + service.namespace=shared)
+infrastructure/helm/opsmind/values.yaml                (event-relay OTEL_RESOURCE_ATTRIBUTES; podSecurityContext runAsUser/Group/fsGroup 65532)
+infrastructure/helm/opsmind/README.md                  (+ "Verified against a real cluster" — the runAsNonRoot + heartbeat findings)
+.github/workflows/observability-platform-ci.yml        (+ event-relay rule files in the promtool list)
+services/{agent-runtime,attachment,evaluation-improvement,memory-knowledge,policy-approval-governance,ticket-workflow,tool-integration-gateway,user-access-authentication}-service/Dockerfile   (numeric USER 65532 for k8s runAsNonRoot)
 ```
 
 Modified:

@@ -1,0 +1,34 @@
+# meta.owner: platform-observability
+# meta.version: 1.0.0
+# meta.spec: SPEC-XREL-001
+# meta.access_policy: viewer: all-engineering; edit: platform-observability
+# meta.retention: standard
+# meta.runbook: runbooks/EventRelay.md
+# meta.rollback: git revert <sha>; promtool check rules; recreate prometheus
+# meta.audit_ref: docs/specs/cross-cutting/SPEC-XREL-001-python-event-relay-and-approval-wait-recovery.md
+#
+# SPEC-XREL-001 §Observability — recording rules over the event-relay sidecar's own
+# OpenTelemetry counters (event_relay_{messages,deliveries,dlq,poll}_total), which
+# reach Prometheus through the otel-collector's prometheus exporter (job=otel-collector).
+# Nothing queried these before — the relay only logged.
+groups:
+  - name: event-relay-recording
+    interval: 1m
+    rules:
+      - record: event_relay:dlq:rate5m
+        # messages the relay dead-lettered (poison envelope OR a downstream 400) —
+        # a relay transform bug or a genuinely broken contract, never normal.
+        expr: sum(rate(event_relay_dlq_total[5m]))
+      - record: event_relay:messages:rate5m
+        expr: sum(rate(event_relay_messages_total[5m]))
+      - record: event_relay:messages_by_outcome:rate5m
+        expr: sum by (outcome) (rate(event_relay_messages_total[5m]))
+      - record: event_relay:deliveries_by_target_outcome:rate5m
+        expr: sum by (target, outcome) (rate(event_relay_deliveries_total[5m]))
+      - record: event_relay:poll:rate5m
+        # traffic-independent liveness — the pump loop (and the reconnect loop) tick
+        # this every ~5s while the process is running.
+        expr: sum(rate(event_relay_poll_total[5m]))
+      - record: event_relay:broker_errors:rate5m
+        # the relay is up but cannot reach RabbitMQ and is retrying.
+        expr: sum(rate(event_relay_broker_errors_total[5m]))

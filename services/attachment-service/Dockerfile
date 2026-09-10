@@ -15,13 +15,14 @@ FROM eclipse-temurin:21-jre-jammy AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
-    && groupadd --system opsmind \
-    && useradd --system --gid opsmind --home-dir /app --no-create-home opsmind
+    && groupadd --system --gid 65532 opsmind \
+    && useradd --system --uid 65532 --gid opsmind --home-dir /app --no-create-home opsmind
 
 WORKDIR /app
 COPY --from=build /workspace/target/attachment-service.jar app.jar
 
-USER opsmind
+# numeric UID so k8s `runAsNonRoot` can verify non-root without inspecting the image
+USER 65532
 
 ENV JAVA_OPTS=""
 EXPOSE 8090
