@@ -31,11 +31,28 @@ def _configure_logging() -> None:
     logging.getLogger("tool_gateway").setLevel(logging.INFO)
 
 
+def _instrument_fastapi(app: FastAPI) -> None:
+    """SPEC-XOBS-001 Part B: per-request SERVER span + inbound ``traceparent``
+    continuation, so a tool request arriving from agent-runtime stays on the same
+    trace and the manual domain spans (``tool.execute`` etc.) nest under it.
+    Guarded — a missing optional package logs a warning, startup proceeds.
+    """
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    except ImportError:  # pragma: no cover - optional dependency
+        logging.getLogger("tool_gateway").warning(
+            "opentelemetry-instrumentation-fastapi is not installed; no per-request spans"
+        )
+        return
+    FastAPIInstrumentor.instrument_app(app)
+
+
 def create_app() -> FastAPI:
     _configure_logging()
     settings = get_settings()
     configure_observability(settings)
     app = FastAPI(title="tool-integration-gateway", version="0.1.0")
+    _instrument_fastapi(app)
 
     # SPEC-SC-018/020 follow-up: real, empty/deny-by-default CORS — see
     # Settings.cors_allowed_origins's own docstring for why GET-only and why

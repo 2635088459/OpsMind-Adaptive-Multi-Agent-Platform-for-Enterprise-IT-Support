@@ -335,6 +335,24 @@ class ToolWaitRecoveryReport:
 
 
 @dataclass(frozen=True, slots=True)
+class ApprovalWaitRecoveryReport:
+    """Produced by RecoverStaleApprovalWaitsService.scan_and_recover(). Symmetric with
+    ToolWaitRecoveryReport for the WAITING_FOR_APPROVAL side: a workflow parked awaiting
+    a human approval decision only ever leaves that state on an approval.granted/denied/
+    expired delivery (consume_approval.py). If none arrives — the approval request was
+    abandoned, governance's expiry sweep never ran, or the relay was down for the whole
+    window — the conversation is stuck and every further message 409s. This scan bounds
+    that wait: past `approval_wait_timeout_seconds` it fails the workflow via the same
+    FailWorkflowService the reject path uses. Checkpoint-free / no new domain event,
+    exactly like ToolWaitRecoveryReport and LeaseRecoveryReport.
+    """
+
+    scanned: int
+    timed_out: int
+    scanned_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class DispatchReport:
     """08-transaction-and-outbox §"Outbox Publisher": produced by DispatchOutboxEventsService."""
 

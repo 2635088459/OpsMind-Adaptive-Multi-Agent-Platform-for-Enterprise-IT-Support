@@ -86,6 +86,34 @@ jobs:
         # password" -> proposedAction, so no LLM key is needed here.
         run: bash scripts/tool-execution-loop-smoke.sh
 
+      - name: Event-relay cross-service bridge (SPEC-XREL-001)
+        # Proves the event-relay sidecar consumes opsmind.events, transforms the
+        # governance/eval envelope to each Python service's HTTP event seam, POSTs
+        # it, and settles (ack vs dlq) against real downstream responses — the
+        # WAITING_FOR_APPROVAL / improvement.promoted paths that have no real
+        # RabbitMQ consumer without it.
+        run: bash scripts/approval-loop-smoke.sh
+
+      - name: Ticket lifecycle chain (SPEC-XIT-001)
+        # create -> triage -> assign -> IN_PROGRESS -> resolve -> confirm -> CLOSED,
+        # asserting the status after every transition, then that the resulting
+        # ticket.resolved.v1 was relayed into memory-knowledge's candidate-memory
+        # pipeline (the knowledge base growing from real resolutions).
+        run: bash scripts/ticket-lifecycle-smoke.sh
+
+      - name: Approval grant / deny (SPEC-XIT-001)
+        # A governance ApprovalRequest granted by a different user than requested it
+        # (separation of duties) -> APPROVED; a second one denied -> DENIED; both
+        # approval.{granted,denied}.v1 published and consumed by the event-relay.
+        run: bash scripts/approval-decision-smoke.sh
+
+      - name: Conversational-intake + multimodal
+        # Employee sends a chat message with an image attachment; agent-runtime
+        # really fetches those bytes back from attachment-service. Proves the
+        # multimodal path (MinIO object + Postgres row + cross-service byte fetch)
+        # end to end. Under static reasoning it still exercises steps 1-4.
+        run: bash scripts/conversation-multimodal-smoke.sh
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.15.0

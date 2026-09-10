@@ -302,6 +302,26 @@ def _build_langsmith_port(settings: Settings) -> LangSmithPort:
         return LangSmithClientAdapter(enabled=False)
 
 
+def _build_event_publisher(settings: Settings) -> object:
+    """SPEC-XREL-001: Settings.event_publisher_adapter="logging" (default) keeps
+    LoggingEventPublisherAdapter — every hermetic test relies on it. "rabbitmq" wires
+    the real pika-backed RabbitMqEventPublisherAdapter so `improvement.promoted.v1`
+    reaches `opsmind.events` for the event-relay sidecar. A construction failure here
+    is NOT swallowed: unlike the LangSmith "fail open" precedent, an outbox that
+    silently drops to a log line in a deployment that asked for a real broker is the
+    worse failure mode (the same reasoning as agent-runtime-service's own wiring).
+    """
+    if settings.event_publisher_adapter != "rabbitmq":
+        return LoggingEventPublisherAdapter()
+    from evaluationimprovement.infrastructure.messaging.rabbitmq_publisher import RabbitMqEventPublisherAdapter
+
+    return RabbitMqEventPublisherAdapter(
+        host=settings.rabbitmq_host, port=settings.rabbitmq_port,
+        username=settings.rabbitmq_username, password=settings.rabbitmq_password,
+        vhost=settings.rabbitmq_vhost, exchange=settings.rabbitmq_exchange,
+    )
+
+
 class Container:
     def __init__(self, settings: Settings | None = None) -> None:
         settings = settings or get_settings()
@@ -335,7 +355,7 @@ class Container:
             quality_judge=_build_quality_judge(settings), judge_bundle_status_repository=self.judge_bundle_status_repository,
         )
         self.online_sample_judge = _build_online_sample_judge(settings)
-        self.event_publisher_port = LoggingEventPublisherAdapter()
+        self.event_publisher_port = _build_event_publisher(settings)
         self.telemetry = EvaluationTelemetry()
 
         self.create_dataset_service = CreateDatasetService(

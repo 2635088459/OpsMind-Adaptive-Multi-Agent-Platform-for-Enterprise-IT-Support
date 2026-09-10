@@ -27,6 +27,20 @@ class Settings(BaseSettings):
     db_username: str = "ticket_workflow"
     db_password: str = "ticket_workflow"
 
+    # SPEC-XREL-001: "logging" (default, keeps LoggingEventPublisherAdapter — every
+    # hermetic test relies on it) or "rabbitmq" (RabbitMqEventPublisherAdapter,
+    # publishing the shared envelope to `opsmind.events` so the event-relay sidecar
+    # can fan `improvement.promoted.v1` out to agent-runtime). full-platform.yml sets
+    # EVENT_PUBLISHER_ADAPTER=rabbitmq; local/tests leave it at the default. Mirrors
+    # agent-runtime-service's own field of the same name.
+    event_publisher_adapter: Literal["logging", "rabbitmq"] = "logging"
+    rabbitmq_host: str = "localhost"
+    rabbitmq_port: int = 5672
+    rabbitmq_username: str = "guest"
+    rabbitmq_password: str = "guest"
+    rabbitmq_vhost: str = "/"
+    rabbitmq_exchange: str = "opsmind.events"
+
     # SPEC-EI-001's in-memory adapters remain available (fast, hermetic unit/
     # application tests construct them directly via tests/conftest.py's own
     # `container` fixture, which explicitly passes evaluation_persistence="memory"

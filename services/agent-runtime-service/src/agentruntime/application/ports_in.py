@@ -42,6 +42,7 @@ from agentruntime.application.views import (
     DispatchReport,
     DispatchToolRequestsReport,
     LeaseRecoveryReport,
+    ApprovalWaitRecoveryReport,
     MessageTurnView,
     PoisonEventView,
     RecoveryReport,
@@ -220,6 +221,21 @@ class ToolWaitRecoveryPort(Protocol):
     """
 
     def scan_and_recover(self, batch_size: int) -> ToolWaitRecoveryReport: ...
+
+
+class ApprovalWaitRecoveryPort(Protocol):
+    """Input port for stale approval-wait recovery. Implemented directly by
+    RecoverStaleApprovalWaitsService. A WAITING_FOR_APPROVAL Workflow Instance only ever
+    leaves that state on an approval.granted/denied/expired delivery (consume_approval.py);
+    if none arrives, the workflow is stuck and SendMessageService's `state is RUNNING`
+    precondition means the conversation 409s on every further message. This scan bounds
+    that wait: past `approval_wait_timeout_seconds` it fails the workflow via the same
+    FailWorkflowService the reject path already uses. Kept separate from ToolWaitRecoveryPort
+    (WAITING_TOOL Agent Tasks) and LeaseRecoveryPort (expired-lease Agent Tasks) — a
+    different aggregate and wait state.
+    """
+
+    def scan_and_recover(self, batch_size: int) -> ApprovalWaitRecoveryReport: ...
 
 
 class PoisonEventQueryPort(Protocol):

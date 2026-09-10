@@ -1,0 +1,21 @@
+{
+  "candidateId": "20000000-0000-0000-0000-000000000002",
+  "correlationId": "22222222-5555-4555-8555-555555555555",
+  "eventId": "dddddddd-0000-4000-8000-000000000001",
+  "eventType": "improvement.promoted.v1",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-09T14:00:00+00:00",
+  "payload": {
+    "candidate_id": "20000000-0000-0000-0000-000000000002",
+    "candidate_type": "PROMPT",
+    "occurred_at": "2026-09-09T14:00:00+00:00",
+    "promoted_version": "v3",
+    "proposed_change": {
+      "text": "Be explicit that a cracked screen is hardware -> escalate."
+    },
+    "target_component": "triage-prompt"
+  },
+  "producer": "evaluation-improvement-service",
+  "runId": null,
+  "traceId": "22222222-5555-4555-8555-555555555555"
+}

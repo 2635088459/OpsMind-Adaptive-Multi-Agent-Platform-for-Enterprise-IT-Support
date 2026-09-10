@@ -1,0 +1,15 @@
+{
+  "idempotency_key": "bb474907-2222-4222-8222-222222222222",
+  "requested_by_type": "AGENT",
+  "requested_by_id": "77777777-7777-4777-8777-777777777777",
+  "capability_name": "identity.user.sendPasswordResetLink",
+  "input_payload": {
+    "summary": "send a password reset link",
+    "userId": "employee-1"
+  },
+  "reason": "employee-confirmed self-service action",
+  "correlation_id": "bb474907-2222-4222-8222-222222222222",
+  "workflow_instance_id": "e85c3314-1111-4111-8111-111111111111",
+  "agent_task_id": "77777777-7777-4777-8777-777777777777",
+  "tool_name": "send_password_reset"
+}

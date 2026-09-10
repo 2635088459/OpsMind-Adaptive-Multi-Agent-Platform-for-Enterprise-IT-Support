@@ -37,6 +37,8 @@ dependencies = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+    # SPEC-XOBS-001 Part B: per-request FastAPI SERVER spans + traceparent continuation.
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
     # SPEC-ARO-043 (phase-10 Conversational Intake): agent-runtime-service now makes
     # real outbound calls to 02-ticket-workflow/06-policy-approval-governance, carrying
     # a real Keycloak client_credentials JWT (see infrastructure.outbound_identity) —

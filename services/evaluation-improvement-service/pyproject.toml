@@ -20,7 +20,10 @@ requires-python = ">=3.12"
 # container.py's own `_build_langsmith_port()`) so a missing/unconfigured install
 # never breaks the default Settings.langsmith_mode="noop" path. SPEC-EI-016
 # (quality-llm-judge-graders) adds the real `anthropic` SDK for AnthropicQualityJudge,
-# imported lazily the same way behind Settings.llm_judge_mode="anthropic".
+# imported lazily the same way behind Settings.llm_judge_mode="anthropic". SPEC-XREL-001
+# finally builds the deferred real RabbitMQ outbox publisher (RabbitMqEventPublisherAdapter,
+# behind Settings.event_publisher_adapter="rabbitmq") so `improvement.promoted.v1` reaches
+# `opsmind.events` — adding `pika`, the same blocking client agent-runtime-service uses.
 dependencies = [
     "fastapi>=0.118",
     "pydantic>=2.9",
@@ -30,11 +33,14 @@ dependencies = [
     "alembic>=1.14",
     "psycopg[binary]>=3.2",
     "httpx>=0.28",
+    "pika>=1.3",
     "langsmith>=0.1.147",
     "anthropic>=0.69",
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+    # SPEC-XOBS-001 Part B: per-request FastAPI SERVER spans + traceparent continuation.
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
 ]
 
 [project.scripts]

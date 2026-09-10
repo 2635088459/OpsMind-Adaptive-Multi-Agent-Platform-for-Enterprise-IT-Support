@@ -344,6 +344,16 @@ services:
       KEYCLOAK_ADMIN_CLIENT_ID: admin-cli
       KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # SPEC-XOBS-001 Part B: otel_setup.py + the SDK deps were already here, but
+      # nothing set OTEL_EXPORTER so it always ran the console exporter. Ship real
+      # spans to the observability Collector's local plaintext OTLP gRPC ingress
+      # (:14317), same as agent-runtime-service. FastAPIInstrumentor (added to
+      # pyproject) then contributes the per-request SERVER span the manual domain
+      # spans nest under, so "agent-runtime -> tool-gateway -> Keycloak" is one
+      # connected trace.
+      OTEL_EXPORTER: otlp
+      OTEL_EXPORTER_OTLP_ENDPOINT: host.docker.internal:14317
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=tool-integration
     ports:
       - "8020:8020"
     depends_on:
@@ -481,6 +491,14 @@ services:
       ATTACHMENT_STORAGE_ACCESS_KEY: ${ATTACHMENT_STORAGE_ACCESS_KEY:-opsmind-minio}
       ATTACHMENT_STORAGE_SECRET_KEY: ${ATTACHMENT_STORAGE_SECRET_KEY:-opsmind-minio-secret}
       ATTACHMENT_STORAGE_REGION: ${ATTACHMENT_STORAGE_REGION:-us-east-1}
+      # SPEC-XOBS-001 Part B: the OTel deps + application-local.yml otlp block were
+      # always here — only this compose wiring was missing, so traces sampled at the
+      # 0.1 default and shipped to localhost:4318 (nothing). service.namespace has no
+      # dedicated Tempo tenant, so it routes to "shared" (see the Collector's
+      # routing/traces-tenant connector).
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:14318
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=shared
     ports:
       - "8090:8090"
     depends_on:
@@ -514,6 +532,11 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:14318
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       OTEL_RESOURCE_ATTRIBUTES: service.namespace=policy-approval-governance
+      # SPEC-XOBS-001 Part A: real approval-lifecycle emails via the mailpit container
+      # (SmtpApprovalNotificationAdapter). "noop" everywhere else keeps the seam silent.
+      GOVERNANCE_NOTIFICATIONS_MODE: ${GOVERNANCE_NOTIFICATIONS_MODE:-smtp}
+      MAIL_HOST: mailpit
+      MAIL_PORT: "1025"
     ports:
       - "8086:8086"
     depends_on:
@@ -523,6 +546,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   # --- Frontends (2026-09-08) -----------------------------------------------
   # Static React/Vite SPAs served by nginx. The BROWSER (not the container)
@@ -609,3 +634,43 @@ services:
       - agent-runtime-service
       - memory-knowledge-service
       - tool-integration-gateway
+
+  # SPEC-XREL-001 + SPEC-XOBS-001. The Python services (agent-runtime,
+  # tool-integration-gateway, memory-knowledge) expose HTTP "event listener"
+  # endpoints but run no RabbitMQ consumer. This sidecar subscribes to
+  # `opsmind.events` for the cross-domain events they need:
+  #   approval.granted/denied/expired.v1 -> agent-runtime (resume/fail a
+  #     WAITING_FOR_APPROVAL workflow) + tool-integration-gateway (WAITING_APPROVAL
+  #     tool request)
+  #   improvement.promoted.v1            -> agent-runtime (adopt a promoted version)
+  #   ticket.resolved/closed.v1,
+  #   workflow.completed/failed.v1       -> memory-knowledge (candidate-memory
+  #     pipeline — the knowledge base grows from real resolutions)
+  # Transforms each envelope to the target endpoint's contract and POSTs it.
+  # At-least-once; every target dedups by event_id. Failures dead-letter to
+  # opsmind.dlx / event-relay.python-fanout.dlq.v1.
+  event-relay:
+    build:
+      context: ../../services/event-relay
+    container_name: opsmind-event-relay
+    restart: unless-stopped
+    environment:
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: "5672"
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_EXCHANGE: opsmind.events
+      RABBITMQ_DLX: opsmind.dlx
+      AGENT_RUNTIME_BASE_URL: http://agent-runtime-service:8000
+      TOOL_GATEWAY_BASE_URL: http://tool-integration-gateway:8020
+      MEMORY_KNOWLEDGE_BASE_URL: http://memory-knowledge-service:8010
+      LOG_LEVEL: ${EVENT_RELAY_LOG_LEVEL:-INFO}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      agent-runtime-service:
+        condition: service_started
+      tool-integration-gateway:
+        condition: service_started
+      memory-knowledge-service:
+        condition: service_started

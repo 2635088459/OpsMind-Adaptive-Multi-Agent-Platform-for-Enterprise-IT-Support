@@ -1,0 +1,33 @@
+{
+  "eventId": "aaaaaaaa-0000-4000-8000-000000000001",
+  "eventType": "approval.granted.v1",
+  "producer": "policy-approval-governance-service",
+  "schemaVersion": 1,
+  "aggregateId": "11111111-4444-4444-8444-444444444444",
+  "ticketId": "33333333-3333-4333-8333-333333333333",
+  "correlationId": "22222222-5555-4555-8555-555555555555",
+  "causationId": "22222222-5555-4555-8555-555555555556",
+  "occurredAt": "2026-09-09T12:34:56Z",
+  "payload": {
+    "approvalRequestId": "11111111-4444-4444-8444-444444444444",
+    "requestKey": "tool:send_password_reset:e85c3314",
+    "sourceDomain": "agent-runtime",
+    "sourceRequestId": "e85c3314-1111-4111-8111-111111111111",
+    "requestHash": "sha256:deadbeef",
+    "workflowInstanceId": "e85c3314-1111-4111-8111-111111111111",
+    "toolRequestId": "bb474907-2222-4222-8222-222222222222",
+    "policyDecisionId": "cccccccc-6666-4666-8666-666666666666",
+    "decidedBy": "support.admin",
+    "reason": "approved for business hours",
+    "conditions": [
+      {
+        "type": "TIME_WINDOW",
+        "detail": "business hours only"
+      }
+    ],
+    "separationOfDutiesCheck": {
+      "passed": true,
+      "detail": "requester != approver"
+    }
+  }
+}

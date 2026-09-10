@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Request
 
 from agentruntime.application.ports_out import ActiveComponentConfigRepository
 from agentruntime.application.ports_in import (
+    ApprovalWaitRecoveryPort,
     AuditRecordQueryPort,
     LeaseRecoveryPort,
     OutboxDispatchPort,
@@ -29,6 +30,7 @@ from agentruntime.application.ports_in import (
 )
 from agentruntime.container import (
     get_active_component_config_repository,
+    get_approval_wait_recovery_port,
     get_audit_record_query_port,
     get_lease_recovery_port,
     get_outbox_dispatch_port,
@@ -53,6 +55,7 @@ from agentruntime.interfaces.admin.mapper import (
     to_poison_event_list_response,
     to_poison_event_response,
     to_response,
+    to_approval_wait_recovery_scan_response,
     to_retry_task_command,
     to_scan_response,
     to_tool_wait_recovery_scan_response,
@@ -60,6 +63,8 @@ from agentruntime.interfaces.admin.mapper import (
 )
 from agentruntime.interfaces.admin.schemas import (
     AgentTaskResponse,
+    ApprovalWaitRecoveryScanReportResponse,
+    ApprovalWaitRecoveryScanRequest,
     AuditEventListResponse,
     CancelWorkflowRequest,
     CompleteWorkflowRequest,
@@ -197,6 +202,31 @@ def scan_and_recover_stale_tool_waits(
         actor, report.scanned, report.timed_out,
     )
     return to_tool_wait_recovery_scan_response(report)
+
+
+@router.post("/workflows/approval-wait-recovery-scan", response_model=ApprovalWaitRecoveryScanReportResponse)
+def scan_and_recover_stale_approval_waits(
+    request: Request,
+    body: ApprovalWaitRecoveryScanRequest = ApprovalWaitRecoveryScanRequest(),
+    port: ApprovalWaitRecoveryPort = Depends(get_approval_wait_recovery_port),
+) -> ApprovalWaitRecoveryScanReportResponse:
+    """SPEC-XREL-001. Fails WAITING_FOR_APPROVAL Workflow Instances whose
+    approval.granted/denied/expired decision never arrived (past
+    `approval_wait_timeout_seconds`), via the same FailWorkflowService the reject path
+    uses, so a conversation parked behind an abandoned approval can be resumed. Manual/
+    ops trigger, mirroring /admin/agent-tasks/tool-wait-recovery-scan; wired into
+    dispatch-scheduler.sh's recovery block.
+    """
+    actor = request.headers.get("X-Actor-Id")
+    audit_logger.info("action=scan_and_recover_stale_approval_waits status=started actor=%s batch_size=%s", actor, body.batch_size)
+
+    report = port.scan_and_recover(body.batch_size)
+
+    audit_logger.info(
+        "action=scan_and_recover_stale_approval_waits status=completed actor=%s scanned=%s timed_out=%s",
+        actor, report.scanned, report.timed_out,
+    )
+    return to_approval_wait_recovery_scan_response(report)
 
 
 @router.post("/agent-tasks/{agent_task_id}/retry", response_model=AgentTaskResponse)

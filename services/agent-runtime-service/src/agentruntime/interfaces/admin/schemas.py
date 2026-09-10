@@ -51,6 +51,16 @@ class ToolWaitRecoveryScanReportResponse(BaseModel):
     scanned_at: datetime
 
 
+class ApprovalWaitRecoveryScanRequest(BaseModel):
+    batch_size: int = 50
+
+
+class ApprovalWaitRecoveryScanReportResponse(BaseModel):
+    scanned: int
+    timed_out: int
+    scanned_at: datetime
+
+
 class DispatchOutboxEventsRequest(BaseModel):
     batch_size: int = 50
 

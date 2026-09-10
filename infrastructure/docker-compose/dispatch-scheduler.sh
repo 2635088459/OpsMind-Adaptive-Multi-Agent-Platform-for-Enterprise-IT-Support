@@ -83,6 +83,13 @@ while true; do
     hit "agent-runtime    tool-wait-recovery" \
       -X POST "http://agent-runtime-service:8000/internal/agent-runtime/v1/admin/agent-tasks/tool-wait-recovery-scan" \
       -H "X-Actor-Id: $ACTOR"
+    # SPEC-XREL-001: bounds a WAITING_FOR_APPROVAL workflow whose approval.granted/
+    # denied/expired decision never arrived (approval abandoned, governance expiry
+    # sweep never ran, or the event-relay was down for the whole window). The relay
+    # is the fast path; this is the safety net.
+    hit "agent-runtime    approval-wait-recovery" \
+      -X POST "http://agent-runtime-service:8000/internal/agent-runtime/v1/admin/workflows/approval-wait-recovery-scan" \
+      -H "X-Actor-Id: $ACTOR"
     hit "memory-knowledge recovery/ingestion" \
       -X POST "http://memory-knowledge-service:8010/internal/memory/v1/admin/recovery/ingestion" \
       -H "X-Actor-Id: $ACTOR"

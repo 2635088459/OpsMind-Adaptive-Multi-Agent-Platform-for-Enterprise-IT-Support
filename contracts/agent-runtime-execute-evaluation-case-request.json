@@ -1,0 +1,18 @@
+{
+  "runId": "10000000-0000-0000-0000-0000000000aa",
+  "runGeneration": 1,
+  "targetVersion": "triage-prompt@v3",
+  "testCaseId": "10000000-0000-0000-0000-000000002001",
+  "caseKey": "pw-reset-forgot",
+  "scenario": "Employee forgot their password and is locked out",
+  "userRequestRedacted": "I forgot my password and can't log in",
+  "mockSystemState": {},
+  "allowedTools": [
+    "send_password_reset"
+  ],
+  "forbiddenTools": [
+    "identity.user.resetPassword"
+  ],
+  "requiredApproval": false,
+  "verificationCondition": {}
+}

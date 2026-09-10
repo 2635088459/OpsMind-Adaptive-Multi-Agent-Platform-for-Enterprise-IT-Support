@@ -60,6 +60,10 @@ class RuntimeTelemetry:
             "agent_runtime_tool_wait_timed_out_total",
             description="WAITING_TOOL Agent Tasks failed by a recovery scan because their tool result never arrived",
         )
+        self._approval_wait_timed_out = _meter.create_counter(
+            "agent_runtime_approval_wait_timed_out_total",
+            description="WAITING_FOR_APPROVAL Workflow Instances failed by a recovery scan because no approval decision arrived",
+        )
         self._task_duration = _meter.create_histogram(
             "agent_runtime_task_duration_seconds", unit="s", description="Agent Task wall-clock duration, creation to terminal"
         )
@@ -128,6 +132,9 @@ class RuntimeTelemetry:
 
     def record_tool_wait_timed_out(self) -> None:
         self._tool_wait_timed_out.add(1)
+
+    def record_approval_wait_timed_out(self) -> None:
+        self._approval_wait_timed_out.add(1)
 
     # Event metrics -----------------------------------------------------------------
     def record_event_consumed(self, event_type: str) -> None:

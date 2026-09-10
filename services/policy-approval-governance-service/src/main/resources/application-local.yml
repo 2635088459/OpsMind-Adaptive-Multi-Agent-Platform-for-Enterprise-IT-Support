@@ -16,6 +16,19 @@ spring:
       resourceserver:
         jwt:
           issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/opsmind}
+  # SPEC-XOBS-001 Part A: only used when opsmind.governance.notifications.mode=smtp.
+  # Mailpit accepts any sender/recipient with no auth (MP_SMTP_AUTH_ACCEPT_ANY); the
+  # local default host is "localhost:1025" so a bare-metal run reaches a host-mapped
+  # Mailpit, and full-platform.yml overrides MAIL_HOST=mailpit for the container network.
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail:
+        smtp:
+          auth: false
+          starttls:
+            enable: false
 
 server:
   port: ${SERVER_PORT:8086}

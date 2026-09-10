@@ -13,6 +13,7 @@ from agentruntime.application.commands import (
 from agentruntime.application.records import AuditRecordEntry
 from agentruntime.application.views import (
     AgentTaskView,
+    ApprovalWaitRecoveryReport,
     DispatchReport,
     DispatchToolRequestsReport,
     LeaseRecoveryReport,
@@ -37,6 +38,7 @@ from agentruntime.interfaces.admin.schemas import (
     PoisonEventResponse,
     RecoverWorkflowRequest,
     RecoveryReportResponse,
+    ApprovalWaitRecoveryScanReportResponse,
     RecoveryScanReportResponse,
     ToolWaitRecoveryScanReportResponse,
     WorkflowInstanceResponse,
@@ -106,6 +108,12 @@ def to_lease_recovery_scan_response(report: LeaseRecoveryReport) -> LeaseRecover
 
 def to_tool_wait_recovery_scan_response(report: ToolWaitRecoveryReport) -> ToolWaitRecoveryScanReportResponse:
     return ToolWaitRecoveryScanReportResponse(
+        scanned=report.scanned, timed_out=report.timed_out, scanned_at=report.scanned_at,
+    )
+
+
+def to_approval_wait_recovery_scan_response(report: ApprovalWaitRecoveryReport) -> ApprovalWaitRecoveryScanReportResponse:
+    return ApprovalWaitRecoveryScanReportResponse(
         scanned=report.scanned, timed_out=report.timed_out, scanned_at=report.scanned_at,
     )
 

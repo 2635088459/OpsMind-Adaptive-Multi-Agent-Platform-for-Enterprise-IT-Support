@@ -36,11 +36,29 @@ def _configure_logging() -> None:
     logging.getLogger("agentruntime").setLevel(logging.INFO)
 
 
+def _instrument_fastapi(app: FastAPI) -> None:
+    """SPEC-XOBS-001 Part B: add the per-request SERVER span (``<METHOD> <route>``)
+    the hand-written domain spans nest under, and continue an inbound ``traceparent``
+    so a call arriving from another service stays on the same trace. Guarded — a
+    missing optional package logs a warning and startup proceeds, the same
+    degrade-don't-crash stance as the optional LLM SDK imports.
+    """
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    except ImportError:  # pragma: no cover - optional dependency
+        logging.getLogger("agentruntime").warning(
+            "opentelemetry-instrumentation-fastapi is not installed; no per-request spans"
+        )
+        return
+    FastAPIInstrumentor.instrument_app(app)
+
+
 def create_app() -> FastAPI:
     _configure_logging()
     settings = get_settings()
     configure_observability(settings)
     app = FastAPI(title="agent-runtime-service", version="0.1.0")
+    _instrument_fastapi(app)
 
     # domain 09's own frontend (real browser origin) calls conversation_router
     # directly — see Settings.cors_allowed_origins's own docstring. Empty by

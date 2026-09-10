@@ -149,6 +149,15 @@ class Settings(BaseSettings):
     # 5 minutes is generous slack over any realistic gateway round-trip.
     tool_wait_timeout_seconds: float = 300.0
 
+    # SPEC-XREL-001: how long a WAITING_FOR_APPROVAL Workflow Instance may sit with no
+    # approval.granted/denied/expired delivery before RecoverStaleApprovalWaitsService
+    # fails it (via FailWorkflowService, the same path the reject decision takes), so a
+    # conversation parked behind an abandoned approval can be resumed. Far longer than
+    # the tool-wait bound above — an approval is a human decision, not a service
+    # round-trip; 30 minutes is generous slack over a realistic approver response time
+    # while still bounding an approval that will never be actioned.
+    approval_wait_timeout_seconds: float = 1800.0
+
     # domain 09 (employee-portal)'s own frontend calls conversation_router's endpoints
     # directly from a genuinely different browser origin (its own Vite dev server, no
     # reverse proxy in front of either side yet) — without CORS this browser call is

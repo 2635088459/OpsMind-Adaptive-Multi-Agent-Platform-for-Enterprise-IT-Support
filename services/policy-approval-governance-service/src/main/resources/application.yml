@@ -32,6 +32,15 @@ opsmind:
     cors:
       # Empty/deny by default — an operator opts specific frontend origins in per environment.
       allowed-origins: ${PORTAL_CORS_ALLOWED_ORIGINS:}
+  governance:
+    # SPEC-XOBS-001 Part A. "noop" (default) keeps NoOpApprovalNotificationAdapter — no
+    # behaviour change for any deployment/test that has not opted in. "smtp" activates
+    # SmtpApprovalNotificationAdapter (needs spring.mail.* — see application-local.yml).
+    notifications:
+      mode: ${GOVERNANCE_NOTIFICATIONS_MODE:noop}
+      from-address: ${GOVERNANCE_NOTIFICATIONS_FROM:it-governance@opsmind.dev}
+      approver-address: ${GOVERNANCE_NOTIFICATIONS_APPROVER:it-approvers@opsmind.dev}
+      email-domain: ${GOVERNANCE_NOTIFICATIONS_EMAIL_DOMAIN:opsmind.dev}
 
 management:
   endpoints:
@@ -48,6 +57,11 @@ management:
       enabled: true
     readiness-state:
       enabled: true
+    # SPEC-XOBS-001 Part A: spring-boot-starter-mail is on the classpath for the opt-in
+    # SmtpApprovalNotificationAdapter, but the default mode is "noop" and no mail server
+    # is configured then — don't let the mail health indicator flap /actuator/health.
+    mail:
+      enabled: false
 
 logging:
   level:

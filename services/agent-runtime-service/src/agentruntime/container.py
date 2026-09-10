@@ -23,6 +23,7 @@ from agentruntime.application.ports_in import (
     ExecuteEvaluationCasePort,
     AgentTaskCommandPort,
     AgentTaskQueryPort,
+    ApprovalWaitRecoveryPort,
     AuditRecordQueryPort,
     ConversationCommandPort,
     ConversationQueryPort,
@@ -106,6 +107,7 @@ from agentruntime.application.services.poison_event_query import PoisonEventQuer
 from agentruntime.application.services.recover_expired_lease_tasks import (
     RecoverExpiredLeaseTasksService,
 )
+from agentruntime.application.services.recover_stale_approval_waits import RecoverStaleApprovalWaitsService
 from agentruntime.application.services.recover_stale_tool_waits import RecoverStaleToolWaitsService
 from agentruntime.application.services.recover_workflow import RecoverWorkflowService
 from agentruntime.application.services.request_tool import RequestToolService
@@ -476,6 +478,10 @@ class Container:
             self.agent_task_repository, self.workflow_instance_repository, self.tool_request_repository,
             self.clock, self.telemetry, self.audit_recorder, settings.tool_wait_timeout_seconds,
         )
+        self.recover_stale_approval_waits_service = RecoverStaleApprovalWaitsService(
+            self.workflow_instance_repository, self.clock, self.fail_workflow_service,
+            self.telemetry, self.audit_recorder, settings.approval_wait_timeout_seconds,
+        )
         self.dispatch_outbox_events_service = DispatchOutboxEventsService(
             self.outbox_repository, self.event_publisher_port, self.clock, self.telemetry,
         )
@@ -525,6 +531,7 @@ class Container:
         self.recovery_port: RecoveryPort = self.recover_workflow_service
         self.lease_recovery_port: LeaseRecoveryPort = self.recover_expired_lease_tasks_service
         self.tool_wait_recovery_port: ToolWaitRecoveryPort = self.recover_stale_tool_waits_service
+        self.approval_wait_recovery_port: ApprovalWaitRecoveryPort = self.recover_stale_approval_waits_service
         self.outbox_dispatch_port: OutboxDispatchPort = self.dispatch_outbox_events_service
         self.tool_dispatch_port: ToolDispatchPort = self.dispatch_tool_requests_service
         self.workflow_lifecycle_port: WorkflowLifecyclePort = WorkflowLifecycleService(
@@ -582,6 +589,10 @@ def get_lease_recovery_port() -> LeaseRecoveryPort:
 
 def get_tool_wait_recovery_port() -> ToolWaitRecoveryPort:
     return get_container().tool_wait_recovery_port
+
+
+def get_approval_wait_recovery_port() -> ApprovalWaitRecoveryPort:
+    return get_container().approval_wait_recovery_port
 
 
 def get_outbox_dispatch_port() -> OutboxDispatchPort:

@@ -30,6 +30,8 @@ dependencies = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-grpc>=1.27",
+    # SPEC-XOBS-001 Part B: per-request FastAPI SERVER spans + traceparent continuation.
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
 ]
 
 [dependency-groups]

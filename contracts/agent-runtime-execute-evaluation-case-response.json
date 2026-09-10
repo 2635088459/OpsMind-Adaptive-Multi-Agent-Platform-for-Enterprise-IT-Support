@@ -1,0 +1,19 @@
+{
+  "finalState": "AWAITING_USER_CONFIRMATION",
+  "classification": "SELF_SERVICE_ACTION",
+  "toolCalls": [
+    "send_password_reset"
+  ],
+  "costTokens": 100,
+  "promptTokens": 68,
+  "completionTokens": 32,
+  "latencyMs": 1420,
+  "policyViolationCount": 0,
+  "forbiddenToolCallCount": 0,
+  "unauthorizedMemoryAccessCount": 0,
+  "approvalTriggered": false,
+  "verificationPassed": true,
+  "toolCallArgs": {},
+  "explanationText": "Proposed a self-service password reset.",
+  "workflowTraceRef": ""
+}

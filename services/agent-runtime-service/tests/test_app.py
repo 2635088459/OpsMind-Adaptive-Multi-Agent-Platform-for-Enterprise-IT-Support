@@ -1071,6 +1071,42 @@ def test_admin_tool_wait_recovery_scan_frees_a_conversation_stuck_behind_a_dead_
     assert container.workflow_instance_repository.find_by_id(wf_id).state is WorkflowState.RUNNING
 
 
+def test_admin_approval_wait_recovery_scan_fails_a_workflow_stuck_awaiting_a_dead_approval(client: TestClient) -> None:
+    """SPEC-XREL-001: a WAITING_FOR_APPROVAL Workflow Instance whose approval decision
+    never arrives is stuck forever (SendMessageService's `state is RUNNING` precondition
+    -> 409). Past `approval_wait_timeout_seconds` this scan fails it via FailWorkflowService,
+    the same path the reject decision takes. Seeded directly on the container repos — no
+    HTTP path parks a workflow in WAITING_FOR_APPROVAL without also creating a real
+    governance approval request.
+    """
+    import datetime as _dt
+
+    workflow_instance_id = _start_workflow(client, "start-approvalwait-1")
+    client.post(
+        f"/internal/agent-runtime/v1/workflows/{workflow_instance_id}/resume",
+        json={"idempotency_key": "resume-approvalwait-1"},
+    )
+
+    container = get_container()
+    wf_id = WorkflowInstanceId(uuid.UUID(workflow_instance_id))
+    running = container.workflow_instance_repository.find_by_id(wf_id)
+    stale_at = running.updated_at - _dt.timedelta(hours=2)
+    container.workflow_instance_repository.save(dataclasses.replace(
+        running, state=WorkflowState.WAITING_FOR_APPROVAL, workflow_version=running.workflow_version + 1,
+        updated_at=stale_at,
+    ))
+
+    scanned = client.post(
+        "/internal/agent-runtime/v1/admin/workflows/approval-wait-recovery-scan",
+        headers={"X-Actor-Id": "ops-user-1"},
+    )
+    assert scanned.status_code == 200
+    body = scanned.json()
+    assert body["scanned"] == 1 and body["timed_out"] == 1
+
+    assert container.workflow_instance_repository.find_by_id(wf_id).state is WorkflowState.FAILED
+
+
 def test_admin_complete_workflow_is_idempotent_and_rejects_a_new_key_once_terminal(client: TestClient) -> None:
     workflow_instance_id = _start_workflow(client, "start-complete-1")
 
