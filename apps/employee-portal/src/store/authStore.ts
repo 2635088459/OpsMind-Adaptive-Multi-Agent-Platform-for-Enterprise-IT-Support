@@ -1,6 +1,7 @@
 import { create } from "zustand";
-import { beginLogin, fetchBrowserSessionToken } from "@/lib/authClient";
+import { InvalidCredentialsError, fetchBrowserSessionToken, logout, passwordLogin } from "@/lib/authClient";
 import { decodeJwtPayload } from "@/lib/jwt";
+import { SUPPORT_CONSOLE_URL } from "@/lib/env";
 
 /**
  * `03-state-machine` §3.3's own 3 named states (`UNAUTHENTICATED`,
@@ -41,14 +42,38 @@ interface AuthState {
    * point.
    */
   lastKnownSubject: string | null;
+  /**
+   * The token's `realm_access.roles` claim — display/routing convenience only,
+   * never a security decision (same posture as `decodeJwtPayload`'s own doc).
+   * This app is the single sign-in front door: a token carrying `support_agent`
+   * / `support_admin` means the user belongs in the Support Console, not here,
+   * and AuthGate hands them off.
+   */
+  roles: string[];
   checkSession: () => Promise<void>;
-  login: () => void;
+  loginWithPassword: (username: string, password: string) => Promise<void>;
   refresh: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 function subjectFrom(accessToken: string): string | null {
   const claims = decodeJwtPayload(accessToken);
   return typeof claims?.sub === "string" ? claims.sub : null;
+}
+
+function rolesFrom(accessToken: string): string[] {
+  const claims = decodeJwtPayload(accessToken);
+  const realmAccess = claims?.realm_access;
+  if (realmAccess && typeof realmAccess === "object" && "roles" in realmAccess) {
+    const roles = (realmAccess as { roles: unknown }).roles;
+    if (Array.isArray(roles)) return roles.filter((r): r is string => typeof r === "string");
+  }
+  return [];
+}
+
+/** SPEC-SC-002's own two support roles — the trigger for the Support Console hand-off. */
+export function isSupportUser(roles: string[]): boolean {
+  return roles.includes("support_agent") || roles.includes("support_admin");
 }
 
 function clearScheduledRefresh() {
@@ -72,6 +97,7 @@ export const useAuthStore = create<AuthState>((set, get) => {
     accessToken: null,
     error: null,
     lastKnownSubject: null,
+    roles: [],
 
     checkSession: async () => {
       // Real bug found live 2026-09-03: user-access-authentication-service's own
@@ -95,10 +121,13 @@ export const useAuthStore = create<AuthState>((set, get) => {
       try {
         const token = await fetchBrowserSessionToken();
         if (token === null) {
-          set({ status: "unauthenticated", accessToken: null, error: null });
+          set({ status: "unauthenticated", accessToken: null, error: null, roles: [] });
           return;
         }
-        set({ status: "authenticated", accessToken: token.accessToken, error: null, lastKnownSubject: subjectFrom(token.accessToken) });
+        set({
+          status: "authenticated", accessToken: token.accessToken, error: null,
+          lastKnownSubject: subjectFrom(token.accessToken), roles: rolesFrom(token.accessToken),
+        });
         scheduleRefresh(token.expiresInSeconds);
       } catch (cause) {
         // A real failure (network/5xx), not "please log in" — SPEC-EP-001 §16 only
@@ -113,9 +142,38 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
     },
 
-    login: () => {
+    /**
+     * The inline-form login `LoginPage` submits. Always authenticates against
+     * this app's own `"opsmind"` Keycloak client registration first (least
+     * privilege — every account can reach it). If the resulting token carries
+     * a support role, the SAME just-verified credentials are used again
+     * against the Support Console's OWN `"support-console"` registration (a
+     * different, wider scope set this app's token deliberately never
+     * carries) and the browser is handed off only once that correctly-scoped
+     * session is already established — never a redirect to Keycloak's own
+     * hosted page.
+     */
+    loginWithPassword: async (username: string, password: string) => {
       set({ status: "login_in_progress", error: null });
-      beginLogin();
+      try {
+        const employeeToken = await passwordLogin("opsmind", username, password);
+        const roles = rolesFrom(employeeToken.accessToken);
+        if (isSupportUser(roles)) {
+          await passwordLogin("support-console", username, password);
+          window.location.assign(SUPPORT_CONSOLE_URL);
+          return;
+        }
+        set({
+          status: "authenticated", accessToken: employeeToken.accessToken, error: null,
+          lastKnownSubject: subjectFrom(employeeToken.accessToken), roles,
+        });
+        scheduleRefresh(employeeToken.expiresInSeconds);
+      } catch (cause) {
+        set({
+          status: "unauthenticated", accessToken: null, roles: [],
+          error: cause instanceof InvalidCredentialsError ? cause.message : "Unable to reach the sign-in service.",
+        });
+      }
     },
 
     /**
@@ -135,15 +193,37 @@ export const useAuthStore = create<AuthState>((set, get) => {
         const token = await fetchBrowserSessionToken();
         if (token === null || token.expiresInSeconds <= 0) {
           clearScheduledRefresh();
-          set({ status: "session_expired", accessToken: null });
+          set({ status: "session_expired", accessToken: null, roles: [] });
           return;
         }
-        set({ status: "authenticated", accessToken: token.accessToken, error: null, lastKnownSubject: subjectFrom(token.accessToken) });
+        set({
+          status: "authenticated", accessToken: token.accessToken, error: null,
+          lastKnownSubject: subjectFrom(token.accessToken), roles: rolesFrom(token.accessToken),
+        });
         scheduleRefresh(token.expiresInSeconds);
       } catch {
         clearScheduledRefresh();
-        set({ status: "session_expired", accessToken: null });
+        set({ status: "session_expired", accessToken: null, roles: [] });
       }
+    },
+
+    /**
+     * The real end of the session both `LoginPage` and any "not you?" affordance
+     * calls — lets someone sign in as a different account in the same browser
+     * window without private-browsing tricks (two private windows from the same
+     * browser process share one cookie jar; that was never real isolation).
+     * Best-effort against the BFF: even a network failure still lands on the
+     * login screen, since nothing here depends on the request succeeding.
+     */
+    signOut: async () => {
+      clearScheduledRefresh();
+      try {
+        await logout();
+      } catch {
+        // Best-effort — a network failure never blocks the UI from clearing its own
+        // local state and showing the login screen.
+      }
+      set({ status: "unauthenticated", accessToken: null, error: null, roles: [], lastKnownSubject: null });
     },
   };
 });

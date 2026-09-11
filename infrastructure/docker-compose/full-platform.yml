@@ -565,6 +565,10 @@ services:
     build:
       context: ../../
       dockerfile: apps/employee-portal/Dockerfile
+      args:
+        # Single sign-in front door: a user with a support role is handed off
+        # here. Host port of the support-console container below.
+        VITE_SUPPORT_CONSOLE_URL: ${EMPLOYEE_PORTAL_SUPPORT_CONSOLE_URL:-http://localhost:5174}
     container_name: opsmind-employee-portal
     restart: unless-stopped
     ports:

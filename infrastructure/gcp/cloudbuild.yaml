@@ -1,0 +1,58 @@
+# Build + push all OpsMind container images to Artifact Registry, in parallel.
+#
+#   gcloud builds submit --config infrastructure/gcp/cloudbuild.yaml \
+#     --substitutions _AR=us-central1-docker.pkg.dev/PROJECT/opsmind,_TAG=v1
+#
+# `scripts/deploy-gke.sh` wraps this. Cloud Build (not a local `docker build`) so
+# the images build on GCP infra and land straight in Artifact Registry — no ~2GB
+# local image load, no dependency on the workstation's Docker.
+substitutions:
+  _AR: ""          # e.g. us-central1-docker.pkg.dev/my-project/opsmind
+  _TAG: "latest"
+
+options:
+  machineType: E2_HIGHCPU_8
+  # every step is independent (waitFor: ['-']) -> Cloud Build fans them out
+  dynamicSubstitutions: true
+
+images:
+  - "${_AR}/ticket-workflow-service:${_TAG}"
+  - "${_AR}/user-access-authentication-service:${_TAG}"
+  - "${_AR}/policy-approval-governance-service:${_TAG}"
+  - "${_AR}/attachment-service:${_TAG}"
+  - "${_AR}/agent-runtime-service:${_TAG}"
+  - "${_AR}/memory-knowledge-service:${_TAG}"
+  - "${_AR}/tool-integration-gateway:${_TAG}"
+  - "${_AR}/evaluation-improvement-service:${_TAG}"
+  - "${_AR}/event-relay:${_TAG}"
+  - "${_AR}/employee-portal:${_TAG}"
+  - "${_AR}/support-console:${_TAG}"
+
+steps:
+  # --- Java + Python services: build context is the service dir ---------------
+  - { name: gcr.io/cloud-builders/docker, id: ticket-workflow-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/ticket-workflow-service:${_TAG}", services/ticket-workflow-service] }
+  - { name: gcr.io/cloud-builders/docker, id: user-access-authentication-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/user-access-authentication-service:${_TAG}", services/user-access-authentication-service] }
+  - { name: gcr.io/cloud-builders/docker, id: policy-approval-governance-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/policy-approval-governance-service:${_TAG}", services/policy-approval-governance-service] }
+  - { name: gcr.io/cloud-builders/docker, id: attachment-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/attachment-service:${_TAG}", services/attachment-service] }
+  - { name: gcr.io/cloud-builders/docker, id: agent-runtime-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/agent-runtime-service:${_TAG}", services/agent-runtime-service] }
+  - { name: gcr.io/cloud-builders/docker, id: memory-knowledge-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/memory-knowledge-service:${_TAG}", services/memory-knowledge-service] }
+  - { name: gcr.io/cloud-builders/docker, id: tool-integration-gateway, waitFor: ['-'],
+      args: [build, -t, "${_AR}/tool-integration-gateway:${_TAG}", services/tool-integration-gateway] }
+  - { name: gcr.io/cloud-builders/docker, id: evaluation-improvement-service, waitFor: ['-'],
+      args: [build, -t, "${_AR}/evaluation-improvement-service:${_TAG}", services/evaluation-improvement-service] }
+  - { name: gcr.io/cloud-builders/docker, id: event-relay, waitFor: ['-'],
+      args: [build, -t, "${_AR}/event-relay:${_TAG}", services/event-relay] }
+
+  # --- frontends: build context is the repo root, Dockerfile under apps/ ------
+  - { name: gcr.io/cloud-builders/docker, id: employee-portal, waitFor: ['-'],
+      args: [build, -f, apps/employee-portal/Dockerfile, -t, "${_AR}/employee-portal:${_TAG}", "."] }
+  - { name: gcr.io/cloud-builders/docker, id: support-console, waitFor: ['-'],
+      args: [build, -f, apps/support-console/Dockerfile, -t, "${_AR}/support-console:${_TAG}", "."] }
+
+timeout: 2400s

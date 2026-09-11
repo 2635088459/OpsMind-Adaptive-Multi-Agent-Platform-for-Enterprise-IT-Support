@@ -12,15 +12,62 @@ export interface BrowserSessionToken {
   expiresInSeconds: number;
 }
 
+/** `passwordLogin` failed because the IdP rejected the grant — the honest "wrong username or password," never a system fault. */
+export class InvalidCredentialsError extends Error {
+  constructor() {
+    super("Invalid username or password.");
+  }
+}
+
 /**
- * `GET /oauth2/authorization/opsmind` is a real top-level navigation, not a
- * fetch — the browser must physically leave this app and land on Keycloak's
- * own hosted login UI, then get redirected back by Keycloak itself (never
- * through this app's own router). `window.location.assign` (not
- * `history.pushState`/`<Link>`) is the only correct way to trigger that.
+ * The inline-form login this app's own `LoginPage` submits — a real
+ * Resource Owner Password Credentials grant run entirely server-side by
+ * the BFF's own `PasswordLoginController` (this app never talks to
+ * Keycloak directly, still true — SPEC-EP-001 §6's own "no OIDC client of
+ * its own" non-goal). `registrationId` picks which of the two real
+ * Keycloak client registrations to authenticate against: `"opsmind"` (this
+ * app's own, least-privilege scope) or `"support-console"` (the Support
+ * Console's — a different scope set, requested with the SAME just-verified
+ * credentials when a signed-in user turns out to carry a support role; see
+ * `authStore#loginWithPassword`).
  */
-export function beginLogin(): void {
-  window.location.assign(`${BFF_BASE_URL}/oauth2/authorization/opsmind`);
+export async function passwordLogin(registrationId: "opsmind" | "support-console", username: string, password: string): Promise<BrowserSessionToken> {
+  const response = await fetch(`${BFF_BASE_URL}/api/v1/session/password-login`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json", traceparent: newTraceparent() },
+    body: JSON.stringify({ registrationId, username, password }),
+  });
+
+  if (response.status === 401) {
+    throw new InvalidCredentialsError();
+  }
+  if (!response.ok) {
+    throw new Error(`password-login request failed with status ${response.status}`);
+  }
+
+  const body = (await response.json()) as { accessToken: string; expiresInSeconds: number };
+  return { accessToken: body.accessToken, expiresInSeconds: body.expiresInSeconds };
+}
+
+/**
+ * Ends the real session the BFF's own `BrowserLogoutController` established —
+ * revokes the domain session, forgets the authorized client, invalidates the
+ * underlying `HttpSession`, and expires `OPSMIND_SESSION`. Lets someone sign
+ * out and back in as a different account in the SAME browser window/tab,
+ * without needing a separate private-browsing session (two private windows
+ * from the same browser process share one cookie jar — not per-window
+ * isolated — so that was never a real way to "switch accounts" anyway).
+ * Best-effort from the caller's side too: a network failure here still
+ * leaves the caller free to call `checkSession()` and re-render the login
+ * screen — signing out of the UI never depends on this succeeding.
+ */
+export async function logout(): Promise<void> {
+  await fetch(`${BFF_BASE_URL}/api/v1/session/logout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { traceparent: newTraceparent() },
+  });
 }
 
 /**

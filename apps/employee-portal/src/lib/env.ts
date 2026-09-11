@@ -16,3 +16,13 @@ export const TICKET_WORKFLOW_BASE_URL: string = import.meta.env.VITE_TICKET_WORK
 
 /** attachment-service — SPEC-EP-010/011's own shared attachments capability, now real (AttachmentController, port 8090). */
 export const ATTACHMENTS_BASE_URL: string = import.meta.env.VITE_ATTACHMENTS_BASE_URL ?? "http://localhost:8090";
+
+/**
+ * The IT-staff / IT-supervisor channel (domain 10, `apps/support-console`). This
+ * app is the single sign-in front door: an employee stays here, but a user whose
+ * token carries `support_agent` / `support_admin` is handed off to this URL
+ * (AuthGate). The console re-authenticates itself silently there — the two apps
+ * use different Keycloak clients on purpose (least privilege), so one sign-in
+ * cannot mint a token valid for both.
+ */
+export const SUPPORT_CONSOLE_URL: string = import.meta.env.VITE_SUPPORT_CONSOLE_URL ?? "http://localhost:5174";

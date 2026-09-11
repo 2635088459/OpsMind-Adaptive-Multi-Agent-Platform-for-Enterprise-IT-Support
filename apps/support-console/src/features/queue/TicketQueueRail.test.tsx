@@ -5,7 +5,7 @@ import { server } from "@/test/mswServer";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { useAuthStore } from "@/store/authStore";
 import { TICKET_WORKFLOW_BASE_URL } from "@/lib/env";
-import { QueueTable } from "@/features/queue/QueueTable";
+import { TicketQueueRail } from "@/features/queue/TicketQueueRail";
 
 const BASE = `${TICKET_WORKFLOW_BASE_URL}/api/v1/support/tickets`;
 
@@ -32,7 +32,7 @@ function queueResponse(items: unknown[]) {
   };
 }
 
-describe("QueueTable", () => {
+describe("TicketQueueRail", () => {
   beforeEach(() => {
     useAuthStore.setState({ status: "authenticated", accessToken: "fake-token", error: null });
   });
@@ -40,7 +40,7 @@ describe("QueueTable", () => {
   it("SPEC-SC-003: renders real queue rows with their real fields", async () => {
     server.use(http.get(BASE, () => HttpResponse.json(queueResponse([queueRow()]))));
 
-    renderWithProviders(<QueueTable filters={{}} />);
+    renderWithProviders(<TicketQueueRail filters={{}} />);
 
     expect(await screen.findByText("INC-1")).toBeInTheDocument();
     expect(screen.getByText("VPN down")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("QueueTable", () => {
   it("shows a distinct empty state, not a loading/error look, for a real empty queue", async () => {
     server.use(http.get(BASE, () => HttpResponse.json(queueResponse([]))));
 
-    renderWithProviders(<QueueTable filters={{}} />);
+    renderWithProviders(<TicketQueueRail filters={{}} />);
 
     expect(await screen.findByTestId("queue-empty")).toBeInTheDocument();
   });
@@ -58,7 +58,7 @@ describe("QueueTable", () => {
   it("shows a retry affordance on a real fetch failure", async () => {
     server.use(http.get(BASE, () => HttpResponse.json({ error: { code: "INTERNAL_ERROR", message: "boom" } }, { status: 500 })));
 
-    renderWithProviders(<QueueTable filters={{}} />);
+    renderWithProviders(<TicketQueueRail filters={{}} />);
 
     expect(await screen.findByTestId("queue-error")).toBeInTheDocument();
   });
@@ -66,7 +66,7 @@ describe("QueueTable", () => {
   it("SPEC-SC-004: renders a distinct severity chip per priority level", async () => {
     server.use(http.get(BASE, () => HttpResponse.json(queueResponse([queueRow({ priority: "CRITICAL" })]))));
 
-    renderWithProviders(<QueueTable filters={{}} />);
+    renderWithProviders(<TicketQueueRail filters={{}} />);
 
     expect(await screen.findByTestId("priority-chip")).toHaveTextContent("CRITICAL");
   });
@@ -76,7 +76,7 @@ describe("QueueTable", () => {
       queueRow({ sla: { state: "ACTIVE", responseDueAt: null, resolutionDueAt: "2020-01-01T00:00:00Z", urgencyRank: 1 } }),
     ]))));
 
-    renderWithProviders(<QueueTable filters={{}} />);
+    renderWithProviders(<TicketQueueRail filters={{}} />);
 
     const slaCell = await screen.findByTestId("sla-display");
     expect(slaCell).toHaveAttribute("data-sla-state", "overdue");
@@ -87,10 +87,20 @@ describe("QueueTable", () => {
       queueRow({ sla: { state: "ACTIVE", responseDueAt: null, resolutionDueAt: null, urgencyRank: 1 } }),
     ]))));
 
-    renderWithProviders(<QueueTable filters={{}} />);
+    renderWithProviders(<TicketQueueRail filters={{}} />);
 
     const slaCell = await screen.findByTestId("sla-display");
     expect(slaCell).toHaveAttribute("data-sla-state", "missing");
     expect(slaCell).toHaveTextContent("—");
+  });
+
+  it("highlights the row matching selectedTicketId so the split view shows which ticket is open", async () => {
+    server.use(http.get(BASE, () => HttpResponse.json(queueResponse([queueRow(), queueRow({ ticketId: "ticket-2", displayId: "INC-2" })]))));
+
+    renderWithProviders(<TicketQueueRail filters={{}} selectedTicketId="ticket-2" />);
+
+    const rows = await screen.findAllByTestId("queue-row");
+    const selected = rows.find((r) => r.getAttribute("aria-current") === "true");
+    expect(selected).toHaveTextContent("INC-2");
   });
 });

@@ -24,10 +24,23 @@ import { currentVersionFrom, isVersionConflict } from "@/features/ticketOps/vers
  * side-by-side diff of every changed field would need a dedicated
  * ticket-detail re-fetch this frontend has no endpoint wired for yet; an
  * honest scope boundary, not an oversight.
+ *
+ * Real gap caught live 2026-09-11: Triage/Assignment/Status each run their
+ * OWN instance of this hook against the SAME ticket, each seeded once from
+ * whatever `initialVersion` the page happened to pass at mount — succeeding
+ * in one panel (say, Assign) silently leaves every OTHER already-mounted
+ * panel's local `version` stale, since nothing here ever told them the
+ * ticket moved. The next action in a DIFFERENT panel then races the real
+ * backend version blind. `onSuccess` lets each call site invalidate the
+ * shared ticket-detail query so the page re-fetches — paired with
+ * `TicketDetailPage` remounting all 3 panels off that fresh `ticket.version`
+ * (a `key` prop), which resets everyone's local tracking together rather
+ * than each panel finding out only when its own next submit conflicts.
  */
 export function useVersionedMutation<TInput, TResult extends { version: number }>(
   initialVersion: number,
   mutationFn: (expectedVersion: number, input: TInput) => Promise<TResult>,
+  onSuccess?: (result: TResult) => void,
 ) {
   const [version, setVersion] = useState(initialVersion);
   const [conflictVersion, setConflictVersion] = useState<number | null>(null);
@@ -37,6 +50,7 @@ export function useVersionedMutation<TInput, TResult extends { version: number }
     onSuccess: (result) => {
       setVersion(result.version);
       setConflictVersion(null);
+      onSuccess?.(result);
     },
     onError: (error) => {
       if (isVersionConflict(error)) {

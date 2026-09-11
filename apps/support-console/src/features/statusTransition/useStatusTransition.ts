@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { resolveTicket, transitionTicketStatus } from "@/features/statusTransition/api";
 import type { ResolutionCode, ResolveTicketResponse, TransitionTarget, TransitionTicketStatusResponse } from "@/features/statusTransition/types";
 import { useVersionedMutation } from "@/features/ticketOps/useVersionedMutation";
@@ -12,21 +13,27 @@ export type StatusAction =
  * `status-transitions` endpoint (only `IN_PROGRESS`/`WAITING_FOR_APPROVAL`
  * reachable from it) and the dedicated `resolution` endpoint (the only
  * path to `RESOLVED`) — never inventing a single generic transition the
- * real backend doesn't actually expose.
+ * real backend doesn't actually expose. Invalidates the shared ticket-detail
+ * query on success — see `useTriageTicket`'s own doc for why.
  */
 export function useStatusTransition(ticketId: string, initialVersion: number) {
-  return useVersionedMutation<StatusAction, TransitionTicketStatusResponse | ResolveTicketResponse>(initialVersion, (expectedVersion, action) => {
-    const idempotencyKey = crypto.randomUUID();
-    if (action.kind === "transition") {
-      return transitionTicketStatus(ticketId, expectedVersion, idempotencyKey, {
-        targetStatus: action.targetStatus,
-        reason: action.reason,
-        approvalReference: action.approvalReference,
+  const queryClient = useQueryClient();
+  return useVersionedMutation<StatusAction, TransitionTicketStatusResponse | ResolveTicketResponse>(
+    initialVersion,
+    (expectedVersion, action) => {
+      const idempotencyKey = crypto.randomUUID();
+      if (action.kind === "transition") {
+        return transitionTicketStatus(ticketId, expectedVersion, idempotencyKey, {
+          targetStatus: action.targetStatus,
+          reason: action.reason,
+          approvalReference: action.approvalReference,
+        });
+      }
+      return resolveTicket(ticketId, expectedVersion, idempotencyKey, {
+        resolutionCode: action.resolutionCode,
+        resolutionSummary: action.resolutionSummary,
       });
-    }
-    return resolveTicket(ticketId, expectedVersion, idempotencyKey, {
-      resolutionCode: action.resolutionCode,
-      resolutionSummary: action.resolutionSummary,
-    });
-  });
+    },
+    () => queryClient.invalidateQueries({ queryKey: ["support-ticket", ticketId] }),
+  );
 }

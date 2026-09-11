@@ -6,12 +6,13 @@
  * Why it's a static list and not a fetch: ticket-workflow-service exposes NO
  * catalog-read endpoint for categories, support queues, or support agents
  * anywhere (checked directly against every *Controller.java) — a long-carried
- * platform gap, not an oversight here. These four rows are the exact,
+ * platform gap, not an oversight here. These rows are the exact,
  * ON CONFLICT DO NOTHING seed values from migrations V045
- * (seed_default_escalation_routing) and V046 (seed_support_agents_and_
- * memberships), verified 1:1 against the running database. Every form that
- * uses these also keeps an "enter a different ID" escape hatch, so anything
- * that was possible with the old raw text field is still possible.
+ * (seed_default_escalation_routing), V046 (seed_support_agents_and_
+ * memberships), and V047 (seed_access_category), verified 1:1 against the
+ * running database. Every form that uses these also keeps an "enter a
+ * different ID" escape hatch, so anything that was possible with the old raw
+ * text field is still possible.
  */
 
 export interface CatalogEntry {
@@ -25,6 +26,7 @@ export interface CatalogEntry {
 
 export const TICKET_CATEGORIES: CatalogEntry[] = [
   { id: "11111111-1111-1111-1111-111111111111", label: "Network", hint: "code NETWORK" },
+  { id: "22222222-2222-2222-2222-222222222222", label: "Access", hint: "code ACCESS" },
 ];
 
 export const SUPPORT_QUEUES: CatalogEntry[] = [

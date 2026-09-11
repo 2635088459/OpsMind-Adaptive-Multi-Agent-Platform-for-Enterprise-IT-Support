@@ -14,7 +14,7 @@ test("the queue loads real tickets from ticket-workflow-service", async ({ page 
   // skeleton, never the error card.
   await expect(page.getByTestId("queue-error")).toHaveCount(0);
   await expect(
-    page.getByTestId("queue-table").or(page.getByTestId("queue-empty")),
+    page.getByTestId("queue-rows").or(page.getByTestId("queue-empty")),
   ).toBeVisible({ timeout: 20_000 });
 
   const rows = page.getByTestId("queue-row");
@@ -29,10 +29,12 @@ test("the queue loads real tickets from ticket-workflow-service", async ({ page 
 test("opening a queue row navigates to the real ticket detail", async ({ page }) => {
   await page.goto("/");
   const rows = page.getByTestId("queue-row");
-  await expect(page.getByTestId("queue-table").or(page.getByTestId("queue-empty"))).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("queue-rows").or(page.getByTestId("queue-empty"))).toBeVisible({ timeout: 20_000 });
   test.skip((await rows.count()) === 0, "no tickets in the queue to open");
 
-  await rows.first().getByRole("link").first().click();
+  // Concept C: each row IS the link now (a persistent queue rail, not a
+  // table you navigate away from) — no nested anchor to drill into.
+  await rows.first().click();
   await expect(page).toHaveURL(/\/tickets\/[0-9a-f-]{36}$/);
   await expect(page.getByTestId("ticket-error")).toHaveCount(0);
 

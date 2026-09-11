@@ -387,6 +387,15 @@ spec:
         app.kubernetes.io/name: minio
         app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
+      # The minio/minio image runs as root by default; GKE Autopilot (and any
+      # cluster with a restricted PodSecurity policy) rejects that. minio runs fine
+      # as an arbitrary non-root uid as long as it owns /data — fsGroup handles the
+      # emptyDir/PVC.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: minio
           image: {{ .Values.deps.minio.image }}

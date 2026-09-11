@@ -10,6 +10,14 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY packages/ packages/
 COPY apps/employee-portal/ apps/employee-portal/
 RUN pnpm install --frozen-lockfile --filter employee-portal...
+
+# Vite bakes VITE_* into the bundle at build time. This app is the single
+# sign-in front door — a user with a support role is handed off to this URL
+# (lib/env.ts SUPPORT_CONSOLE_URL). Default matches full-platform.yml's own
+# host port for the support-console container.
+ARG VITE_SUPPORT_CONSOLE_URL=http://localhost:5174
+ENV VITE_SUPPORT_CONSOLE_URL=$VITE_SUPPORT_CONSOLE_URL
+
 RUN pnpm --filter employee-portal build
 
 FROM nginx:1.27-alpine AS runtime

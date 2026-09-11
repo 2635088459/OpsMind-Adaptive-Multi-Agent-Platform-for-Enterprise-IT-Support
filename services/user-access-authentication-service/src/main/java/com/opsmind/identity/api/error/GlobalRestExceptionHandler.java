@@ -18,6 +18,7 @@ import com.opsmind.identity.application.exception.TraceQueryUnavailableException
 import com.opsmind.identity.application.exception.UserIdentityNotEligibleException;
 import com.opsmind.identity.application.exception.UserIdentityNotFoundException;
 import com.opsmind.identity.application.exception.UserSessionNotFoundException;
+import com.opsmind.identity.application.exception.InvalidPasswordGrantException;
 import com.opsmind.identity.application.exception.WorkloadIdentityNotTrustedException;
 import com.opsmind.identity.domain.shared.DomainException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -76,6 +77,17 @@ public class GlobalRestExceptionHandler {
     @ExceptionHandler(UserIdentityNotEligibleException.class)
     public ResponseEntity<ErrorResponse> handleUserIdentityNotEligible(UserIdentityNotEligibleException ex, HttpServletRequest request) {
         return build(HttpStatus.FORBIDDEN, "USER_IDENTITY_NOT_ELIGIBLE", "The user identity is not eligible for this action.", false, request);
+    }
+
+    /** {@code PasswordLoginController}'s inline-form login: Keycloak rejected the grant. Never says which of username/password was wrong — no enumeration. */
+    @ExceptionHandler(InvalidPasswordGrantException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidPasswordLoginCredentials(InvalidPasswordGrantException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "Invalid username or password.", false, request);
+    }
+
+    @ExceptionHandler(PasswordLoginRegistrationNotAllowedException.class)
+    public ResponseEntity<ErrorResponse> handlePasswordLoginRegistrationNotAllowed(PasswordLoginRegistrationNotAllowedException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "INVALID_REGISTRATION", "This sign-in destination is not recognized.", false, request);
     }
 
     @ExceptionHandler(RoleAssignmentNotFoundException.class)

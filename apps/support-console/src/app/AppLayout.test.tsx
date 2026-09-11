@@ -8,13 +8,15 @@ import { TICKET_WORKFLOW_BASE_URL } from "@/lib/env";
 
 vi.mock("@/lib/authClient", () => ({
   fetchBrowserSessionToken: vi.fn(),
-  beginLogin: vi.fn(),
+  passwordLogin: vi.fn(),
+  InvalidCredentialsError: class extends Error {},
+  logout: vi.fn(),
 }));
 
 import { fetchBrowserSessionToken } from "@/lib/authClient";
 import { useAuthStore } from "@/store/authStore";
 import { AppLayout } from "@/app/AppLayout";
-import { QueuePage } from "@/pages/QueuePage";
+import { SupportDeskPage } from "@/pages/SupportDeskPage";
 
 function fakeJwt(roles: string[]): string {
   const b64 = (obj: unknown) =>
@@ -24,7 +26,7 @@ function fakeJwt(roles: string[]): string {
 
 function renderAt(path: string) {
   const router = createMemoryRouter(
-    [{ path: "/", element: <AppLayout />, children: [{ index: true, element: <QueuePage /> }] }],
+    [{ path: "/", element: <AppLayout />, children: [{ index: true, element: <SupportDeskPage /> }] }],
     { initialEntries: [path] },
   );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });

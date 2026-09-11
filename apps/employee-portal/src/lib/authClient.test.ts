@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { beginLogin, fetchBrowserSessionToken } from "@/lib/authClient";
+import { InvalidCredentialsError, fetchBrowserSessionToken, passwordLogin } from "@/lib/authClient";
 
 describe("fetchBrowserSessionToken", () => {
   const originalFetch = global.fetch;
@@ -38,13 +38,41 @@ describe("fetchBrowserSessionToken", () => {
   });
 });
 
-describe("beginLogin", () => {
-  it("performs a real top-level navigation to the BFF's own login-initiation endpoint, not a fetch", () => {
-    const assign = vi.fn();
-    vi.stubGlobal("location", { assign });
+describe("passwordLogin", () => {
+  const originalFetch = global.fetch;
 
-    beginLogin();
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
 
-    expect(assign).toHaveBeenCalledWith(expect.stringContaining("/oauth2/authorization/opsmind"));
+  it("POSTs the registration id + credentials and returns the real token on success", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ accessToken: "real-token", expiresInSeconds: 900 }), { status: 200 }),
+    );
+
+    const result = await passwordLogin("opsmind", "test.agent", "test-password");
+
+    expect(result).toEqual({ accessToken: "real-token", expiresInSeconds: 900 });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/session/password-login"),
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ registrationId: "opsmind", username: "test.agent", password: "test-password" }),
+      }),
+    );
+  });
+
+  it("throws InvalidCredentialsError on a 401 — never says which of username/password was wrong", async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 401 }));
+
+    await expect(passwordLogin("opsmind", "test.agent", "wrong")).rejects.toThrow(InvalidCredentialsError);
+  });
+
+  it("throws a real error on a 500 — a system fault, not 'please log in'", async () => {
+    global.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 500 }));
+
+    await expect(passwordLogin("opsmind", "test.agent", "test-password")).rejects.toThrow(/status 500/);
   });
 });

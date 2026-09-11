@@ -9,10 +9,10 @@ export const EMPLOYEE_USERNAME = process.env.E2E_EMPLOYEE_USERNAME ?? "test.agen
 export const EMPLOYEE_PASSWORD = process.env.E2E_EMPLOYEE_PASSWORD ?? "test-password";
 
 /**
- * Drives the full real login: app -> "Sign in" -> BFF
- * (/oauth2/authorization/opsmind) -> Keycloak's hosted form -> back to the
- * BFF (sets OPSMIND_SESSION) -> back to the app, which then exchanges the
- * session for an access token and renders the conversation composer.
+ * Drives the real login: app -> inline username/password form (the BFF's
+ * own `PasswordLoginController` direct-grant login — no navigation to
+ * Keycloak's own hosted page) -> the composer, once `AuthGate` sees an
+ * `authenticated` status carrying no support role.
  *
  * Leaves `page` on the authenticated home view.
  */
@@ -20,15 +20,10 @@ export async function loginAsEmployee(page: Page): Promise<void> {
   await page.goto("/");
 
   // AuthGate briefly shows "Checking your session…" then the login screen.
-  const signInButton = page.getByRole("button", { name: /sign in with company account/i });
-  await expect(signInButton).toBeVisible();
-  await signInButton.click();
-
-  // Keycloak's own hosted login form (standard element ids).
-  await page.waitForURL(/\/realms\/opsmind\/protocol\/openid-connect\/auth/, { timeout: 20_000 });
-  await page.locator("#username").fill(EMPLOYEE_USERNAME);
-  await page.locator("#password").fill(EMPLOYEE_PASSWORD);
-  await page.locator("#kc-login").click();
+  await expect(page.getByLabel(/username/i)).toBeVisible();
+  await page.getByLabel(/username/i).fill(EMPLOYEE_USERNAME);
+  await page.getByLabel(/password/i).fill(EMPLOYEE_PASSWORD);
+  await page.getByRole("button", { name: /^sign in$/i }).click();
 
   // Back on the app, authenticated: the message composer is the stable
   // post-login landmark (SPEC-EP-005).

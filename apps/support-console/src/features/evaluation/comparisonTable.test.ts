@@ -39,4 +39,32 @@ describe("buildComparisonRows — SPEC-SC-015", () => {
 
     expect(rows).toEqual([{ dimension: "new-metric", baselineAverage: null, candidateAverage: 0.7, isRegression: false }]);
   });
+
+  /**
+   * Real bug caught live 2026-09-11: HANDOFF_COMPLETENESS (quality-only,
+   * UNSCORED unless the dataset carries handoff ground truth) rendered a
+   * confident "0.00" — averaging in the backend's own UNSCORED placeholder
+   * row — reading as "the agent failed this completely" instead of the
+   * honest "nothing graded this." Excluded from the average like a missing
+   * row is, not counted as a real zero.
+   */
+  it("excludes an UNSCORED placeholder row from the average, reading as null (\"—\") rather than a fabricated 0", () => {
+    const candidate = [score({ dimension: "HANDOFF_COMPLETENESS", score: 0, failure_code: "UNSCORED" })];
+
+    const rows = buildComparisonRows([], candidate);
+
+    expect(rows).toEqual([{ dimension: "HANDOFF_COMPLETENESS", baselineAverage: null, candidateAverage: null, isRegression: false }]);
+  });
+
+  it("still averages the real scores on a dimension once an UNSCORED placeholder among them is excluded", () => {
+    const candidate = [
+      score({ dimension: "resolution", score: 0, failure_code: "UNSCORED" }),
+      score({ dimension: "resolution", score: 1.0, failure_code: null }),
+      score({ dimension: "resolution", score: 0.6, failure_code: null }),
+    ];
+
+    const rows = buildComparisonRows([], candidate);
+
+    expect(rows[0].candidateAverage).toBe(0.8);
+  });
 });

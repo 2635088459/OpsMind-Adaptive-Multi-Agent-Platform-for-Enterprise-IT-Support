@@ -35,6 +35,7 @@ export function ConversationView() {
   const turnState = useTurnStore((state) => state.state);
   const dispatch = useTurnStore((state) => state.dispatch);
   const subject = useAuthStore((state) => state.lastKnownSubject);
+  const signOut = useAuthStore((state) => state.signOut);
   const showNewTicket = usePortalViewStore((state) => state.showNewTicket);
 
   function startNewConversation() {
@@ -74,6 +75,13 @@ export function ConversationView() {
               </div>
             </div>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-surface-muted"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 

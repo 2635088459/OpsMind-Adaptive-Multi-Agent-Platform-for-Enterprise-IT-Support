@@ -11,21 +11,18 @@ export const SUPPORT_USERNAME = process.env.E2E_SUPPORT_USERNAME ?? "support.age
 export const SUPPORT_PASSWORD = process.env.E2E_SUPPORT_PASSWORD ?? "test-password";
 
 /**
- * Full real login: app -> "Sign in" -> BFF
- * (/oauth2/authorization/support-console) -> Keycloak form -> back to the
- * BFF (sets OPSMIND_SESSION) -> back to the app on the queue view.
+ * Full real login: app -> inline username/password form (the BFF's own
+ * `PasswordLoginController` direct-grant login against this app's own
+ * "support-console" Keycloak client registration — no navigation to
+ * Keycloak's own hosted page) -> the queue view.
  */
 export async function loginAsSupportAgent(page: Page): Promise<void> {
   await page.goto("/");
 
-  const signInButton = page.getByRole("button", { name: /^sign in$/i });
-  await expect(signInButton).toBeVisible();
-  await signInButton.click();
-
-  await page.waitForURL(/\/realms\/opsmind\/protocol\/openid-connect\/auth/, { timeout: 20_000 });
-  await page.locator("#username").fill(SUPPORT_USERNAME);
-  await page.locator("#password").fill(SUPPORT_PASSWORD);
-  await page.locator("#kc-login").click();
+  await expect(page.getByLabel(/username/i)).toBeVisible();
+  await page.getByLabel(/username/i).fill(SUPPORT_USERNAME);
+  await page.getByLabel(/password/i).fill(SUPPORT_PASSWORD);
+  await page.getByRole("button", { name: /^sign in$/i }).click();
 
   // The queue heading is the stable post-login landmark (SPEC-SC-001 §9).
   await expect(page.getByRole("heading", { name: "Queue" })).toBeVisible({ timeout: 20_000 });

@@ -15,16 +15,42 @@ export interface BrowserSessionToken {
   expiresInSeconds: number;
 }
 
+/** {@code passwordLogin} failed because the IdP rejected the grant — the honest "wrong username or password," never a system fault. */
+export class InvalidCredentialsError extends Error {
+  constructor() {
+    super("Invalid username or password.");
+  }
+}
+
 /**
- * `GET /oauth2/authorization/support-console` — SPEC-SC-001's own real,
- * distinct Keycloak client registration (confirmed live 2026-09-02: a real
- * human login as `support.agent` lands with `realm_access.roles:
- * ["support_agent"]`, `actor_type: IT_SUPPORT`, and the full ticket-write
- * plus governance:audit:read scope set). A real top-level navigation, not a
- * fetch — same reasoning as domain 09's own `beginLogin`.
+ * The inline-form login this app's own `LoginPage` submits — a real
+ * Resource Owner Password Credentials grant run entirely server-side by the
+ * BFF's own `PasswordLoginController`, against this app's own real,
+ * distinct Keycloak client registration ("support-console" — confirmed
+ * live: a real human login as `support.agent` lands with
+ * `realm_access.roles: ["support_agent"]` and the full ticket-write plus
+ * `governance:audit:read` scope set). Replaces the top-level navigation to
+ * Keycloak's own hosted login page domain 09's own sibling app also
+ * replaced — no navigation, this app never talks to Keycloak directly
+ * either.
  */
-export function beginLogin(): void {
-  window.location.assign(`${BFF_BASE_URL}/oauth2/authorization/support-console`);
+export async function passwordLogin(username: string, password: string): Promise<BrowserSessionToken> {
+  const response = await fetch(`${BFF_BASE_URL}/api/v1/session/password-login`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json", traceparent: newTraceparent() },
+    body: JSON.stringify({ registrationId: "support-console", username, password }),
+  });
+
+  if (response.status === 401) {
+    throw new InvalidCredentialsError();
+  }
+  if (!response.ok) {
+    throw new Error(`password-login request failed with status ${response.status}`);
+  }
+
+  const body = (await response.json()) as { accessToken: string; expiresInSeconds: number };
+  return { accessToken: body.accessToken, expiresInSeconds: body.expiresInSeconds };
 }
 
 /**
@@ -48,4 +74,19 @@ export async function fetchBrowserSessionToken(): Promise<BrowserSessionToken | 
 
   const body = (await response.json()) as { accessToken: string; expiresInSeconds: number };
   return { accessToken: body.accessToken, expiresInSeconds: body.expiresInSeconds };
+}
+
+/**
+ * Ends the real session the BFF's own `BrowserLogoutController` established
+ * — same mechanism domain 09's own sibling app uses (see its `authClient.ts`
+ * for the full reasoning). Best-effort from this caller's side: a network
+ * failure here still leaves the caller free to call `checkSession()` and
+ * re-render the login screen.
+ */
+export async function logout(): Promise<void> {
+  await fetch(`${BFF_BASE_URL}/api/v1/session/logout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { traceparent: newTraceparent() },
+  });
 }

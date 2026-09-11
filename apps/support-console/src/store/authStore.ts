@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { beginLogin, fetchBrowserSessionToken } from "@/lib/authClient";
+import { InvalidCredentialsError, fetchBrowserSessionToken, logout, passwordLogin } from "@/lib/authClient";
 import { decodeJwtPayload } from "@/lib/jwt";
 
 /**
@@ -29,8 +29,9 @@ interface AuthState {
    */
   roles: string[];
   checkSession: () => Promise<void>;
-  login: () => void;
+  loginWithPassword: (username: string, password: string) => Promise<void>;
   refresh: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 function clearScheduledRefresh() {
@@ -91,9 +92,22 @@ export const useAuthStore = create<AuthState>((set, get) => {
       }
     },
 
-    login: () => {
+    /** The inline-form login `LoginPage` submits — see `authClient.passwordLogin`'s own javadoc. */
+    loginWithPassword: async (username: string, password: string) => {
       set({ status: "login_in_progress", error: null });
-      beginLogin();
+      try {
+        const token = await passwordLogin(username, password);
+        set({
+          status: "authenticated", accessToken: token.accessToken, error: null,
+          lastKnownSubject: subjectFrom(token.accessToken), roles: rolesFrom(token.accessToken),
+        });
+        scheduleRefresh(token.expiresInSeconds);
+      } catch (cause) {
+        set({
+          status: "unauthenticated", accessToken: null, roles: [],
+          error: cause instanceof InvalidCredentialsError ? cause.message : "Unable to reach the sign-in service.",
+        });
+      }
     },
 
     refresh: async () => {
@@ -114,6 +128,18 @@ export const useAuthStore = create<AuthState>((set, get) => {
         clearScheduledRefresh();
         set({ status: "session_expired", accessToken: null });
       }
+    },
+
+    /** The real end of the session — see domain 09's own sibling app's `signOut` javadoc for the full reasoning. */
+    signOut: async () => {
+      clearScheduledRefresh();
+      try {
+        await logout();
+      } catch {
+        // Best-effort — a network failure never blocks the UI from clearing its own
+        // local state and showing the login screen.
+      }
+      set({ status: "unauthenticated", accessToken: null, error: null, roles: [], lastKnownSubject: null });
     },
   };
 });

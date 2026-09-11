@@ -1,0 +1,20 @@
+# Keep `gcloud builds submit` uploads small. The Dockerfiles only need each
+# service's own source (+ the frontends need packages/ + apps/).
+.git/
+**/node_modules/
+**/.venv/
+**/target/
+**/dist/
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.pyc
+apps/*/e2e/
+apps/*/test-results/
+apps/*/playwright-report/
+docs/
+infrastructure/observability/
+infrastructure/docker-compose/.env
+*.log
+.DS_Store

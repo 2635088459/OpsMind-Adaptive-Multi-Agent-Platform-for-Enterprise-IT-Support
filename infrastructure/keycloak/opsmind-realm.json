@@ -395,7 +395,7 @@
       "secret": "user-access-secret",
       "standardFlowEnabled": true,
       "serviceAccountsEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "authorizationServicesEnabled": false,
       "redirectUris": [
         "http://localhost:8087/login/oauth2/code/opsmind",
@@ -408,6 +408,7 @@
         "basic",
         "profile",
         "email",
+        "roles",
         "tickets:create",
         "tickets:read:self",
         "ticket:resolution-confirm",
@@ -474,7 +475,7 @@
       "secret": "support-console-secret",
       "standardFlowEnabled": true,
       "serviceAccountsEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "authorizationServicesEnabled": false,
       "redirectUris": [
         "http://localhost:8087/login/oauth2/code/support-console"

@@ -15,6 +15,7 @@ import { LoginPage } from "@/pages/LoginPage";
 export function AppLayout() {
   const status = useAuthStore((state) => state.status);
   const checkSession = useAuthStore((state) => state.checkSession);
+  const signOut = useAuthStore((state) => state.signOut);
   const accessToken = useAuthStore((state) => state.accessToken);
   const roles = useAuthStore((state) => state.roles);
 
@@ -44,7 +45,7 @@ export function AppLayout() {
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-5">
-            <span className="text-base font-semibold text-ink">OpsMind Support Console</span>
+            <span className="font-serif text-base italic text-ink">OpsMind Support Console</span>
             <nav className="flex items-center gap-1">
               <NavLink to="/" end className={linkClass}>
                 Queue
@@ -59,9 +60,18 @@ export function AppLayout() {
               ) : null}
             </nav>
           </div>
-          <p className="text-sm text-ink-muted">
-            {displayName} · {roles.join(", ") || "no roles"}
-          </p>
+          <div className="flex items-center gap-3">
+            <p className="text-sm text-ink-muted">
+              {displayName} · {roles.join(", ") || "no roles"}
+            </p>
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-ink-muted hover:bg-surface-muted"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-6xl px-6 py-8">

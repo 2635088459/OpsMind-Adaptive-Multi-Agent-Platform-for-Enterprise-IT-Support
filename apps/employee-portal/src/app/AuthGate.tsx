@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { useAuthStore } from "@/store/authStore";
+import { isSupportUser, useAuthStore } from "@/store/authStore";
 import { useConversationStore } from "@/features/conversation/conversationStore";
 import { saveDraft } from "@/features/session/draftPreservation";
+import { SUPPORT_CONSOLE_URL } from "@/lib/env";
 import { LoginPage } from "@/pages/LoginPage";
 import { HomePage } from "@/pages/HomePage";
 
@@ -17,11 +18,29 @@ export function AuthGate() {
   const status = useAuthStore((state) => state.status);
   const checkSession = useAuthStore((state) => state.checkSession);
   const lastKnownSubject = useAuthStore((state) => state.lastKnownSubject);
+  const roles = useAuthStore((state) => state.roles);
   const previousStatus = useRef(status);
+  const handedOff = useRef(false);
 
   useEffect(() => {
     void checkSession();
   }, [checkSession]);
+
+  // Single sign-in front door: a signed-in user whose token carries a support
+  // role belongs in the Support Console, not this portal. `loginWithPassword`
+  // already sends a support user there straight from the login form (with a
+  // correctly-scoped session already established); this is the fallback for
+  // the rarer case of landing here already authenticated some other way (a
+  // stale tab, a bookmark) — the console has no session of its own yet at
+  // that point, so it shows its own inline sign-in rather than looping back.
+  const authed = status === "authenticated" || status === "token_refreshing";
+  const shouldHandOff = authed && isSupportUser(roles);
+  useEffect(() => {
+    if (shouldHandOff && !handedOff.current) {
+      handedOff.current = true;
+      window.location.assign(SUPPORT_CONSOLE_URL);
+    }
+  }, [shouldHandOff]);
 
   // SPEC-EP-003: fires the instant `status` first reaches `session_expired`
   // — deliberately living here, not inside HomePage/ConversationView, since
@@ -46,10 +65,18 @@ export function AuthGate() {
     );
   }
 
+  if (shouldHandOff) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <p className="text-sm text-ink-muted">Taking you to the Support Console…</p>
+      </div>
+    );
+  }
+
   // SPEC-EP-002: `token_refreshing` is a brief background attempt, not a
   // reason to kick an already-authenticated employee back to the login
   // screen — the composer/transcript stay mounted throughout.
-  if (status === "authenticated" || status === "token_refreshing") {
+  if (authed) {
     return <HomePage />;
   }
 

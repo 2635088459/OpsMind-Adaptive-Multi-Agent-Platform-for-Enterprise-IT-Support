@@ -4,7 +4,9 @@ import { renderWithProviders } from "@/test/renderWithProviders";
 
 vi.mock("@/lib/authClient", () => ({
   fetchBrowserSessionToken: vi.fn(),
-  beginLogin: vi.fn(),
+  passwordLogin: vi.fn(),
+  InvalidCredentialsError: class extends Error {},
+  logout: vi.fn(),
 }));
 
 import { fetchBrowserSessionToken } from "@/lib/authClient";

@@ -30,6 +30,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.client.oidc.authentication.OidcIdTokenDecoderFactory;
+import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -37,11 +39,14 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimNames;
 import org.springframework.security.oauth2.jwt.JwtClaimValidator;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtDecoderFactory;
 import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.OrRequestMatcher;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -123,6 +128,37 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    /**
+     * {@code PasswordLoginController}'s own explicit save/read point for the
+     * {@code SecurityContext} a direct-grant login establishes — the exact same
+     * default type ({@code HttpSessionSecurityContextRepository}) the {@code
+     * browserLoginFilterChain} below already uses implicitly for the redirect
+     * flow's own {@code oauth2Login}; defining it as a bean and wiring it into
+     * {@link #browserLoginFilterChain} below makes both paths demonstrably
+     * share one repository instead of relying on two separately-defaulted ones
+     * happening to agree.
+     */
+    @Bean
+    public SecurityContextRepository securityContextRepository() {
+        return new HttpSessionSecurityContextRepository();
+    }
+
+    /**
+     * {@code PasswordLoginController}'s own verifier for the {@code id_token} a
+     * direct password grant returns — signature, issuer, expiry, AND audience
+     * (== the requesting client id), the same checks {@code oauth2Login}
+     * itself already runs for the redirect flow via this exact default
+     * implementation. Declaring it as a bean here (rather than leaving it to
+     * {@code OAuth2LoginConfigurer}'s own internal default) changes nothing
+     * about the redirect flow's own behavior — {@link OidcIdTokenDecoderFactory}
+     * IS what it already uses when no bean is present — but gives the
+     * password-grant controller the same verification, not a lesser one.
+     */
+    @Bean
+    public JwtDecoderFactory<ClientRegistration> idTokenDecoderFactory() {
+        return new OidcIdTokenDecoderFactory();
     }
 
     @Bean
@@ -209,7 +245,7 @@ public class SecurityConfig {
     public SecurityFilterChain browserLoginFilterChain(
         HttpSecurity http, ClientRegistrationRepository clientRegistrationRepository,
         BrowserAuthenticationSuccessDispatcher successHandler, BrowserAuthenticationFailureDispatcher failureHandler,
-        CorsConfigurationSource corsConfigurationSource, ObjectMapper objectMapper
+        CorsConfigurationSource corsConfigurationSource, ObjectMapper objectMapper, SecurityContextRepository securityContextRepository
     ) throws Exception {
         http
             // PathPatternRequestMatcher, not the String-varargs overload: the latter builds an
@@ -220,12 +256,23 @@ public class SecurityConfig {
                 PathPatternRequestMatcher.withDefaults().matcher("/oauth2/**"),
                 PathPatternRequestMatcher.withDefaults().matcher("/login/**"),
                 PathPatternRequestMatcher.withDefaults().matcher("/api/v1/session/browser-token"),
+                PathPatternRequestMatcher.withDefaults().matcher("/api/v1/session/password-login"),
+                PathPatternRequestMatcher.withDefaults().matcher("/api/v1/session/logout"),
                 PathPatternRequestMatcher.withDefaults().matcher("/api/v1/observability/traces/*")
             ))
             .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+            .securityContext(securityContext -> securityContext.securityContextRepository(securityContextRepository))
+            // password-login is itself the login step — by definition there is no prior
+            // session to have handed the caller a CSRF token yet (same reasoning /oauth2/**
+            // and /login/** are permitAll rather than CSRF-protected GETs). logout is
+            // exempted the same way: this SPA has no CSRF-token-fetch mechanism anywhere
+            // (nothing else here mutates state), and a forged cross-site logout is a
+            // low-severity nuisance (ends the victim's own session), never a privilege
+            // escalation — the same tradeoff most real deployments make for logout.
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/session/password-login", "/api/v1/session/logout"))
             .authorizeHttpRequests(authorize -> authorize
-                .requestMatchers("/oauth2/**", "/login/**").permitAll()
+                .requestMatchers("/oauth2/**", "/login/**", "/api/v1/session/password-login").permitAll()
                 .anyRequest().authenticated())
             .oauth2Login(oauth2 -> oauth2
                 .authorizationEndpoint(authorization -> authorization
